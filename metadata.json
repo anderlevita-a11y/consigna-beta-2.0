@@ -1,0 +1,5 @@
+{
+  "name": "Consigna Pro",
+  "description": "Sistema avançado de gestão de vendas consignadas com integração Supabase.",
+  "requestFramePermissions": ["geolocation"]
+}

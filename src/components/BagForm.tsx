@@ -1,0 +1,377 @@
+import React, { useState, useEffect } from 'react';
+import { Save, X, Search, ShoppingBag, User, Package, Trash2, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
+import { supabase } from '../lib/supabase';
+import { Product, Customer } from '../types';
+import { cn } from '../lib/utils';
+
+interface BagFormProps {
+  onClose: () => void;
+  onSave: () => void;
+  campaignId?: string;
+}
+
+interface BagItem {
+  product: Product;
+  quantity: number;
+}
+
+export function BagForm({ onClose, onSave, campaignId }: BagFormProps) {
+  const [loading, setLoading] = useState(false);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [selectedCustomer, setSelectedCustomer] = useState<string>('');
+  const [resellerName, setResellerName] = useState('');
+  const [noStock, setNoStock] = useState(false);
+  const [items, setItems] = useState<BagItem[]>([]);
+  const [productSearch, setProductSearch] = useState('');
+
+  useEffect(() => {
+    fetchInitialData();
+  }, []);
+
+  async function fetchInitialData() {
+    try {
+      // Fetch Customers in chunks
+      let allCustomers: any[] = [];
+      let cFrom = 0;
+      let cTo = 999;
+      let cHasMore = true;
+      while (cHasMore) {
+        const { data, error } = await supabase.from('customers').select('*').order('nome').range(cFrom, cTo);
+        if (error) throw error;
+        if (data && data.length > 0) {
+          allCustomers = [...allCustomers, ...data];
+          cFrom += 1000;
+          cTo += 1000;
+        } else {
+          cHasMore = false;
+        }
+        if (allCustomers.length >= 30000) cHasMore = false;
+      }
+      setCustomers(allCustomers);
+
+      // Fetch Products in chunks
+      let allProducts: any[] = [];
+      let pFrom = 0;
+      let pTo = 999;
+      let pHasMore = true;
+      while (pHasMore) {
+        const { data, error } = await supabase.from('products').select('*').order('name').range(pFrom, pTo);
+        if (error) throw error;
+        if (data && data.length > 0) {
+          allProducts = [...allProducts, ...data];
+          pFrom += 1000;
+          pTo += 1000;
+        } else {
+          pHasMore = false;
+        }
+        if (allProducts.length >= 30000) pHasMore = false;
+      }
+      setProducts(allProducts);
+    } catch (err) {
+      console.error('Error fetching initial data:', err);
+    }
+  }
+
+  const addItem = (product: Product) => {
+    const existing = items.find(i => i.product.id === product.id);
+    if (existing) {
+      setItems(items.map(i => i.product.id === product.id ? { ...i, quantity: i.quantity + 1 } : i));
+    } else {
+      setItems([...items, { product, quantity: 1 }]);
+    }
+    setProductSearch('');
+  };
+
+  const removeItem = (productId: string) => {
+    setItems(items.filter(i => i.product.id !== productId));
+  };
+
+  const updateQuantity = (productId: string, delta: number) => {
+    setItems(items.map(i => {
+      if (i.product.id === productId) {
+        const newQty = Math.max(1, i.quantity + delta);
+        return { ...i, quantity: newQty };
+      }
+      return i;
+    }));
+  };
+
+  const totalItems = items.reduce((sum, i) => sum + i.quantity, 0);
+  const totalValue = items.reduce((sum, i) => sum + (i.product.sale_price * i.quantity), 0);
+
+  const handleSubmit = async () => {
+    if (!selectedCustomer && !resellerName) {
+      alert('Selecione um cliente ou informe a revendedora');
+      return;
+    }
+    if (items.length === 0) {
+      alert('Adicione pelo menos um produto');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      // 1. Create Bag
+      const { data: bag, error: bagError } = await supabase
+        .from('bags')
+        .insert([{
+          bag_number: `M${Math.floor(Math.random() * 10000)}`,
+          customer_id: selectedCustomer || null,
+          campaign_id: campaignId || null,
+          reseller_name: resellerName || null,
+          status: 'open',
+          total_value: totalValue,
+          total_items: totalItems,
+          payment_status: 'pending',
+          user_id: user.id
+        }])
+        .select()
+        .single();
+
+      if (bagError) throw bagError;
+
+      // 2. Create Bag Items
+      const bagItems = items.map(item => ({
+        bag_id: bag.id,
+        product_id: item.product.id,
+        product_name: item.product.name,
+        quantity: item.quantity,
+        returned_quantity: 0,
+        unit_price: item.product.sale_price
+      }));
+
+      const { error: itemsError } = await supabase
+        .from('bag_items')
+        .insert(bagItems);
+
+      if (itemsError) throw itemsError;
+
+      // 3. Update stock if not noStock
+      if (!noStock) {
+        for (const item of items) {
+          const { data: product } = await supabase
+            .from('products')
+            .select('current_stock')
+            .eq('id', item.product.id)
+            .single();
+          
+          if (product) {
+            await supabase
+              .from('products')
+              .update({ current_stock: Math.max(0, (product.current_stock || 0) - item.quantity) })
+              .eq('id', item.product.id);
+          }
+        }
+      }
+
+      onSave();
+    } catch (err) {
+      console.error('Error saving bag:', err);
+      alert('Erro ao salvar sacola');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const filteredProducts = productSearch 
+    ? products.filter(p => p.name.toLowerCase().includes(productSearch.toLowerCase()) || p.ean?.includes(productSearch))
+    : [];
+
+  return (
+    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
+      <div className="flex items-center justify-between">
+        <h2 className="text-2xl font-bold text-zinc-800 tracking-tight">Sacolas</h2>
+        <button 
+          onClick={handleSubmit}
+          disabled={loading}
+          className="flex items-center gap-2 bg-[#00a86b] hover:bg-[#008f5b] text-white px-6 py-2.5 rounded-xl font-bold text-sm transition-all shadow-lg shadow-emerald-500/20 disabled:opacity-50"
+        >
+          <Save className="w-4 h-4" />
+          Salvar Sacola
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="lg:col-span-2 space-y-6">
+          <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm overflow-hidden">
+            <div className="p-6 border-b border-zinc-100 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <button onClick={onClose} className="p-2 hover:bg-zinc-100 rounded-lg transition-colors">
+                  <X className="w-5 h-5 text-zinc-400" />
+                </button>
+                <h3 className="font-serif italic text-xl text-zinc-700">Montagem da Sacola</h3>
+              </div>
+              <div className="flex-1 max-w-xs ml-8">
+                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest block mb-1">Cliente *</label>
+                <select 
+                  className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-2 text-sm text-zinc-800 focus:border-emerald-500 outline-none transition-all"
+                  value={selectedCustomer}
+                  onChange={(e) => setSelectedCustomer(e.target.value)}
+                >
+                  <option value="">Digite o nome ou CPF...</option>
+                  {customers.map(c => (
+                    <option key={c.id} value={c.id}>{c.nome}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="p-6 space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-2 relative">
+                  <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Produto (Nome ou EAN)</label>
+                  <div className="relative">
+                    <input 
+                      type="text" 
+                      placeholder="Digite ou bipe o código"
+                      value={productSearch}
+                      onChange={(e) => setProductSearch(e.target.value)}
+                      className="w-full bg-white border border-zinc-200 rounded-xl px-4 py-3 text-sm text-zinc-800 focus:border-emerald-500 outline-none transition-all"
+                    />
+                    <Search className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-300" />
+                  </div>
+                  
+                  {filteredProducts.length > 0 && (
+                    <div className="absolute z-20 top-full left-0 right-0 mt-2 bg-white border border-zinc-200 rounded-xl shadow-xl max-h-60 overflow-y-auto">
+                      {filteredProducts.map(p => (
+                        <button 
+                          key={p.id}
+                          onClick={() => addItem(p)}
+                          className="w-full flex items-center gap-3 px-4 py-3 hover:bg-zinc-50 text-left border-b border-zinc-50 last:border-0"
+                        >
+                          <div className="w-8 h-8 rounded bg-zinc-100 flex items-center justify-center">
+                            <Package className="w-4 h-4 text-zinc-400" />
+                          </div>
+                          <div>
+                            <p className="text-sm font-bold text-zinc-800">{p.name}</p>
+                            <p className="text-[10px] text-zinc-400">EAN: {p.ean || '---'} | Estoque: {p.current_stock}</p>
+                          </div>
+                          <p className="ml-auto text-sm font-bold text-emerald-600">R$ {p.sale_price.toFixed(2)}</p>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Revendedora</label>
+                  <input 
+                    type="text" 
+                    placeholder="Nome da revendedora (opcional)"
+                    value={resellerName}
+                    onChange={(e) => setResellerName(e.target.value)}
+                    className="w-full bg-white border border-zinc-200 rounded-xl px-4 py-3 text-sm text-zinc-800 focus:border-emerald-500 outline-none transition-all"
+                  />
+                </div>
+              </div>
+
+              <div className="bg-zinc-50 rounded-2xl p-4 flex items-center gap-3">
+                <input 
+                  type="checkbox" 
+                  id="noStock"
+                  checked={noStock}
+                  onChange={(e) => setNoStock(e.target.checked)}
+                  className="w-5 h-5 rounded border-zinc-300 text-emerald-600 focus:ring-emerald-500"
+                />
+                <label htmlFor="noStock" className="text-sm font-medium text-zinc-600 cursor-pointer">
+                  Criar sacola sem usar o estoque
+                </label>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="border-b border-zinc-100">
+                      <th className="py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Produto</th>
+                      <th className="py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest text-center">Qtd</th>
+                      <th className="py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest text-right">Preço</th>
+                      <th className="py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest text-right">Subtotal</th>
+                      <th className="py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest text-right"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-50">
+                    {items.map((item) => (
+                      <tr key={item.product.id} className="group">
+                        <td className="py-4">
+                          <p className="text-sm font-bold text-zinc-800">{item.product.name}</p>
+                          <p className="text-[10px] text-zinc-400">{item.product.label_name || 'Sem marca'}</p>
+                        </td>
+                        <td className="py-4">
+                          <div className="flex items-center justify-center gap-3">
+                            <button 
+                              onClick={() => updateQuantity(item.product.id, -1)}
+                              className="w-6 h-6 rounded-full border border-zinc-200 flex items-center justify-center text-zinc-400 hover:border-emerald-500 hover:text-emerald-500 transition-all"
+                            >
+                              -
+                            </button>
+                            <span className="text-sm font-bold text-zinc-800 w-4 text-center">{item.quantity}</span>
+                            <button 
+                              onClick={() => updateQuantity(item.product.id, 1)}
+                              className="w-6 h-6 rounded-full border border-zinc-200 flex items-center justify-center text-zinc-400 hover:border-emerald-500 hover:text-emerald-500 transition-all"
+                            >
+                              +
+                            </button>
+                          </div>
+                        </td>
+                        <td className="py-4 text-right text-sm text-zinc-500">
+                          R$ {item.product.sale_price.toFixed(2)}
+                        </td>
+                        <td className="py-4 text-right text-sm font-bold text-zinc-800">
+                          R$ {(item.product.sale_price * item.quantity).toFixed(2)}
+                        </td>
+                        <td className="py-4 text-right">
+                          <button 
+                            onClick={() => removeItem(item.product.id)}
+                            className="p-2 text-zinc-300 hover:text-red-500 transition-colors"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                    {items.length === 0 && (
+                      <tr>
+                        <td colSpan={5} className="py-12 text-center text-zinc-400 text-sm italic">
+                          Nenhum produto adicionado à sacola.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-6">
+          <div className="bg-white border border-zinc-200 rounded-2xl p-8 shadow-sm space-y-8 sticky top-24">
+            <h3 className="font-serif italic text-xl text-zinc-700">Resumo da Sacola</h3>
+            
+            <div className="space-y-4">
+              <div className="flex items-center justify-between text-zinc-500">
+                <span className="text-sm">Total de Itens</span>
+                <span className="font-bold">{totalItems}</span>
+              </div>
+              <div className="pt-4 border-t border-zinc-100 flex items-center justify-between">
+                <span className="text-lg font-bold text-zinc-800">Valor Total</span>
+                <span className="text-2xl font-bold text-[#00a86b]">R$ {totalValue.toFixed(2)}</span>
+              </div>
+            </div>
+
+            <button 
+              onClick={handleSubmit}
+              disabled={loading || items.length === 0}
+              className="w-full bg-[#87ccb0] hover:bg-[#00a86b] text-white py-5 rounded-2xl font-bold text-lg transition-all shadow-lg shadow-emerald-900/5 disabled:opacity-50"
+            >
+              {loading ? <Loader2 className="w-6 h-6 animate-spin mx-auto" /> : 'Finalizar Sacola'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
