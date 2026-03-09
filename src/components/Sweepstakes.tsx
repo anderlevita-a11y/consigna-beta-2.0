@@ -14,30 +14,61 @@ import {
   CheckCircle2,
   AlertCircle,
   Search,
-  UserPlus
+  UserPlus,
+  Archive,
+  RefreshCcw
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { Sweepstakes, SweepstakesParticipant } from '../types';
 import { cn } from '../lib/utils';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { ConfirmationModal } from './ConfirmationModal';
 
 export function SweepstakesManager() {
   const [sweepstakes, setSweepstakes] = useState<Sweepstakes[]>([]);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<'list' | 'create' | 'details' | 'draw'>('list');
   const [selectedSweep, setSelectedSweep] = useState<Sweepstakes | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
+
+  // Confirmation Modal State
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+    variant: 'danger' | 'warning' | 'info';
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {},
+    variant: 'info'
+  });
 
   useEffect(() => {
     fetchSweepstakes();
-  }, []);
+  }, [showArchived]);
 
   async function fetchSweepstakes() {
     setLoading(true);
     try {
-      const { data, error } = await supabase
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      let query = supabase
         .from('sweepstakes')
         .select('*')
+        .eq('user_id', user.id);
+      
+      if (showArchived) {
+        query = query.eq('status', 'archived');
+      } else {
+        query = query.neq('status', 'archived');
+      }
+
+      const { data, error } = await query
         .order('created_at', { ascending: false })
         .limit(30000);
       if (error) throw error;
@@ -59,6 +90,54 @@ export function SweepstakesManager() {
     setView('draw');
   };
 
+  const handleArchive = (id: string) => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Arquivar Sorteio',
+      message: 'Deseja arquivar este sorteio? Ele não aparecerá mais na lista ativa.',
+      variant: 'warning',
+      onConfirm: async () => {
+        try {
+          const { error } = await supabase
+            .from('sweepstakes')
+            .update({ status: 'archived' })
+            .eq('id', id);
+          if (error) throw error;
+          fetchSweepstakes();
+        } catch (err) {
+          console.error('Error archiving sweepstakes:', err);
+          alert('Erro ao arquivar sorteio');
+        } finally {
+          setConfirmModal(prev => ({ ...prev, isOpen: false }));
+        }
+      }
+    });
+  };
+
+  const handleUnarchive = (id: string) => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Desarquivar Sorteio',
+      message: 'Deseja desarquivar este sorteio?',
+      variant: 'info',
+      onConfirm: async () => {
+        try {
+          const { error } = await supabase
+            .from('sweepstakes')
+            .update({ status: 'pending' }) // Or 'completed' if it was completed, but 'pending' is safer if we don't track original status
+            .eq('id', id);
+          if (error) throw error;
+          fetchSweepstakes();
+        } catch (err) {
+          console.error('Error unarchiving sweepstakes:', err);
+          alert('Erro ao desarquivar sorteio');
+        } finally {
+          setConfirmModal(prev => ({ ...prev, isOpen: false }));
+        }
+      }
+    });
+  };
+
   if (view === 'create') {
     return <SweepstakesForm onClose={() => setView('list')} onSave={() => { setView('list'); fetchSweepstakes(); }} />;
   }
@@ -75,16 +154,32 @@ export function SweepstakesManager() {
     <div className="space-y-8 animate-in fade-in duration-500">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-zinc-800 tracking-tight">Beauty Sorteios</h2>
+          <h2 className="text-2xl font-bold text-zinc-800 tracking-tight">
+            {showArchived ? 'Sorteios Arquivados' : 'Beauty Sorteios'}
+          </h2>
           <p className="text-sm text-zinc-500">Gestão de sorteios e engajamento de clientes.</p>
         </div>
-        <button 
-          onClick={() => setView('create')}
-          className="flex items-center gap-2 bg-[#00a86b] hover:bg-[#008f5b] text-white px-6 py-2.5 rounded-xl font-bold text-sm transition-all shadow-lg shadow-emerald-500/20"
-        >
-          <Plus className="w-5 h-5" />
-          Novo Sorteio
-        </button>
+        <div className="flex items-center gap-3">
+          <button 
+            onClick={() => setShowArchived(!showArchived)}
+            className={cn(
+              "flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm transition-all",
+              showArchived 
+                ? "bg-emerald-50 text-emerald-600 border border-emerald-100" 
+                : "bg-zinc-100 hover:bg-zinc-200 text-zinc-600"
+            )}
+          >
+            <Archive className="w-5 h-5" />
+            {showArchived ? 'Ver Ativos' : 'Arquivados'}
+          </button>
+          <button 
+            onClick={() => setView('create')}
+            className="flex items-center gap-2 bg-[#00a86b] hover:bg-[#008f5b] text-white px-6 py-2.5 rounded-xl font-bold text-sm transition-all shadow-lg shadow-emerald-500/20"
+          >
+            <Plus className="w-5 h-5" />
+            Novo Sorteio
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -97,13 +192,32 @@ export function SweepstakesManager() {
             <div className="w-16 h-16 bg-zinc-50 rounded-full flex items-center justify-center mx-auto">
               <Ticket className="w-8 h-8 text-zinc-200" />
             </div>
-            <p className="text-zinc-400 font-medium">Nenhum sorteio criado. Comece agora!</p>
+            <p className="text-zinc-400 font-medium">
+              {showArchived ? 'Nenhum sorteio arquivado.' : 'Nenhum sorteio criado. Comece agora!'}
+            </p>
           </div>
         ) : (
           sweepstakes.map(sweep => (
-            <div key={sweep.id} className="bg-white border border-zinc-100 rounded-[32px] p-8 shadow-sm hover:shadow-md transition-all group">
-              <div className="w-12 h-12 rounded-2xl bg-emerald-50 flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
-                <Trophy className="w-6 h-6 text-emerald-500" />
+            <div key={sweep.id} className={cn(
+              "bg-white border border-zinc-100 rounded-[32px] p-8 shadow-sm hover:shadow-md transition-all group relative",
+              showArchived && "opacity-75 grayscale-[0.5]"
+            )}>
+              <div className="flex items-start justify-between mb-6">
+                <div className="w-12 h-12 rounded-2xl bg-emerald-50 flex items-center justify-center group-hover:scale-110 transition-transform">
+                  <Trophy className="w-6 h-6 text-emerald-500" />
+                </div>
+                <button 
+                  onClick={() => showArchived ? handleUnarchive(sweep.id) : handleArchive(sweep.id)}
+                  className={cn(
+                    "p-2 rounded-xl transition-all",
+                    showArchived 
+                      ? "text-zinc-400 hover:text-emerald-500 hover:bg-emerald-50" 
+                      : "text-zinc-400 hover:text-red-500 hover:bg-red-50"
+                  )}
+                  title={showArchived ? "Desarquivar" : "Arquivar"}
+                >
+                  {showArchived ? <RefreshCcw className="w-4 h-4" /> : <Archive className="w-4 h-4" />}
+                </button>
               </div>
               <div className="space-y-1 mb-6">
                 <h4 className="text-xl font-bold text-zinc-800">{sweep.name}</h4>
@@ -124,26 +238,37 @@ export function SweepstakesManager() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <button 
-                  onClick={() => handleOpenSweep(sweep)}
-                  className="flex items-center justify-center gap-2 bg-zinc-50 hover:bg-zinc-100 text-zinc-600 px-4 py-2.5 rounded-xl text-xs font-bold transition-all"
-                >
-                  <Users className="w-4 h-4" />
-                  Participantes
-                </button>
-                <button 
-                  onClick={() => handleDraw(sweep)}
-                  className="flex items-center justify-center gap-2 bg-[#00a86b] hover:bg-[#008f5b] text-white px-4 py-2.5 rounded-xl text-xs font-bold transition-all"
-                >
-                  <Ticket className="w-4 h-4" />
-                  Sortear
-                </button>
-              </div>
+              {!showArchived && (
+                <div className="grid grid-cols-2 gap-3">
+                  <button 
+                    onClick={() => handleOpenSweep(sweep)}
+                    className="flex items-center justify-center gap-2 bg-zinc-50 hover:bg-zinc-100 text-zinc-600 px-4 py-2.5 rounded-xl text-xs font-bold transition-all"
+                  >
+                    <Users className="w-4 h-4" />
+                    Participantes
+                  </button>
+                  <button 
+                    onClick={() => handleDraw(sweep)}
+                    className="flex items-center justify-center gap-2 bg-[#00a86b] hover:bg-[#008f5b] text-white px-4 py-2.5 rounded-xl text-xs font-bold transition-all"
+                  >
+                    <Ticket className="w-4 h-4" />
+                    Sortear
+                  </button>
+                </div>
+              )}
             </div>
           ))
         )}
       </div>
+
+      <ConfirmationModal
+        isOpen={confirmModal.isOpen}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        variant={confirmModal.variant}
+        onConfirm={confirmModal.onConfirm}
+        onCancel={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+      />
     </div>
   );
 }
@@ -221,9 +346,15 @@ function SweepstakesForm({ onClose, onSave }: { onClose: () => void; onSave: () 
             <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Valor do Voucher [R$]</label>
             <input 
               required
-              type="number" 
-              value={formData.voucher_value}
-              onChange={e => setFormData({...formData, voucher_value: Number(e.target.value)})}
+              type="text" 
+              inputMode="decimal"
+              value={formData.voucher_value === 0 ? '' : formData.voucher_value}
+              onChange={e => {
+                const val = e.target.value.replace(',', '.');
+                if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                  setFormData({...formData, voucher_value: val === '' ? 0 : Number(val)});
+                }
+              }}
               className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm focus:border-emerald-500 outline-none transition-all"
             />
           </div>
@@ -231,9 +362,13 @@ function SweepstakesForm({ onClose, onSave }: { onClose: () => void; onSave: () 
             <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Qtd. Prêmios a Sortear</label>
             <input 
               required
-              type="number" 
-              value={formData.prizes_count}
-              onChange={e => setFormData({...formData, prizes_count: Number(e.target.value)})}
+              type="text" 
+              inputMode="numeric"
+              value={formData.prizes_count === 0 ? '' : formData.prizes_count}
+              onChange={e => {
+                const val = e.target.value.replace(/\D/g, '');
+                setFormData({...formData, prizes_count: val === '' ? 0 : Number(val)});
+              }}
               className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm focus:border-emerald-500 outline-none transition-all"
             />
           </div>
@@ -320,7 +455,7 @@ function SweepstakesDetails({ sweep, onBack, onDraw }: { sweep: Sweepstakes; onB
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
         <div className="flex items-center gap-4">
           <button onClick={onBack} className="p-2 hover:bg-zinc-100 rounded-lg text-zinc-400 transition-colors">
             <ChevronRight className="w-5 h-5 rotate-180" />
@@ -330,14 +465,14 @@ function SweepstakesDetails({ sweep, onBack, onDraw }: { sweep: Sweepstakes; onB
             <p className="text-sm text-zinc-500">Gestão de Participantes e Cupons</p>
           </div>
         </div>
-        <div className="flex items-center gap-3">
-          <button className="flex items-center gap-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-600 px-4 py-2.5 rounded-xl text-xs font-bold transition-all">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full sm:w-auto">
+          <button className="flex items-center justify-center gap-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-600 px-4 py-3 sm:py-2.5 rounded-xl text-xs font-bold transition-all w-full sm:w-auto">
             <Download className="w-4 h-4" />
             Importar das Vendas
           </button>
           <button 
             onClick={() => setIsAdding(true)}
-            className="flex items-center gap-2 bg-[#00a86b] hover:bg-[#008f5b] text-white px-4 py-2.5 rounded-xl text-xs font-bold transition-all shadow-lg shadow-emerald-500/20"
+            className="flex items-center justify-center gap-2 bg-[#00a86b] hover:bg-[#008f5b] text-white px-4 py-3 sm:py-2.5 rounded-xl text-xs font-bold transition-all shadow-lg shadow-emerald-500/20 w-full sm:w-auto"
           >
             <Plus className="w-4 h-4" />
             Adicionar Manual
@@ -446,7 +581,7 @@ function ParticipantModal({ sweepstakesId, onClose, onSave }: { sweepstakesId: s
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-[40px] w-full max-w-lg overflow-hidden shadow-2xl animate-in zoom-in-95 duration-300">
-        <div className="p-8 border-b border-zinc-100 flex items-center justify-between">
+        <div className="p-8 border-b border-zinc-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <h3 className="text-xl font-bold text-zinc-800">Adicionar Participante</h3>
           <button onClick={onClose} className="p-2 hover:bg-zinc-50 rounded-full transition-colors">
             <X className="w-5 h-5 text-zinc-400" />
@@ -479,9 +614,15 @@ function ParticipantModal({ sweepstakesId, onClose, onSave }: { sweepstakesId: s
             <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Valor Pago [R$]</label>
             <input 
               required
-              type="number" 
-              value={formData.paid_amount}
-              onChange={e => setFormData({...formData, paid_amount: Number(e.target.value)})}
+              type="text" 
+              inputMode="decimal"
+              value={formData.paid_amount === 0 ? '' : formData.paid_amount}
+              onChange={e => {
+                const val = e.target.value.replace(',', '.');
+                if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                  setFormData({...formData, paid_amount: val === '' ? 0 : Number(val)});
+                }
+              }}
               className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm focus:border-emerald-500 outline-none transition-all"
             />
             <p className="text-[10px] text-zinc-400 italic">Serão gerados {Math.floor(formData.paid_amount / 50)} cupons.</p>

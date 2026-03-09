@@ -24,11 +24,18 @@ export function CampaignForm({ onClose, onSave, initialData }: CampaignFormProps
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      const payload = {
+      const payload: any = {
         ...formData,
         user_id: user.id,
         status: 'active',
       };
+
+      // Ensure empty strings are sent as null to avoid Supabase errors
+      Object.keys(payload).forEach(key => {
+        if (payload[key] === '') {
+          payload[key] = null;
+        }
+      });
 
       if (initialData?.id) {
         const { error } = await supabase
@@ -104,9 +111,15 @@ export function CampaignForm({ onClose, onSave, initialData }: CampaignFormProps
                 </label>
                 <div className="relative">
                   <input 
-                    type="number" 
-                    value={formData.discount_pct}
-                    onChange={(e) => setFormData({ ...formData, discount_pct: Number(e.target.value) })}
+                    type="text" 
+                    inputMode="decimal"
+                    value={formData.discount_pct === 0 ? '' : formData.discount_pct}
+                    onChange={(e) => {
+                      const val = e.target.value.replace(',', '.');
+                      if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                        setFormData({ ...formData, discount_pct: val === '' ? 0 : Number(val) });
+                      }
+                    }}
                     className="w-full bg-white border border-zinc-200 rounded-xl px-4 py-4 text-zinc-800 focus:border-emerald-500 outline-none transition-all"
                   />
                   <Percent className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-300" />

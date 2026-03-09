@@ -28,9 +28,13 @@ export function Customers() {
   async function fetchCustomers() {
     setLoading(true);
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
       const { data, error } = await supabase
         .from('customers')
         .select('*')
+        .eq('user_id', user.id)
         .limit(30000);
 
       if (error) throw error;
@@ -61,6 +65,8 @@ export function Customers() {
     c.nome?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     c.whatsapp?.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  const displayedCustomers = filteredCustomers.slice(0, 100);
 
   return (
     <div className="space-y-6">
@@ -95,58 +101,71 @@ export function Customers() {
             <Loader2 className="w-8 h-8 animate-spin text-emerald-500" />
             Carregando clientes...
           </div>
-        ) : filteredCustomers.length === 0 ? (
+        ) : displayedCustomers.length === 0 ? (
           <div className="col-span-full py-12 text-center text-zinc-500">Nenhum cliente encontrado.</div>
         ) : (
-          filteredCustomers.map((customer) => (
-            <div key={customer.id} className="bg-white border border-zinc-200 rounded-2xl p-6 hover:border-emerald-500/30 transition-all group shadow-sm">
-              <div className="flex items-start justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-full bg-emerald-50 flex items-center justify-center">
-                    <User className="w-6 h-6 text-emerald-600" />
+          <>
+            {displayedCustomers.map((customer) => (
+              <div key={customer.id} className="bg-white border border-zinc-200 rounded-2xl p-6 hover:border-emerald-500/30 transition-all group shadow-sm">
+                <div className="flex items-start justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 rounded-full bg-emerald-50 flex items-center justify-center">
+                      <User className="w-6 h-6 text-emerald-600" />
+                    </div>
+                    <div>
+                      <h4 className="text-zinc-800 font-bold">{customer.nome}</h4>
+                      <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">CPF: {customer.cpf || 'Não informado'}</p>
+                    </div>
                   </div>
-                  <div>
-                    <h4 className="text-zinc-800 font-bold">{customer.nome}</h4>
-                    <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">CPF: {customer.cpf || 'Não informado'}</p>
+                  <div className="flex items-center gap-2">
+                    <button 
+                      onClick={() => handleEdit(customer)}
+                      className="p-2 hover:bg-zinc-50 rounded-lg transition-colors text-zinc-400 hover:text-emerald-600"
+                      title="Editar Cliente"
+                    >
+                      <MoreHorizontal className="w-5 h-5" />
+                    </button>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <button 
-                    onClick={() => handleEdit(customer)}
-                    className="p-2 hover:bg-zinc-50 rounded-lg transition-colors text-zinc-400 hover:text-emerald-600"
-                    title="Editar Cliente"
-                  >
-                    <MoreHorizontal className="w-5 h-5" />
-                  </button>
-                </div>
-              </div>
 
-              <div className="space-y-3">
-                <div className="flex items-center gap-2 text-sm text-zinc-500">
-                  <Phone className="w-4 h-4 text-zinc-400" />
-                  <span>{customer.whatsapp || 'Sem whatsapp'}</span>
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2 text-sm text-zinc-500">
+                    <Phone className="w-4 h-4 text-zinc-400" />
+                    <span>{customer.whatsapp || 'Sem whatsapp'}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm text-zinc-500">
+                    <MapPin className="w-4 h-4 text-zinc-400" />
+                    <span className="truncate">{customer.logradouro ? `${customer.logradouro}, ${customer.bairro || ''}` : 'Sem endereço'}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm text-zinc-500">
+                    <MapPin className="w-4 h-4 opacity-0" />
+                    <span className="truncate">{customer.cidade || ''} - {customer.estado || ''}</span>
+                  </div>
+                  {customer.credit_limit !== undefined && customer.credit_limit > 0 && (
+                    <div className="flex items-center gap-2 text-sm font-bold text-emerald-600 mt-2">
+                      <span className="w-4 h-4 flex items-center justify-center">R$</span>
+                      <span>Limite: R$ {customer.credit_limit.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                    </div>
+                  )}
                 </div>
-                <div className="flex items-center gap-2 text-sm text-zinc-500">
-                  <MapPin className="w-4 h-4 text-zinc-400" />
-                  <span className="truncate">{customer.logradouro ? `${customer.logradouro}, ${customer.bairro || ''}` : 'Sem endereço'}</span>
-                </div>
-                <div className="flex items-center gap-2 text-sm text-zinc-500">
-                  <MapPin className="w-4 h-4 opacity-0" />
-                  <span className="truncate">{customer.cidade || ''} - {customer.estado || ''}</span>
-                </div>
-              </div>
 
-              <div className="mt-6 pt-4 border-t border-zinc-800 flex items-center justify-between">
-                <span className="text-xs font-medium text-zinc-500 uppercase">Status</span>
-                <span className={cn(
-                  "inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase",
-                  customer.status === 'active' ? "bg-emerald-500/10 text-emerald-400" : "bg-zinc-500/10 text-zinc-400"
-                )}>
-                  {customer.status === 'active' ? 'Ativo' : 'Inativo'}
-                </span>
+                <div className="mt-6 pt-4 border-t border-zinc-800 flex items-center justify-between">
+                  <span className="text-xs font-medium text-zinc-500 uppercase">Status</span>
+                  <span className={cn(
+                    "inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase",
+                    customer.status === 'active' ? "bg-emerald-500/10 text-emerald-400" : "bg-zinc-500/10 text-zinc-400"
+                  )}>
+                    {customer.status === 'active' ? 'Ativo' : 'Inativo'}
+                  </span>
+                </div>
               </div>
-            </div>
-          ))
+            ))}
+            {filteredCustomers.length > 100 && (
+              <div className="col-span-full py-4 text-center text-xs text-zinc-500 bg-zinc-50 rounded-xl">
+                Mostrando os primeiros 100 resultados de {filteredCustomers.length}. Use a busca para encontrar mais clientes.
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

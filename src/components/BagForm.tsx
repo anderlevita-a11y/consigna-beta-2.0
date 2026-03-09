@@ -25,19 +25,29 @@ export function BagForm({ onClose, onSave, campaignId }: BagFormProps) {
   const [items, setItems] = useState<BagItem[]>([]);
   const [productSearch, setProductSearch] = useState('');
 
+  const [customerSearch, setCustomerSearch] = useState('');
+
   useEffect(() => {
     fetchInitialData();
   }, []);
 
   async function fetchInitialData() {
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
       // Fetch Customers in chunks
       let allCustomers: any[] = [];
       let cFrom = 0;
       let cTo = 999;
       let cHasMore = true;
       while (cHasMore) {
-        const { data, error } = await supabase.from('customers').select('*').order('nome').range(cFrom, cTo);
+        const { data, error } = await supabase
+          .from('customers')
+          .select('id, nome, cpf')
+          .eq('user_id', user.id)
+          .order('nome')
+          .range(cFrom, cTo);
         if (error) throw error;
         if (data && data.length > 0) {
           allCustomers = [...allCustomers, ...data];
@@ -46,7 +56,7 @@ export function BagForm({ onClose, onSave, campaignId }: BagFormProps) {
         } else {
           cHasMore = false;
         }
-        if (allCustomers.length >= 30000) cHasMore = false;
+        if (allCustomers.length >= 10000) cHasMore = false;
       }
       setCustomers(allCustomers);
 
@@ -56,7 +66,12 @@ export function BagForm({ onClose, onSave, campaignId }: BagFormProps) {
       let pTo = 999;
       let pHasMore = true;
       while (pHasMore) {
-        const { data, error } = await supabase.from('products').select('*').order('name').range(pFrom, pTo);
+        const { data, error } = await supabase
+          .from('products')
+          .select('id, name, ean, sale_price, current_stock, label_name')
+          .eq('user_id', user.id)
+          .order('name')
+          .range(pFrom, pTo);
         if (error) throw error;
         if (data && data.length > 0) {
           allProducts = [...allProducts, ...data];
@@ -65,7 +80,7 @@ export function BagForm({ onClose, onSave, campaignId }: BagFormProps) {
         } else {
           pHasMore = false;
         }
-        if (allProducts.length >= 30000) pHasMore = false;
+        if (allProducts.length >= 10000) pHasMore = false;
       }
       setProducts(allProducts);
     } catch (err) {
@@ -101,10 +116,6 @@ export function BagForm({ onClose, onSave, campaignId }: BagFormProps) {
   const totalValue = items.reduce((sum, i) => sum + (i.product.sale_price * i.quantity), 0);
 
   const handleSubmit = async () => {
-    if (!selectedCustomer && !resellerName) {
-      alert('Selecione um cliente ou informe a revendedora');
-      return;
-    }
     if (items.length === 0) {
       alert('Adicione pelo menos um produto');
       return;
@@ -115,11 +126,28 @@ export function BagForm({ onClose, onSave, campaignId }: BagFormProps) {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
+      // Get next bag number
+      const { data: lastBag } = await supabase
+        .from('bags')
+        .select('bag_number')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+
+      let nextNumber = 1;
+      if (lastBag) {
+        const match = lastBag.bag_number.match(/\d+/);
+        if (match) {
+          nextNumber = parseInt(match[0]) + 1;
+        }
+      }
+
       // 1. Create Bag
       const { data: bag, error: bagError } = await supabase
         .from('bags')
         .insert([{
-          bag_number: `M${Math.floor(Math.random() * 10000)}`,
+          bag_number: `M${nextNumber.toString().padStart(4, '0')}`,
           customer_id: selectedCustomer || null,
           campaign_id: campaignId || null,
           reseller_name: resellerName || null,
@@ -178,17 +206,21 @@ export function BagForm({ onClose, onSave, campaignId }: BagFormProps) {
   };
 
   const filteredProducts = productSearch 
-    ? products.filter(p => p.name.toLowerCase().includes(productSearch.toLowerCase()) || p.ean?.includes(productSearch))
+    ? products.filter(p => p.name.toLowerCase().includes(productSearch.toLowerCase()) || p.ean?.includes(productSearch)).slice(0, 50)
+    : [];
+
+  const filteredCustomers = customerSearch
+    ? customers.filter(c => c.nome.toLowerCase().includes(customerSearch.toLowerCase()) || c.cpf?.includes(customerSearch)).slice(0, 50)
     : [];
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
         <h2 className="text-2xl font-bold text-zinc-800 tracking-tight">Sacolas</h2>
         <button 
           onClick={handleSubmit}
           disabled={loading}
-          className="flex items-center gap-2 bg-[#00a86b] hover:bg-[#008f5b] text-white px-6 py-2.5 rounded-xl font-bold text-sm transition-all shadow-lg shadow-emerald-500/20 disabled:opacity-50"
+          className="flex items-center justify-center gap-2 bg-[#00a86b] hover:bg-[#008f5b] text-white px-6 py-3 sm:py-2.5 rounded-xl font-bold text-sm transition-all shadow-lg shadow-emerald-500/20 disabled:opacity-50 w-full sm:w-auto"
         >
           <Save className="w-4 h-4" />
           Salvar Sacola
@@ -198,25 +230,60 @@ export function BagForm({ onClose, onSave, campaignId }: BagFormProps) {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-2 space-y-6">
           <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm overflow-hidden">
-            <div className="p-6 border-b border-zinc-100 flex items-center justify-between">
+            <div className="p-6 border-b border-zinc-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div className="flex items-center gap-3">
                 <button onClick={onClose} className="p-2 hover:bg-zinc-100 rounded-lg transition-colors">
                   <X className="w-5 h-5 text-zinc-400" />
                 </button>
                 <h3 className="font-serif italic text-xl text-zinc-700">Montagem da Sacola</h3>
               </div>
-              <div className="flex-1 max-w-xs ml-8">
-                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest block mb-1">Cliente *</label>
-                <select 
-                  className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-2 text-sm text-zinc-800 focus:border-emerald-500 outline-none transition-all"
-                  value={selectedCustomer}
-                  onChange={(e) => setSelectedCustomer(e.target.value)}
-                >
-                  <option value="">Digite o nome ou CPF...</option>
-                  {customers.map(c => (
-                    <option key={c.id} value={c.id}>{c.nome}</option>
-                  ))}
-                </select>
+              <div className="w-full sm:flex-1 sm:max-w-xs sm:ml-8 relative">
+                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest block mb-1">Cliente (Opcional)</label>
+                {selectedCustomer ? (
+                  <div className="flex items-center justify-between bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2">
+                    <span className="text-sm font-bold text-emerald-800">
+                      {customers.find(c => c.id === selectedCustomer)?.nome}
+                    </span>
+                    <button 
+                      onClick={() => {
+                        setSelectedCustomer('');
+                        setCustomerSearch('');
+                      }}
+                      className="text-emerald-600 hover:text-emerald-800"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="relative">
+                    <input 
+                      type="text" 
+                      placeholder="Digite o nome ou CPF..."
+                      value={customerSearch}
+                      onChange={(e) => setCustomerSearch(e.target.value)}
+                      className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-2 text-sm text-zinc-800 focus:border-emerald-500 outline-none transition-all"
+                    />
+                    {filteredCustomers.length > 0 && (
+                      <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-white border border-zinc-200 rounded-xl shadow-xl max-h-60 overflow-y-auto">
+                        {filteredCustomers.map(c => (
+                          <button 
+                            key={c.id}
+                            onClick={() => {
+                              setSelectedCustomer(c.id);
+                              setCustomerSearch('');
+                            }}
+                            className="w-full flex items-center gap-3 px-4 py-2 hover:bg-zinc-50 text-left border-b border-zinc-50 last:border-0"
+                          >
+                            <div>
+                              <p className="text-sm font-bold text-zinc-800">{c.nome}</p>
+                              <p className="text-[10px] text-zinc-400">CPF: {c.cpf || '---'}</p>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -356,7 +423,7 @@ export function BagForm({ onClose, onSave, campaignId }: BagFormProps) {
                 <span className="text-sm">Total de Itens</span>
                 <span className="font-bold">{totalItems}</span>
               </div>
-              <div className="pt-4 border-t border-zinc-100 flex items-center justify-between">
+              <div className="pt-4 border-t border-zinc-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-0">
                 <span className="text-lg font-bold text-zinc-800">Valor Total</span>
                 <span className="text-2xl font-bold text-[#00a86b]">R$ {totalValue.toFixed(2)}</span>
               </div>

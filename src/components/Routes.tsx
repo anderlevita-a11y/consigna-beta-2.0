@@ -22,7 +22,8 @@ import { cn } from '../lib/utils';
 export function Routes() {
   const [routes, setRoutes] = useState<Route[]>([]);
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState<'list' | 'create'>('list');
+  const [view, setView] = useState<'list' | 'create' | 'view'>('list');
+  const [activeRoute, setActiveRoute] = useState<Route | null>(null);
   const [currentPos, setCurrentPos] = useState<{ lat: number; lng: number } | null>(null);
   
   // Create Form State
@@ -55,9 +56,13 @@ export function Routes() {
   async function fetchRoutes() {
     setLoading(true);
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
       const { data, error } = await supabase
         .from('routes')
         .select('*, stops:route_stops(*, customer:customers(*))')
+        .eq('user_id', user.id)
         .order('created_at', { ascending: false })
         .limit(50);
 
@@ -71,9 +76,12 @@ export function Routes() {
   }
 
   async function fetchInitialData() {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
     const [campRes, custRes] = await Promise.all([
-      supabase.from('campaigns').select('*').eq('status', 'active'),
-      supabase.from('customers').select('*')
+      supabase.from('campaigns').select('*').eq('user_id', user.id).eq('status', 'active'),
+      supabase.from('customers').select('*').eq('user_id', user.id)
     ]);
     if (campRes.data) setCampaigns(campRes.data);
     if (custRes.data) setCustomers(custRes.data);
@@ -209,22 +217,80 @@ export function Routes() {
     }
   };
 
+  const handleMarkVisited = async (stopId: string, currentStatus: string) => {
+    const newStatus = currentStatus === 'visited' ? 'pending' : 'visited';
+    
+    try {
+      const { error } = await supabase
+        .from('route_stops')
+        .update({ status: newStatus })
+        .eq('id', stopId);
+
+      if (error) throw error;
+
+      // Update local state
+      if (activeRoute) {
+        const updatedStops = activeRoute.stops?.map(stop => 
+          stop.id === stopId ? { ...stop, status: newStatus as 'visited' | 'pending' } : stop
+        );
+        setActiveRoute({ ...activeRoute, stops: updatedStops });
+      }
+      
+      // Update routes list
+      setRoutes(routes.map(r => {
+        if (r.id === activeRoute?.id) {
+          return {
+            ...r,
+            stops: r.stops?.map(stop => 
+              stop.id === stopId ? { ...stop, status: newStatus as 'visited' | 'pending' } : stop
+            )
+          };
+        }
+        return r;
+      }));
+    } catch (err) {
+      console.error('Error updating stop status:', err);
+      alert('Erro ao atualizar status da parada');
+    }
+  };
+
+  const handleFinishRoute = async (routeId: string) => {
+    try {
+      const { error } = await supabase
+        .from('routes')
+        .update({ status: 'completed' })
+        .eq('id', routeId);
+
+      if (error) throw error;
+
+      setRoutes(routes.map(r => r.id === routeId ? { ...r, status: 'completed' } : r));
+      if (activeRoute?.id === routeId) {
+        setActiveRoute({ ...activeRoute, status: 'completed' });
+      }
+      
+      alert('Rota finalizada com sucesso!');
+    } catch (err) {
+      console.error('Error finishing route:', err);
+      alert('Erro ao finalizar rota');
+    }
+  };
+
   if (view === 'create') {
     return (
       <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
-        <div className="flex items-center justify-between">
-          <h2 className="text-2xl font-bold text-zinc-800 tracking-tight">Nova Rota de Atendimento</h2>
-          <div className="flex items-center gap-3">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
+          <h2 className="text-2xl font-bold text-zinc-800 tracking-tight text-center sm:text-left">Nova Rota de Atendimento</h2>
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full sm:w-auto">
             <button 
               onClick={() => setView('list')}
-              className="px-4 py-2 text-sm font-medium text-zinc-500 hover:text-zinc-800 transition-colors"
+              className="px-4 py-3 sm:py-2 text-sm font-medium text-zinc-500 hover:text-zinc-800 transition-colors bg-zinc-100 sm:bg-transparent rounded-xl sm:rounded-none w-full sm:w-auto text-center"
             >
               Cancelar
             </button>
             <button 
               onClick={handleSaveRoute}
               disabled={loading}
-              className="flex items-center gap-2 bg-[#00a86b] hover:bg-[#008f5b] text-white px-6 py-2.5 rounded-xl font-bold text-sm transition-all shadow-lg shadow-emerald-500/20"
+              className="flex items-center justify-center gap-2 bg-[#00a86b] hover:bg-[#008f5b] text-white px-6 py-3 sm:py-2.5 rounded-xl font-bold text-sm transition-all shadow-lg shadow-emerald-500/20 w-full sm:w-auto"
             >
               <CheckCircle2 className="w-4 h-4" />
               Finalizar Rota
@@ -287,7 +353,7 @@ export function Routes() {
 
           <div className="lg:col-span-2 space-y-6">
             <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm overflow-hidden">
-              <div className="p-6 border-b border-zinc-100 flex items-center justify-between bg-zinc-50/30">
+              <div className="p-6 border-b border-zinc-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-zinc-50/30">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-xl bg-emerald-500 flex items-center justify-center shadow-lg shadow-emerald-500/20">
                     <Navigation className="w-5 h-5 text-white" />
@@ -325,7 +391,7 @@ export function Routes() {
                           {idx < selectedCustomers.length - 1 && <div className="w-0.5 h-8 bg-zinc-100" />}
                         </div>
                         
-                        <div className="flex-1 bg-white border border-zinc-100 rounded-2xl p-4 flex items-center justify-between hover:border-emerald-200 transition-all shadow-sm">
+                        <div className="flex-1 bg-white border border-zinc-100 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:border-emerald-200 transition-all shadow-sm">
                           <div className="flex items-center gap-4">
                             <div className="w-10 h-10 rounded-xl bg-zinc-50 flex items-center justify-center">
                               <User className="w-5 h-5 text-zinc-400" />
@@ -365,6 +431,129 @@ export function Routes() {
                 )}
               </div>
             </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (view === 'view' && activeRoute) {
+    const totalStops = activeRoute.stops?.length || 0;
+    const visitedStops = activeRoute.stops?.filter(s => s.status === 'visited').length || 0;
+    const progress = totalStops > 0 ? (visitedStops / totalStops) * 100 : 0;
+
+    return (
+      <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <button 
+              onClick={() => {
+                setView('list');
+                setActiveRoute(null);
+              }}
+              className="p-2 hover:bg-zinc-100 rounded-xl transition-colors"
+            >
+              <ChevronRight className="w-5 h-5 text-zinc-400 rotate-180" />
+            </button>
+            <div>
+              <h2 className="text-2xl font-bold text-zinc-800 tracking-tight">{activeRoute.name}</h2>
+              <p className="text-sm text-zinc-500">
+                {visitedStops} de {totalStops} paradas concluídas
+              </p>
+            </div>
+          </div>
+          
+          {activeRoute.status !== 'completed' && (
+            <button 
+              onClick={() => handleFinishRoute(activeRoute.id)}
+              className="flex items-center justify-center gap-2 bg-[#00a86b] hover:bg-[#008f5b] text-white px-6 py-3 sm:py-2.5 rounded-xl font-bold text-sm transition-all shadow-lg shadow-emerald-500/20 w-full sm:w-auto"
+            >
+              <CheckCircle2 className="w-4 h-4" />
+              Finalizar Rota
+            </button>
+          )}
+        </div>
+
+        <div className="bg-white border border-zinc-200 rounded-2xl p-6 shadow-sm">
+          <div className="mb-8">
+            <div className="flex items-center justify-between text-xs font-bold text-zinc-500 mb-2">
+              <span>Progresso da Rota</span>
+              <span>{Math.round(progress)}%</span>
+            </div>
+            <div className="h-2 bg-zinc-100 rounded-full overflow-hidden">
+              <div 
+                className="h-full bg-emerald-500 transition-all duration-500"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            {activeRoute.stops?.sort((a, b) => a.order_index - b.order_index).map((stop, idx) => (
+              <div 
+                key={stop.id} 
+                className={cn(
+                  "flex items-center gap-4 p-4 rounded-2xl border transition-all",
+                  stop.status === 'visited' 
+                    ? "bg-emerald-50/50 border-emerald-100" 
+                    : "bg-white border-zinc-100 hover:border-zinc-200"
+                )}
+              >
+                <div className="flex flex-col items-center gap-1">
+                  <div className={cn(
+                    "w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-colors",
+                    stop.status === 'visited'
+                      ? "bg-emerald-500 text-white"
+                      : "bg-zinc-100 text-zinc-500"
+                  )}>
+                    {stop.status === 'visited' ? <Check className="w-4 h-4" /> : idx + 1}
+                  </div>
+                </div>
+                
+                <div className="flex-1 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="flex items-center gap-4">
+                    <div className={cn(
+                      "w-10 h-10 rounded-xl flex items-center justify-center transition-colors",
+                      stop.status === 'visited' ? "bg-emerald-100" : "bg-zinc-50"
+                    )}>
+                      <User className={cn(
+                        "w-5 h-5",
+                        stop.status === 'visited' ? "text-emerald-600" : "text-zinc-400"
+                      )} />
+                    </div>
+                    <div>
+                      <p className={cn(
+                        "font-bold text-sm",
+                        stop.status === 'visited' ? "text-emerald-900" : "text-zinc-800"
+                      )}>{stop.customer?.nome}</p>
+                      <p className={cn(
+                        "text-[10px]",
+                        stop.status === 'visited' ? "text-emerald-600/70" : "text-zinc-400"
+                      )}>{stop.customer?.cidade} - {stop.customer?.bairro}</p>
+                    </div>
+                  </div>
+                  
+                  <button 
+                    onClick={() => handleMarkVisited(stop.id, stop.status)}
+                    className={cn(
+                      "px-4 py-2 rounded-xl text-xs font-bold transition-all w-full sm:w-auto flex items-center justify-center gap-2",
+                      stop.status === 'visited'
+                        ? "bg-white text-emerald-600 border border-emerald-200 hover:bg-emerald-50"
+                        : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
+                    )}
+                  >
+                    {stop.status === 'visited' ? (
+                      <>
+                        <Check className="w-3.5 h-3.5" />
+                        Visitado
+                      </>
+                    ) : (
+                      'Marcar como Visitado'
+                    )}
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       </div>
@@ -434,8 +623,14 @@ export function Routes() {
                 )}
               </div>
 
-              <button className="w-full flex items-center justify-between p-4 bg-zinc-50 rounded-2xl text-zinc-600 font-bold text-xs hover:bg-zinc-100 transition-all">
-                Iniciar Rota
+              <button 
+                onClick={() => {
+                  setActiveRoute(route);
+                  setView('view');
+                }}
+                className="w-full flex items-center justify-between p-4 bg-zinc-50 rounded-2xl text-zinc-600 font-bold text-xs hover:bg-zinc-100 transition-all"
+              >
+                {route.status === 'completed' ? 'Ver Rota' : 'Iniciar Rota'}
                 <ChevronRight className="w-4 h-4" />
               </button>
             </div>

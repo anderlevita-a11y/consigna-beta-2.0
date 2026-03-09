@@ -14,6 +14,7 @@ import { Campaign } from '../types';
 import { cn } from '../lib/utils';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { ConfirmationModal } from './ConfirmationModal';
 
 import { CampaignForm } from './CampaignForm';
 import { BagForm } from './BagForm';
@@ -27,6 +28,21 @@ export function Campaigns() {
   const [editingCampaign, setEditingCampaign] = useState<Campaign | undefined>();
   const [selectedCampaign, setSelectedCampaign] = useState<Campaign | undefined>();
 
+  // Confirmation Modal State
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+    variant: 'danger' | 'warning' | 'info';
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {},
+    variant: 'info'
+  });
+
   useEffect(() => {
     if (view === 'list') {
       fetchCampaigns();
@@ -36,9 +52,13 @@ export function Campaigns() {
   async function fetchCampaigns() {
     setLoading(true);
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
       const { data, error } = await supabase
         .from('campaigns')
         .select('*')
+        .eq('user_id', user.id)
         .eq('status', showArchived ? 'archived' : 'active')
         .order('created_at', { ascending: false })
         .limit(100);
@@ -62,34 +82,52 @@ export function Campaigns() {
     setView('campaign-form');
   };
 
-  const handleArchive = async (id: string) => {
-    if (!confirm('Deseja arquivar esta campanha?')) return;
-    try {
-      const { error } = await supabase
-        .from('campaigns')
-        .update({ status: 'archived' })
-        .eq('id', id);
-      if (error) throw error;
-      fetchCampaigns();
-    } catch (err) {
-      console.error('Error archiving campaign:', err);
-      alert('Erro ao arquivar campanha');
-    }
+  const handleArchive = (id: string) => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Arquivar Campanha',
+      message: 'Deseja arquivar esta campanha?',
+      variant: 'warning',
+      onConfirm: async () => {
+        try {
+          const { error } = await supabase
+            .from('campaigns')
+            .update({ status: 'archived' })
+            .eq('id', id);
+          if (error) throw error;
+          fetchCampaigns();
+        } catch (err) {
+          console.error('Error archiving campaign:', err);
+          alert('Erro ao arquivar campanha');
+        } finally {
+          setConfirmModal(prev => ({ ...prev, isOpen: false }));
+        }
+      }
+    });
   };
 
-  const handleUnarchive = async (id: string) => {
-    if (!confirm('Deseja desarquivar esta campanha?')) return;
-    try {
-      const { error } = await supabase
-        .from('campaigns')
-        .update({ status: 'active' })
-        .eq('id', id);
-      if (error) throw error;
-      fetchCampaigns();
-    } catch (err) {
-      console.error('Error unarchiving campaign:', err);
-      alert('Erro ao desarquivar campanha');
-    }
+  const handleUnarchive = (id: string) => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Desarquivar Campanha',
+      message: 'Deseja desarquivar esta campanha?',
+      variant: 'info',
+      onConfirm: async () => {
+        try {
+          const { error } = await supabase
+            .from('campaigns')
+            .update({ status: 'active' })
+            .eq('id', id);
+          if (error) throw error;
+          fetchCampaigns();
+        } catch (err) {
+          console.error('Error unarchiving campaign:', err);
+          alert('Erro ao desarquivar campanha');
+        } finally {
+          setConfirmModal(prev => ({ ...prev, isOpen: false }));
+        }
+      }
+    });
   };
 
   const handleOpenCampaign = (campaign: Campaign) => {
@@ -189,6 +227,15 @@ export function Campaigns() {
           ))
         )}
       </div>
+
+      <ConfirmationModal
+        isOpen={confirmModal.isOpen}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        variant={confirmModal.variant}
+        onConfirm={confirmModal.onConfirm}
+        onCancel={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+      />
     </div>
   );
 }

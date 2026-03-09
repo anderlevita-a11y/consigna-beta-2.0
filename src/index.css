@@ -21,3 +21,17 @@ body {
 ::-webkit-scrollbar-thumb {
   @apply bg-zinc-800 rounded-full hover:bg-zinc-700 transition-colors;
 }
+
+/* Estilo para simular o papel térmico no preview */
+.preview-termica {
+  background-color: #fff;
+  box-shadow: 0 0 10px rgba(0,0,0,0.1);
+  font-family: 'Courier New', Courier, monospace; /* Fonte comum em térmicas */
+}
+
+/* Esconder elementos desnecessários se o usuário usar o Ctrl+P do navegador */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+}

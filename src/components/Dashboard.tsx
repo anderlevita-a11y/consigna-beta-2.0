@@ -19,18 +19,23 @@ export function Dashboard() {
 
   useEffect(() => {
     async function fetchStats() {
-      // In a real app, these would be actual queries
-      // For now, we'll try to get counts from the tables mentioned
-      const { count: productsCount } = await supabase.from('products').select('*', { count: 'exact', head: true });
-      const { count: customersCount } = await supabase.from('customers').select('*', { count: 'exact', head: true });
-      const { count: bagsCount } = await supabase.from('bags').select('*', { count: 'exact', head: true });
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
 
-      setStats({
-        totalSales: 12450.80, // Mocked for now
-        activeBags: bagsCount || 0,
-        totalCustomers: customersCount || 0,
-        totalProducts: productsCount || 0
-      });
+        const { count: productsCount } = await supabase.from('products').select('*', { count: 'exact', head: true }).eq('user_id', user.id);
+        const { count: customersCount } = await supabase.from('customers').select('*', { count: 'exact', head: true }).eq('user_id', user.id);
+        const { count: bagsCount } = await supabase.from('bags').select('*', { count: 'exact', head: true }).eq('user_id', user.id);
+
+        setStats({
+          totalSales: 12450.80, // Mocked for now
+          activeBags: bagsCount || 0,
+          totalCustomers: customersCount || 0,
+          totalProducts: productsCount || 0
+        });
+      } catch (err) {
+        console.error('Error fetching dashboard stats:', err);
+      }
     }
 
     fetchStats();
@@ -39,8 +44,8 @@ export function Dashboard() {
   return (
     <div className="space-y-8">
       <div>
-        <h2 className="text-2xl font-bold text-white">Visão Geral</h2>
-        <p className="text-zinc-400">Bem-vindo ao painel de controle da Consigna.</p>
+        <h2 className="text-2xl font-bold text-[#4a1d33]">Visão Geral</h2>
+        <p className="text-zinc-500">Bem-vindo ao painel de controle da Consigna Beauty.</p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -72,46 +77,72 @@ export function Dashboard() {
           trend="Estável" 
           trendUp={true} 
         />
+        <div 
+          onClick={() => window.dispatchEvent(new CustomEvent('setTab', { detail: 'virtual-store' }))}
+          className="bg-gradient-to-br from-[#FF007F] to-[#FF69B4] border border-white/20 rounded-2xl p-6 hover:scale-[1.02] transition-all shadow-lg shadow-[#FF007F]/20 group cursor-pointer flex flex-col justify-between"
+        >
+          <div className="flex items-center justify-between mb-4">
+            <div className="p-2.5 bg-white/20 rounded-xl group-hover:rotate-12 transition-transform">
+              <ShoppingBag className="w-6 h-6 text-white" />
+            </div>
+            <div className="bg-white/20 text-white text-[10px] font-bold px-2 py-1 rounded-lg uppercase tracking-wider">
+              Novo
+            </div>
+          </div>
+          <div>
+            <p className="text-[10px] font-bold text-white/80 uppercase tracking-widest mb-1">E-commerce</p>
+            <h4 className="text-xl font-bold text-white">Loja Virtual</h4>
+            <button 
+              onClick={(e) => {
+                e.stopPropagation();
+                window.dispatchEvent(new CustomEvent('setTab', { detail: 'store-settings' }));
+              }}
+              className="text-[10px] font-medium text-white/60 mt-2 italic hover:text-white transition-colors underline underline-offset-2"
+            >
+              crie aqui a configuracoes da loja
+            </button>
+          </div>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
-          <h3 className="text-lg font-semibold text-white mb-4">Atividade Recente</h3>
+        <div className="bg-white border border-zinc-100 rounded-2xl p-6 shadow-sm">
+          <h3 className="text-lg font-bold text-[#4a1d33] mb-4 uppercase tracking-tight">Atividade Recente</h3>
           <div className="space-y-4">
             {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="flex items-center justify-between py-3 border-b border-zinc-800 last:border-0">
+              <div key={i} className="flex items-center justify-between py-3 border-b border-zinc-50 last:border-0">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-zinc-800 flex items-center justify-center">
-                    <ShoppingBag className="w-5 h-5 text-emerald-400" />
+                  <div className="w-10 h-10 rounded-full bg-[#fdf8e1] flex items-center justify-center">
+                    <ShoppingBag className="w-5 h-5 text-[#38a89d]" />
                   </div>
                   <div>
-                    <p className="text-sm font-medium text-white">Mala #1024 entregue</p>
+                    <p className="text-sm font-bold text-zinc-800">Mala #1024 entregue</p>
                     <p className="text-xs text-zinc-500">Para: Maria Oliveira</p>
                   </div>
                 </div>
-                <span className="text-xs text-zinc-500">Há 2 horas</span>
+                <span className="text-xs text-zinc-400">Há 2 horas</span>
               </div>
             ))}
           </div>
         </div>
 
-        <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
-          <h3 className="text-lg font-semibold text-white mb-4">Produtos Mais Vendidos</h3>
+        <div className="bg-white border border-zinc-100 rounded-2xl p-6 shadow-sm">
+          <h3 className="text-lg font-bold text-[#4a1d33] mb-4 uppercase tracking-tight">Produtos Mais Vendidos</h3>
           <div className="space-y-4">
             {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="flex items-center justify-between py-3 border-b border-zinc-800 last:border-0">
+              <div key={i} className="flex items-center justify-between py-3 border-b border-zinc-50 last:border-0">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded bg-zinc-800 flex items-center justify-center">
-                    <Package className="w-5 h-5 text-zinc-400" />
+                  <div className="w-10 h-10 rounded-xl bg-zinc-50 flex items-center justify-center">
+                    <Package className="w-5 h-5 text-zinc-300" />
                   </div>
                   <div>
-                    <p className="text-sm font-medium text-white">Camiseta Basic Cotton</p>
+                    <p className="text-sm font-bold text-zinc-800">Camiseta Basic Cotton</p>
                     <p className="text-xs text-zinc-500">SKU: TS-00{i}</p>
                   </div>
                 </div>
                 <div className="text-right">
-                  <p className="text-sm font-medium text-white">45 vendas</p>
-                  <p className="text-xs text-emerald-400">R$ 2.450,00</p>
+                  <p className="text-sm font-bold text-zinc-800">45 vendas</p>
+                  <p className="text-xs text-[#38a89d] font-bold">R$ 2.450,00</p>
                 </div>
               </div>
             ))}
@@ -124,22 +155,22 @@ export function Dashboard() {
 
 function StatCard({ title, value, icon: Icon, trend, trendUp }: any) {
   return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 hover:border-zinc-700 transition-colors">
+    <div className="bg-white border border-zinc-100 rounded-2xl p-6 hover:border-[#38a89d]/30 transition-all shadow-sm group">
       <div className="flex items-center justify-between mb-4">
-        <div className="p-2 bg-zinc-800 rounded-lg">
-          <Icon className="w-6 h-6 text-emerald-400" />
+        <div className="p-2.5 bg-[#fdf8e1] rounded-xl group-hover:scale-110 transition-transform">
+          <Icon className="w-6 h-6 text-[#38a89d]" />
         </div>
         <div className={cn(
-          "flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-full",
-          trendUp ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/10 text-red-400"
+          "flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-lg uppercase tracking-wider",
+          trendUp ? "bg-emerald-50 text-emerald-600" : "bg-red-50 text-red-600"
         )}>
           {trendUp ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
           {trend}
         </div>
       </div>
       <div>
-        <p className="text-sm text-zinc-400 mb-1">{title}</p>
-        <h4 className="text-2xl font-bold text-white">{value}</h4>
+        <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-1">{title}</p>
+        <h4 className="text-2xl font-bold text-[#4a1d33]">{value}</h4>
       </div>
     </div>
   );

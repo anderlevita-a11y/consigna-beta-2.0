@@ -13,6 +13,29 @@ export interface Profile {
   is_blocked?: boolean;
   pix_key?: string;
   pix_beneficiary?: string;
+  data_nascimento?: string;
+  genero?: string;
+  cep?: string;
+  bairro?: string;
+  logradouro?: string;
+  numero_complemento?: string;
+  latitude?: number;
+  longitude?: number;
+  documento_url?: string;
+  plano_tipo?: string;
+  plano_status?: string;
+  accepted_terms_version?: number;
+  instagram?: string;
+  cidade?: string;
+  estado?: string;
+}
+
+export interface AppLegalSettings {
+  id: string;
+  privacy_policy: string;
+  terms_of_use: string;
+  version: number;
+  updated_at: string;
 }
 
 export interface AccessKey {
@@ -37,6 +60,8 @@ export interface Product {
   photo_url?: string;
   user_id?: string;
   has_grid?: boolean;
+  category?: string;
+  is_visible_in_store?: boolean;
 }
 
 export interface Customer {
@@ -59,6 +84,7 @@ export interface Customer {
   residence_proof_url?: string;
   latitude?: number;
   longitude?: number;
+  credit_limit?: number;
   user_id: string;
   status: 'active' | 'inactive';
 }
@@ -100,7 +126,7 @@ export interface Sweepstakes {
   objective: string;
   prizes_list: string;
   rules: string;
-  status: 'pending' | 'completed';
+  status: 'pending' | 'completed' | 'archived';
   created_at: string;
 }
 
@@ -155,5 +181,58 @@ export interface CommissionSimulation {
   commission_pct: number;
   commission_value: number;
   liquid_value: number;
+  expenses?: { description: string; value: number }[];
+  created_at: string;
+}
+
+export interface PriceSuggestion {
+  id: string;
+  central_product_id: string;
+  suggested_cost_price: number;
+  suggested_sale_price: number;
+  created_at: string;
+  created_by: string;
+}
+
+export interface Announcement {
+  id: string;
+  title: string;
+  message: string;
+  type: 'info' | 'update' | 'price_change';
+  created_at: string;
+  created_by: string;
+}
+
+export interface StoreSettings {
+  id: string;
+  user_id: string;
+  store_name: string;
+  store_slug: string;
+  primary_color: string;
+  welcome_message: string;
+  whatsapp_number: string;
+  instagram_handle: string;
+  logo_url: string;
+  banner_url?: string;
+  scrolling_text?: string;
+  categories?: string[];
+  pix_key?: string;
+  instagram_post_url?: string;
+  instagram_feed?: string[];
+  footer_text?: string;
+  shipping_text?: string;
+  global_discount?: number;
+  updated_at?: string;
+}
+
+export interface ProductReview {
+  id: string;
+  product_id: string;
+  user_id: string;
+  customer_name: string;
+  customer_photo_url?: string;
+  rating: number;
+  comment: string;
+  status: 'pending' | 'approved' | 'rejected';
   created_at: string;
 }

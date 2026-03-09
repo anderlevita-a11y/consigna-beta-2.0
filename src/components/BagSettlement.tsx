@@ -7,12 +7,19 @@ import {
   Search, 
   QrCode,
   Save,
-  Megaphone
+  Megaphone,
+  Copy,
+  ExternalLink,
+  Plus,
+  MinusCircle
 } from 'lucide-react';
+import { QRCodeSVG } from 'qrcode.react';
+import { generatePixPayload } from '../lib/pix';
 import { supabase } from '../lib/supabase';
 import { Bag, BagItem, Product, Profile } from '../types';
-import { cn } from '../lib/utils';
+import { cn, printFallback } from '../lib/utils';
 import { format } from 'date-fns';
+import { PrintPreview } from './PrintPreview';
 
 interface BagSettlementProps {
   bag: Bag;
@@ -30,9 +37,16 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
   const [saving, setSaving] = useState(false);
   const [items, setItems] = useState<SettlementItem[]>([]);
   const [paymentMethod, setPaymentMethod] = useState<'dinheiro' | 'pix' | 'cartao'>('pix');
-  const [receivedAmount, setReceivedAmount] = useState<number>(0);
+  const [receivedAmount, setReceivedAmount] = useState<string>('0');
   const [searchProduct, setSearchProduct] = useState('');
   const [userProfile, setUserProfile] = useState<Profile | null>(null);
+  const [showPreview, setShowPreview] = useState(false);
+  const [pdfUrl, setPdfUrl] = useState('');
+  const [campaignDiscount, setCampaignDiscount] = useState(30);
+  const [previewType, setPreviewType] = useState<'termica' | 'a4' | 'etiqueta'>('termica');
+  const [expenses, setExpenses] = useState<{ description: string; value: number }[]>([]);
+  const [expenseDesc, setExpenseDesc] = useState('');
+  const [expenseValue, setExpenseValue] = useState<number>(0);
 
   useEffect(() => {
     fetchData();
@@ -40,6 +54,16 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
 
   async function fetchData() {
     try {
+      // Fetch campaign discount
+      if (bag.campaign_id) {
+        const { data: campaign } = await supabase
+          .from('campaigns')
+          .select('discount_pct')
+          .eq('id', bag.campaign_id)
+          .single();
+        if (campaign) setCampaignDiscount(campaign.discount_pct);
+      }
+
       // Fetch user profile for PIX details
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
@@ -51,34 +75,49 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
         setUserProfile(profile);
       }
 
-      const { data, error } = await supabase
+      const { data: bagItemsData, error: bagItemsError } = await supabase
         .from('bag_items')
-        .select('*, product:products(*)')
+        .select('*')
         .eq('bag_id', bag.id)
         .limit(30000);
 
-      if (error) throw error;
+      if (bagItemsError) throw bagItemsError;
       
-      const settlementItems = (data || []).map(item => ({
-        ...item,
-        returned_quantity: item.returned_quantity || 0,
-        product: item.product || {
-          id: item.product_id || '',
-          name: item.product_name,
-          sale_price: item.unit_price,
-          current_stock: 0
-        }
-      }));
+      // Fetch products separately to avoid foreign key issues
+      const productIds = (bagItemsData || []).map(item => item.product_id).filter(Boolean);
+      let productsData: any[] = [];
+      
+      if (productIds.length > 0) {
+        const { data: pData } = await supabase
+          .from('products')
+          .select('*')
+          .in('id', productIds);
+        if (pData) productsData = pData;
+      }
+
+      const settlementItems = (bagItemsData || []).map(item => {
+        const product = productsData.find(p => p.id === item.product_id);
+        return {
+          ...item,
+          returned_quantity: item.returned_quantity || 0,
+          product: product || {
+            id: item.product_id || '',
+            name: item.product_name,
+            sale_price: item.unit_price, // Use stored unit_price as fallback
+            current_stock: 0
+          }
+        };
+      });
       
       setItems(settlementItems);
       
-      // Calculate initial total to pay
+      // Calculate initial total to pay using stored unit_price
       const totalToPay = settlementItems.reduce((acc, item) => {
         const sold = item.quantity - item.returned_quantity;
-        return acc + (sold * item.product.sale_price);
+        return acc + (sold * item.unit_price);
       }, 0);
       
-      setReceivedAmount(totalToPay);
+      setReceivedAmount('0');
     } catch (err) {
       console.error('Error fetching data:', err);
     } finally {
@@ -96,15 +135,26 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
     }));
   };
 
-  const totalGross = items.reduce((acc, item) => acc + (item.quantity * item.product.sale_price), 0);
+  const totalGross = items.reduce((acc, item) => acc + (item.quantity * item.unit_price), 0);
   const totalSold = items.reduce((acc, item) => {
     const sold = item.quantity - item.returned_quantity;
-    return acc + (sold * item.product.sale_price);
+    return acc + (sold * item.unit_price);
   }, 0);
   
-  const commissionRate = 0.3; // 30% as shown in image
-  const commission = totalSold * commissionRate;
-  const amountToPay = totalSold - commission;
+  const commission = totalSold * (campaignDiscount / 100);
+  const totalExpenses = expenses.reduce((acc, e) => acc + e.value, 0);
+  const amountToPay = totalSold - commission - totalExpenses;
+
+  const handleAddExpense = () => {
+    if (!expenseDesc || expenseValue <= 0) return;
+    setExpenses([...expenses, { description: expenseDesc, value: expenseValue }]);
+    setExpenseDesc('');
+    setExpenseValue(0);
+  };
+
+  const handleRemoveExpense = (index: number) => {
+    setExpenses(expenses.filter((_, i) => i !== index));
+  };
 
   const handleFinalize = async () => {
     setSaving(true);
@@ -137,17 +187,20 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
       }
 
       // 2. Update bag status and payment
+      const numericReceivedAmount = parseFloat(receivedAmount) || 0;
       const { error: bagError } = await supabase
         .from('bags')
         .update({ 
           status: 'closed',
           total_value: totalSold,
-          received_amount: receivedAmount,
-          payment_status: receivedAmount >= amountToPay ? 'paid' : 'partial'
+          payment_status: numericReceivedAmount >= amountToPay ? 'paid' : 'partial'
         })
         .eq('id', bag.id);
 
       if (bagError) throw bagError;
+      
+      // Share on WhatsApp before closing
+      await handleWhatsAppShare();
       
       onSave();
     } catch (err) {
@@ -168,6 +221,7 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
 
   const handleWhatsAppShare = async () => {
     try {
+      const numericReceivedAmount = parseFloat(receivedAmount) || 0;
       const customerName = bag.customer?.nome || 'Cliente';
       let message = `*Resumo da Sacola #${bag.bag_number.replace(/\D/g, '')}*\n`;
       message += `Cliente: ${customerName}\n\n`;
@@ -176,16 +230,26 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
       items.forEach(item => {
         const sold = item.quantity - item.returned_quantity;
         if (sold > 0) {
-          const subtotal = sold * item.product.sale_price;
-          message += `- ${item.product.name}\n  ${sold} un x R$ ${item.product.sale_price.toFixed(2)} = *R$ ${subtotal.toFixed(2)}*\n`;
+          message += `- ${item.product.name}\n  ${sold} un x R$ ${item.unit_price.toFixed(2)}\n`;
         }
       });
       
+      message += `\nSubtotal: R$ ${totalSold.toFixed(2)}`;
+      message += `\nDesconto Campanha (${campaignDiscount}%): R$ ${commission.toFixed(2)}`;
+      
+      if (totalExpenses > 0) {
+        message += `\n*Despesas Adicionais:*\n`;
+        expenses.forEach(e => {
+          message += `- ${e.description}: - R$ ${e.value.toFixed(2)}\n`;
+        });
+        message += `Total Despesas: - R$ ${totalExpenses.toFixed(2)}`;
+      }
+
       message += `\n*Total a Pagar: R$ ${amountToPay.toFixed(2)}*`;
       
-      if (receivedAmount > 0) {
-        message += `\nValor Recebido: R$ ${receivedAmount.toFixed(2)}`;
-        const debt = amountToPay - receivedAmount;
+      if (numericReceivedAmount > 0) {
+        message += `\nValor Recebido: R$ ${numericReceivedAmount.toFixed(2)}`;
+        const debt = amountToPay - numericReceivedAmount;
         if (debt > 0) {
           message += `\n*Saldo Devedor: R$ ${debt.toFixed(2)}*`;
         }
@@ -195,6 +259,55 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
       window.open(`https://wa.me/?text=${encodedMessage}`, '_blank');
     } catch (err) {
       console.error('Error sharing on WhatsApp:', err);
+    }
+  };
+
+  const handlePrintPDF = async () => {
+    setSaving(true);
+    try {
+      const payload = {
+        tipo_documento: 'nota_servico',
+        dados_cliente: {
+          nome: bag.customer?.nome || 'Cliente',
+          cpf: bag.customer?.cpf || '---'
+        },
+        itens: items.map(item => ({
+          nome: item.product.name,
+          qtd: item.quantity - item.returned_quantity,
+          preco: item.unit_price,
+          total: (item.quantity - item.returned_quantity) * item.unit_price
+        })).filter(i => i.qtd > 0)
+      };
+
+      const { data, error } = await supabase.functions.invoke('generate-pdf', {
+        body: payload
+      });
+
+      if (error) throw error;
+      
+      setPdfUrl(data.url);
+      setPreviewType('termica');
+      setShowPreview(true);
+    } catch (err: any) {
+      console.warn('Edge Function (generate-pdf) not available, using fallback print:', err.message);
+      
+      // Fallback to simple print if Edge Function is not reachable or any error occurs
+      const payload = {
+        tipo_documento: 'nota_servico',
+        dados_cliente: {
+          nome: bag.customer?.nome || 'Cliente',
+          cpf: bag.customer?.cpf || '---'
+        },
+        itens: items.map(item => ({
+          nome: item.product.name,
+          qtd: item.quantity - item.returned_quantity,
+          preco: item.unit_price,
+          total: (item.quantity - item.returned_quantity) * item.unit_price
+        })).filter(i => i.qtd > 0)
+      };
+      printFallback(payload);
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -209,12 +322,12 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
   return (
     <div className="bg-zinc-50/50 min-h-screen p-4 sm:p-8 animate-in fade-in duration-300">
       <div className="max-w-6xl mx-auto">
-        <div className="flex items-center justify-between mb-8">
-          <h2 className="text-2xl font-bold text-zinc-800">Sacolas</h2>
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 mb-8">
+          <h2 className="text-2xl font-bold text-zinc-800 text-center sm:text-left">Sacolas</h2>
           <button 
             onClick={handleFinalize}
             disabled={saving}
-            className="flex items-center gap-2 bg-[#00a86b] hover:bg-[#008f5b] text-white px-6 py-2.5 rounded-xl font-bold transition-all shadow-lg shadow-emerald-500/20 disabled:opacity-50"
+            className="flex items-center justify-center gap-2 bg-[#00a86b] hover:bg-[#008f5b] text-white px-6 py-3 sm:py-2.5 rounded-xl font-bold transition-all shadow-lg shadow-emerald-500/20 disabled:opacity-50 w-full sm:w-auto"
           >
             {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
             Salvar Sacola
@@ -224,13 +337,13 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Main Content */}
           <div className="lg:col-span-2 space-y-6">
-            <div className="bg-white border border-zinc-200 rounded-3xl p-8 shadow-sm">
-              <div className="flex items-center justify-between mb-8">
+            <div className="bg-white border border-zinc-200 rounded-3xl p-4 sm:p-8 shadow-sm">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
                 <div className="flex items-center gap-4">
                   <button onClick={onClose} className="p-2 hover:bg-zinc-100 rounded-full transition-colors">
                     <X className="w-5 h-5 text-zinc-400" />
                   </button>
-                  <h3 className="text-xl font-bold text-zinc-700 italic">Acerto da Sacola #{bag.bag_number.replace(/\D/g, '')}</h3>
+                  <h3 className="text-lg sm:text-xl font-bold text-zinc-700 italic">Acerto da Sacola #{bag.bag_number.replace(/\D/g, '')}</h3>
                 </div>
                 <div className="flex flex-col gap-1">
                   <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Bipar Devolução</label>
@@ -276,16 +389,21 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
                           <td className="px-6 py-4 text-center font-bold text-zinc-800">{item.quantity}</td>
                           <td className="px-6 py-4 text-center">
                             <input 
-                              type="number" 
+                              type="text" 
+                              inputMode="numeric"
                               className="w-16 bg-zinc-50 border border-zinc-200 rounded-lg px-2 py-1 text-center text-sm focus:outline-none focus:border-emerald-500"
-                              value={item.returned_quantity}
-                              onChange={(e) => updateReturnedQuantity(item.id, parseInt(e.target.value) || 0)}
+                              value={item.returned_quantity === 0 ? '' : item.returned_quantity}
+                              onChange={(e) => {
+                                const val = parseInt(e.target.value) || 0;
+                                updateReturnedQuantity(item.id, val);
+                              }}
+                              placeholder="0"
                             />
                           </td>
                           <td className="px-6 py-4 text-center font-bold text-emerald-600">{sold}</td>
                           <td className="px-6 py-4 text-right font-bold text-zinc-800">
                             <p className="text-[10px] text-zinc-400">R$</p>
-                            {(sold * item.product.sale_price).toFixed(2)}
+                            {(sold * item.unit_price).toFixed(2)}
                           </td>
                         </tr>
                       );
@@ -307,10 +425,18 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
                     <span className="font-bold text-zinc-800">R$ {totalSold.toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between items-center text-sm">
-                    <span className="text-zinc-500">Comissão (30%)</span>
+                    <span className="text-zinc-500">Comissão ({campaignDiscount}%)</span>
                     <span className="font-bold text-red-500">- R$ {commission.toFixed(2)}</span>
                   </div>
-                  <div className="pt-4 border-t border-zinc-100 flex justify-between items-center">
+
+                  {totalExpenses > 0 && (
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="text-zinc-500">Total Despesas</span>
+                      <span className="font-bold text-red-500">- R$ {totalExpenses.toFixed(2)}</span>
+                    </div>
+                  )}
+
+                  <div className="pt-4 border-t border-zinc-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-0">
                     <span className="text-lg font-bold text-zinc-800">A Pagar</span>
                     <span className="text-2xl font-black text-emerald-500">R$ {amountToPay.toFixed(2)}</span>
                   </div>
@@ -318,18 +444,78 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
               </div>
 
               <div className="space-y-4">
+                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Despesas Adicionais (Opcional)</label>
+                <div className="flex gap-2">
+                  <input 
+                    type="text" 
+                    placeholder="Descrição"
+                    value={expenseDesc}
+                    onChange={e => setExpenseDesc(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && handleAddExpense()}
+                    className="flex-[2] bg-zinc-50 border border-zinc-100 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-emerald-500"
+                  />
+                  <input 
+                    type="number" 
+                    placeholder="R$"
+                    value={expenseValue || ''}
+                    onChange={e => setExpenseValue(Number(e.target.value))}
+                    onKeyDown={e => e.key === 'Enter' && handleAddExpense()}
+                    className="flex-1 bg-zinc-50 border border-zinc-100 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-emerald-500"
+                  />
+                  <button 
+                    type="button"
+                    onClick={handleAddExpense}
+                    className="bg-zinc-100 hover:bg-zinc-200 text-zinc-600 p-2 rounded-xl transition-all"
+                  >
+                    <Plus className="w-4 h-4" />
+                  </button>
+                </div>
+                
+                {expenses.length > 0 && (
+                  <div className="space-y-1">
+                    {expenses.map((exp, idx) => (
+                      <div key={idx} className="flex items-center justify-between bg-rose-50/50 border border-rose-100 rounded-lg px-3 py-1.5">
+                        <span className="text-[10px] font-medium text-rose-700">{exp.description}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-bold text-rose-700">- R$ {exp.value.toFixed(2)}</span>
+                          <button 
+                            type="button"
+                            onClick={() => handleRemoveExpense(idx)} 
+                            className="text-rose-400 hover:text-rose-600"
+                          >
+                            <MinusCircle className="w-3 h-3" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-4">
                 <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Valor Recebido (R$)</label>
                 <div className="relative">
                   <div className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400 font-bold">R$</div>
                   <input 
-                    type="number" 
+                    type="text" 
+                    inputMode="decimal"
                     className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl pl-12 pr-4 py-4 text-2xl font-black text-zinc-800 focus:outline-none focus:border-emerald-500"
                     value={receivedAmount}
-                    onChange={(e) => setReceivedAmount(parseFloat(e.target.value) || 0)}
+                    onChange={(e) => {
+                      const val = e.target.value.replace(',', '.');
+                      if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                        setReceivedAmount(val);
+                      }
+                    }}
+                    onBlur={() => {
+                      if (receivedAmount === '' || receivedAmount === '.') {
+                        setReceivedAmount('0');
+                      }
+                    }}
                   />
                   <div className="absolute right-4 top-1/2 -translate-y-1/2">
                     <button 
-                      onClick={() => setReceivedAmount(amountToPay)}
+                      onClick={() => setReceivedAmount(amountToPay.toString())}
                       className="bg-emerald-50 text-emerald-600 hover:bg-emerald-100 px-2 py-1 rounded-lg text-[10px] font-bold uppercase transition-colors"
                     >
                       Pago Integral
@@ -361,40 +547,79 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
               {paymentMethod === 'pix' && (
                 <div className="bg-zinc-50 rounded-3xl p-6 flex flex-col items-center gap-4">
                   <div className="bg-white p-4 rounded-2xl shadow-sm">
-                    <QrCode className="w-32 h-32 text-zinc-800" />
+                    {userProfile?.pix_key ? (
+                      <QRCodeSVG 
+                        value={generatePixPayload(
+                          userProfile.pix_key,
+                          userProfile.pix_beneficiary || 'Beneficiario',
+                          'BRASIL',
+                          amountToPay,
+                          `SAC${bag.bag_number.replace(/\D/g, '')}`
+                        )}
+                        size={160}
+                        level="M"
+                        includeMargin={false}
+                      />
+                    ) : (
+                      <div className="w-40 h-40 flex items-center justify-center bg-zinc-100 rounded-xl">
+                        <QrCode className="w-12 h-12 text-zinc-300" />
+                      </div>
+                    )}
                   </div>
                   <div className="text-center space-y-1">
                     <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Escaneie para Pagar</p>
-                    {userProfile?.pix_key && (
-                      <div className="mt-2">
-                        <p className="text-xs font-bold text-zinc-800">{userProfile.pix_key}</p>
-                        {userProfile.pix_beneficiary && (
-                          <p className="text-[10px] text-zinc-400 uppercase">{userProfile.pix_beneficiary}</p>
-                        )}
+                    {userProfile?.pix_key ? (
+                      <div className="mt-2 flex flex-col items-center gap-3">
+                        <div>
+                          <p className="text-xs font-bold text-zinc-800">{userProfile.pix_key}</p>
+                          {userProfile.pix_beneficiary && (
+                            <p className="text-[10px] text-zinc-400 uppercase">{userProfile.pix_beneficiary}</p>
+                          )}
+                        </div>
+                        <button
+                          onClick={() => {
+                            const payload = generatePixPayload(
+                              userProfile.pix_key!,
+                              userProfile.pix_beneficiary || 'Beneficiario',
+                              'BRASIL',
+                              amountToPay,
+                              `SAC${bag.bag_number.replace(/\D/g, '')}`
+                            );
+                            navigator.clipboard.writeText(payload);
+                            alert('Código PIX copiado!');
+                          }}
+                          className="flex items-center gap-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 px-4 py-2 rounded-lg text-xs font-bold transition-colors"
+                        >
+                          <Copy className="w-4 h-4" />
+                          Copiar Código PIX
+                        </button>
                       </div>
+                    ) : (
+                      <p className="text-xs text-red-500 mt-2">Chave PIX não configurada no perfil.</p>
                     )}
                   </div>
                 </div>
               )}
 
-              <div className="flex gap-2">
+              <div className="flex gap-2 no-print">
                 <button 
                   onClick={handleWhatsAppShare}
-                  className="flex-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-600 p-4 rounded-2xl transition-all flex items-center justify-center"
+                  className="flex-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-600 p-4 rounded-2xl transition-all active:scale-95 flex items-center justify-center"
                   title="Compartilhar WhatsApp"
                 >
                   <Megaphone className="w-6 h-6" />
                 </button>
                 <button 
-                  onClick={() => window.print()}
-                  className="flex-1 bg-zinc-100 hover:bg-zinc-200 text-zinc-600 p-4 rounded-2xl transition-all flex items-center justify-center"
+                  onClick={handlePrintPDF}
+                  disabled={saving}
+                  className="flex-1 bg-zinc-100 hover:bg-zinc-200 text-zinc-600 p-4 rounded-2xl transition-all active:scale-95 flex items-center justify-center disabled:opacity-50"
                 >
-                  <Printer className="w-6 h-6" />
+                  {saving ? <Loader2 className="w-6 h-6 animate-spin" /> : <Printer className="w-6 h-6" />}
                 </button>
                 <button 
                   onClick={handleFinalize}
                   disabled={saving}
-                  className="flex-[2] bg-[#00a86b] hover:bg-[#008f5b] text-white p-4 rounded-2xl font-bold transition-all shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2"
+                  className="flex-[2] bg-[#00a86b] hover:bg-[#008f5b] text-white p-4 rounded-2xl font-bold transition-all active:scale-[0.98] shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2 disabled:opacity-50"
                 >
                   {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Check className="w-5 h-5" />}
                   Finalizar Acerto
@@ -404,6 +629,14 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
           </div>
         </div>
       </div>
+
+      {showPreview && (
+        <PrintPreview 
+          pdfUrl={pdfUrl} 
+          tipo={previewType} 
+          onClose={() => setShowPreview(false)} 
+        />
+      )}
     </div>
   );
 }

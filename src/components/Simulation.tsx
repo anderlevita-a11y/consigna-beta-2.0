@@ -11,19 +11,41 @@ import {
   Loader2,
   Calendar,
   FileText,
-  Trophy
+  Trophy,
+  Plus,
+  Share2,
+  MinusCircle
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { CommissionSimulation } from '../types';
 import { cn } from '../lib/utils';
 import { format } from 'date-fns';
+import { ConfirmationModal } from './ConfirmationModal';
 
 export function Simulation() {
   const [description, setDescription] = useState('');
   const [value, setValue] = useState<number>(0);
+  const [expenses, setExpenses] = useState<{ description: string; value: number }[]>([]);
+  const [expenseDesc, setExpenseDesc] = useState('');
+  const [expenseValue, setExpenseValue] = useState<number>(0);
   const [simulations, setSimulations] = useState<CommissionSimulation[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+
+  // Confirmation Modal State
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+    variant: 'danger' | 'warning' | 'info';
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {},
+    variant: 'info'
+  });
 
   useEffect(() => {
     fetchData();
@@ -65,7 +87,19 @@ export function Simulation() {
 
   const commissionPct = getCommissionPct(value);
   const commissionValue = (value * commissionPct) / 100;
-  const liquidValue = value - commissionValue;
+  const totalExpenses = expenses.reduce((acc, e) => acc + e.value, 0);
+  const liquidValue = value - commissionValue - totalExpenses;
+
+  const handleAddExpense = () => {
+    if (!expenseDesc || expenseValue <= 0) return;
+    setExpenses([...expenses, { description: expenseDesc, value: expenseValue }]);
+    setExpenseDesc('');
+    setExpenseValue(0);
+  };
+
+  const handleRemoveExpense = (index: number) => {
+    setExpenses(expenses.filter((_, i) => i !== index));
+  };
 
   const handleSave = async () => {
     if (!description || value <= 0) {
@@ -86,13 +120,15 @@ export function Simulation() {
           total_value: value,
           commission_pct: commissionPct,
           commission_value: commissionValue,
-          liquid_value: liquidValue
+          liquid_value: liquidValue,
+          expenses: expenses
         }]);
 
       if (error) throw error;
       
       setDescription('');
       setValue(0);
+      setExpenses([]);
       fetchData();
     } catch (err) {
       console.error('Error saving simulation:', err);
@@ -102,19 +138,50 @@ export function Simulation() {
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('Deseja excluir esta simulação?')) return;
-    try {
-      const { error } = await supabase
-        .from('commission_simulations')
-        .delete()
-        .eq('id', id);
-      if (error) throw error;
-      fetchData();
-    } catch (err) {
-      console.error('Error deleting simulation:', err);
-      alert('Erro ao excluir simulação');
+  const handleShare = (sim: CommissionSimulation) => {
+    let message = `*Simulação de Comissão - Beauty*\n\n`;
+    message += `*Descrição:* ${sim.description}\n`;
+    message += `*Data:* ${format(new Date(sim.created_at), "dd/MM/yyyy")}\n\n`;
+    message += `Total Bruto: R$ ${sim.total_value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}\n`;
+    message += `Comissão (${sim.commission_pct}%): - R$ ${sim.commission_value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}\n`;
+    
+    if (sim.expenses && sim.expenses.length > 0) {
+      message += `\n*Despesas Adicionais:*\n`;
+      sim.expenses.forEach(e => {
+        message += `- ${e.description}: - R$ ${e.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}\n`;
+      });
+      const totalExp = sim.expenses.reduce((acc, e) => acc + e.value, 0);
+      message += `Total Despesas: - R$ ${totalExp.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}\n`;
     }
+
+    message += `\n*Valor Líquido a Pagar: R$ ${sim.liquid_value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}*`;
+    
+    const encodedMessage = encodeURIComponent(message);
+    window.open(`https://wa.me/?text=${encodedMessage}`, '_blank');
+  };
+
+  const handleDelete = (id: string) => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Excluir Simulação',
+      message: 'Deseja excluir esta simulação?',
+      variant: 'danger',
+      onConfirm: async () => {
+        try {
+          const { error } = await supabase
+            .from('commission_simulations')
+            .delete()
+            .eq('id', id);
+          if (error) throw error;
+          fetchData();
+        } catch (err) {
+          console.error('Error deleting simulation:', err);
+          alert('Erro ao excluir simulação');
+        } finally {
+          setConfirmModal(prev => ({ ...prev, isOpen: false }));
+        }
+      }
+    });
   };
 
   const allSimulations = [...simulations].sort((a, b) => 
@@ -152,13 +219,74 @@ export function Simulation() {
               <div className="relative">
                 <span className="absolute left-6 top-1/2 -translate-y-1/2 text-zinc-400 font-bold">R$</span>
                 <input 
-                  type="number" 
+                  type="text" 
+                  inputMode="decimal"
                   placeholder="0,00"
-                  value={value || ''}
-                  onChange={e => setValue(Number(e.target.value))}
+                  value={value === 0 ? '' : value}
+                  onChange={e => {
+                    const val = e.target.value.replace(',', '.');
+                    if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                      setValue(val === '' ? 0 : Number(val));
+                    }
+                  }}
                   className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl pl-14 pr-6 py-4 text-2xl font-bold text-zinc-700 focus:border-indigo-500 outline-none transition-all"
                 />
               </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Despesas Adicionais (Opcional)</label>
+              <div className="flex flex-col sm:flex-row gap-3">
+                <input 
+                  type="text" 
+                  placeholder="Descrição da despesa"
+                  value={expenseDesc}
+                  onChange={e => setExpenseDesc(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleAddExpense()}
+                  className="flex-[2] bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm focus:border-indigo-500 outline-none transition-all"
+                />
+                <input 
+                  type="text" 
+                  inputMode="decimal"
+                  placeholder="R$ 0,00"
+                  value={expenseValue === 0 ? '' : expenseValue}
+                  onChange={e => {
+                    const val = e.target.value.replace(',', '.');
+                    if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                      setExpenseValue(val === '' ? 0 : Number(val));
+                    }
+                  }}
+                  onKeyDown={e => e.key === 'Enter' && handleAddExpense()}
+                  className="flex-1 bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm focus:border-indigo-500 outline-none transition-all"
+                />
+                <button 
+                  type="button"
+                  onClick={handleAddExpense}
+                  className="bg-zinc-100 hover:bg-zinc-200 text-zinc-600 p-4 rounded-2xl transition-all flex items-center justify-center"
+                >
+                  <Plus className="w-5 h-5" />
+                </button>
+              </div>
+              
+              {expenses.length > 0 && (
+                <div className="mt-4 space-y-2">
+                  {expenses.map((exp, idx) => (
+                    <div key={idx} className="flex items-center justify-between bg-rose-50/50 border border-rose-100 rounded-xl px-4 py-2">
+                      <span className="text-xs font-medium text-rose-700">{exp.description}</span>
+                      <div className="flex items-center gap-3">
+                        <span className="text-xs font-bold text-rose-700">- R$ {exp.value.toFixed(2)}</span>
+                        <button 
+                          type="button"
+                          onClick={() => handleRemoveExpense(idx)} 
+                          className="text-rose-400 hover:text-rose-600"
+                        >
+                          <MinusCircle className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             <button 
@@ -172,22 +300,29 @@ export function Simulation() {
           </div>
 
           <div className="bg-zinc-50/50 border border-zinc-100 rounded-[32px] p-10 space-y-8">
-            <div className="flex justify-between items-center">
+            <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 sm:gap-0">
               <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Percentual de Comissão</span>
               <span className="text-2xl font-bold text-indigo-600">{commissionPct}%</span>
             </div>
             
-            <div className="flex justify-between items-center">
+            <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 sm:gap-0">
               <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Valor do Desconto</span>
               <span className="text-2xl font-bold text-rose-500">- R$ {commissionValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
             </div>
 
-            <div className="pt-8 border-t border-zinc-100 flex justify-between items-center">
+            {totalExpenses > 0 && (
+              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 sm:gap-0">
+                <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Total Despesas</span>
+                <span className="text-2xl font-bold text-rose-500">- R$ {totalExpenses.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+              </div>
+            )}
+
+            <div className="pt-8 border-t border-zinc-100 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 sm:gap-0">
               <span className="text-[10px] font-bold text-zinc-800 uppercase tracking-widest">Valor Líquido a Pagar</span>
               <div className="flex items-center gap-4">
-                <span className="text-4xl font-black text-emerald-600">R$ {liquidValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                <span className="text-3xl sm:text-4xl font-black text-emerald-600">R$ {liquidValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
                 <button 
-                  onClick={() => { setDescription(''); setValue(0); }}
+                  onClick={() => { setDescription(''); setValue(0); setExpenses([]); }}
                   className="p-2 hover:bg-rose-50 text-rose-400 rounded-lg transition-colors"
                 >
                   <Trash2 className="w-5 h-5" />
@@ -222,6 +357,13 @@ export function Simulation() {
                   </div>
                   <div className="flex gap-2">
                     <button 
+                      onClick={() => handleShare(sim)}
+                      className="p-2 hover:bg-emerald-50 text-emerald-500 rounded-lg transition-colors"
+                      title="Compartilhar WhatsApp"
+                    >
+                      <Share2 className="w-4 h-4" />
+                    </button>
+                    <button 
                       onClick={() => handleDelete(sim.id)}
                       className="p-2 hover:bg-rose-50 text-rose-400 rounded-lg transition-colors"
                     >
@@ -239,9 +381,15 @@ export function Simulation() {
                     <span className="text-zinc-400">Comissão ({sim.commission_pct}%):</span>
                     <span className="font-bold text-rose-500">- R$ {sim.commission_value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
                   </div>
+                  {sim.expenses && sim.expenses.length > 0 && (
+                    <div className="flex justify-between text-xs">
+                      <span className="text-zinc-400">Despesas Adicionais:</span>
+                      <span className="font-bold text-rose-500">- R$ {sim.expenses.reduce((acc, e) => acc + e.value, 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                    </div>
+                  )}
                 </div>
 
-                <div className="pt-4 border-t border-zinc-50 flex justify-between items-center">
+                <div className="pt-4 border-t border-zinc-50 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 sm:gap-0">
                   <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Líquido:</span>
                   <span className="text-xl font-bold text-emerald-600">R$ {sim.liquid_value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
                 </div>
@@ -250,6 +398,15 @@ export function Simulation() {
           )}
         </div>
       </div>
+
+      <ConfirmationModal
+        isOpen={confirmModal.isOpen}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        variant={confirmModal.variant}
+        onConfirm={confirmModal.onConfirm}
+        onCancel={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+      />
     </div>
   );
 }

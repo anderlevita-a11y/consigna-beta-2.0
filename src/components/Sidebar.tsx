@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { 
   LayoutDashboard, 
   Package, 
@@ -16,11 +16,19 @@ import {
   Wifi,
   ChevronLeft,
   Lock,
-  Map
+  Map,
+  StickyNote,
+  DollarSign,
+  RefreshCcw,
+  Loader2,
+  X,
+  CheckCircle2
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabase';
+import { Logo } from './Logo';
 import { Profile } from '../types';
+import { syncCatalog } from '../lib/syncCatalog';
 
 interface SidebarProps {
   activeTab: string;
@@ -28,32 +36,79 @@ interface SidebarProps {
   isOpen?: boolean;
   onClose?: () => void;
   profile: Profile | null;
+  className?: string;
 }
 
 const menuItems = [
   { id: 'profile', label: 'Meu Cadastro', icon: UserCircle, public: true },
+  { id: 'notepad', label: 'Bloco de Notas', icon: StickyNote, public: true },
+  { id: 'financial', label: 'Financeiro', icon: DollarSign, public: true },
   { id: 'campaigns', label: 'Campanhas', icon: Megaphone },
-  { id: 'routes', label: 'Rotas', icon: Map },
+  { id: 'routes', label: 'Rotas', icon: Map, restrictedForStarter: true },
   { id: 'customers', label: 'Clientes', icon: Users },
   { id: 'products', label: 'Catálogo', icon: Package },
   { id: 'reports', label: 'Relatórios', icon: BarChart3 },
-  { id: 'sweepstakes', label: 'Beauty Sorteios', icon: Ticket },
-  { id: 'simulation', label: 'Simulação', icon: Calculator },
+  { id: 'sweepstakes', label: 'Sorteios', icon: Ticket },
+  { id: 'simulation', label: 'Simulação', icon: Calculator, restrictedForStarter: true },
+  { id: 'virtual-store', label: 'Loja Virtual', icon: ShoppingBag },
+  { id: 'store-settings', label: 'Config Loja', icon: Settings },
 ];
 
-export function Sidebar({ activeTab, setActiveTab, isOpen, onClose, profile }: SidebarProps) {
+export function Sidebar({ activeTab, setActiveTab, isOpen, onClose, profile, className }: SidebarProps) {
+  const [syncing, setSyncing] = useState(false);
+  const [previewData, setPreviewData] = useState<{ inserted: any[], updated: any[] } | null>(null);
+  const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
+
   const handleLogout = async () => {
     await supabase.auth.signOut();
   };
 
-  const isAdmin = profile?.email === 'anderlevita@gmail.com';
+  const isAdmin = profile?.role === 'admin' || 
+    profile?.email === 'anderlevita@gmail.com';
   const isBlocked = !!profile?.is_blocked;
-  const hasAccess = isAdmin || (!!profile?.access_key_code && !isBlocked);
+  
+  const isTrial = profile?.status_pagamento === 'TRIAL';
+  const isStarter = profile?.status_pagamento === 'STARTER';
+  const trialEnd = isTrial && profile?.vencimento ? new Date(profile.vencimento) : null;
+  const isTrialExpired = isTrial && trialEnd && trialEnd.getTime() < new Date().getTime();
+  
+  const hasAccess = isAdmin || ((!!profile?.access_key_code || profile?.plano_tipo === 'pro') && !isBlocked && !isTrialExpired);
 
   const handleTabClick = (id: string, isPublic: boolean) => {
     if (!hasAccess && !isPublic) return;
     setActiveTab(id);
     if (onClose) onClose();
+  };
+
+  const handlePreviewSync = async () => {
+    if (!hasAccess) return;
+    
+    setSyncing(true);
+    try {
+      const data = await syncCatalog(true);
+      setPreviewData(data as any);
+      setIsPreviewModalOpen(true);
+    } catch (err: any) {
+      console.error('Error previewing catalog sync:', err);
+      alert('Erro ao carregar prévia: ' + (err.message || 'Erro desconhecido'));
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const handleConfirmSync = async () => {
+    setSyncing(true);
+    try {
+      const { inserted, updated } = await syncCatalog(false);
+      alert(`Sincronização concluída!\n\n- ${inserted} novos produtos adicionados\n- ${updated} produtos atualizados`);
+      setIsPreviewModalOpen(false);
+      window.dispatchEvent(new CustomEvent('catalog_synced'));
+    } catch (err: any) {
+      console.error('Error syncing catalog:', err);
+      alert('Erro ao sincronizar catálogo: ' + (err.message || 'Erro desconhecido'));
+    } finally {
+      setSyncing(false);
+    }
   };
 
   return (
@@ -68,15 +123,17 @@ export function Sidebar({ activeTab, setActiveTab, isOpen, onClose, profile }: S
 
       <div className={cn(
         "fixed inset-y-0 left-0 w-64 bg-white text-zinc-500 flex flex-col border-r border-zinc-100 z-50 transition-transform duration-300 lg:translate-x-0 lg:static lg:inset-auto",
-        isOpen ? "translate-x-0" : "-translate-x-full"
+        isOpen ? "translate-x-0" : "-translate-x-full",
+        className
       )}>
         <div className="p-6 space-y-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 bg-[#00a86b] rounded-lg flex items-center justify-center">
-                <LayoutDashboard className="text-white w-5 h-5" />
+              <Logo className="w-10 h-10" />
+              <div className="flex flex-col">
+                <h1 className="text-[#4a1d33] font-bold text-sm tracking-tight leading-none uppercase">Consigna</h1>
+                <span className="text-[#38a89d] font-bold text-[10px] uppercase tracking-widest">Beauty</span>
               </div>
-              <h1 className="text-zinc-800 font-bold text-lg tracking-tight">Consigna Be...</h1>
             </div>
             <button 
               onClick={onClose}
@@ -87,8 +144,8 @@ export function Sidebar({ activeTab, setActiveTab, isOpen, onClose, profile }: S
           </div>
           
           <div className="flex items-center gap-2 px-1">
-            <div className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse" />
-            <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Supabase: Online</span>
+            <div className="w-2 h-2 bg-[#38a89d] rounded-full animate-pulse" />
+            <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Sistema: Online</span>
           </div>
         </div>
 
@@ -96,7 +153,8 @@ export function Sidebar({ activeTab, setActiveTab, isOpen, onClose, profile }: S
           {menuItems.map((item) => {
             const Icon = item.icon;
             const isActive = activeTab === item.id;
-            const isLocked = !hasAccess && !item.public;
+            const isRestricted = (isStarter || isTrial) && (item as any).restrictedForStarter;
+            const isLocked = (!hasAccess && !item.public) || isRestricted;
             
             return (
               <button
@@ -106,16 +164,16 @@ export function Sidebar({ activeTab, setActiveTab, isOpen, onClose, profile }: S
                 className={cn(
                   "w-full flex items-center justify-between px-4 py-3 rounded-xl transition-all duration-200 group",
                   isActive 
-                    ? "bg-[#00a86b] text-white shadow-lg shadow-emerald-500/20" 
+                    ? "bg-[#38a89d] text-white shadow-lg shadow-[#38a89d]/20" 
                     : isLocked
                       ? "opacity-50 cursor-not-allowed grayscale"
-                      : "hover:bg-zinc-50 text-zinc-500 hover:text-zinc-800"
+                      : "hover:bg-zinc-50 text-zinc-500 hover:text-[#4a1d33]"
                 )}
               >
                 <div className="flex items-center gap-3">
                   <Icon className={cn(
                     "w-5 h-5 transition-colors",
-                    isActive ? "text-white" : "text-zinc-400 group-hover:text-zinc-600"
+                    isActive ? "text-white" : "text-zinc-400 group-hover:text-[#38a89d]"
                   )} />
                   <span className="font-semibold text-sm">{item.label}</span>
                 </div>
@@ -123,24 +181,53 @@ export function Sidebar({ activeTab, setActiveTab, isOpen, onClose, profile }: S
               </button>
             );
           })}
-        </nav>
 
-        <div className="p-4 space-y-2">
+          {hasAccess && (
+            <button
+              onClick={handlePreviewSync}
+              disabled={syncing || isStarter || isTrial}
+              className={cn(
+                "w-full flex items-center justify-between px-4 py-3 rounded-xl transition-all duration-200 group hover:bg-zinc-50 text-zinc-500 hover:text-[#4a1d33] disabled:opacity-50",
+                (isStarter || isTrial) && "opacity-50 cursor-not-allowed grayscale"
+              )}
+            >
+              <div className="flex items-center gap-3">
+                {syncing ? (
+                  <Loader2 className="w-5 h-5 animate-spin text-zinc-400" />
+                ) : (
+                  <RefreshCcw className={cn(
+                    "w-5 h-5 transition-all duration-500",
+                    (isStarter || isTrial) ? "text-zinc-400" : "text-zinc-400 group-hover:text-[#38a89d] group-hover:rotate-180"
+                  )} />
+                )}
+                <span className="font-semibold text-sm">Sincronizar Catálogo</span>
+              </div>
+              {(isStarter || isTrial) && <Lock className="w-3.5 h-3.5 text-zinc-400" />}
+            </button>
+          )}
+
           {isAdmin && (
             <button
               onClick={() => handleTabClick('admin', false)}
               className={cn(
-                "w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group",
+                "w-full flex items-center justify-between px-4 py-3 rounded-xl transition-all duration-200 group",
                 activeTab === 'admin'
-                  ? "bg-zinc-900 text-white"
-                  : "bg-zinc-900 text-white hover:bg-zinc-800"
+                  ? "bg-[#38a89d] text-white shadow-lg shadow-[#38a89d]/20"
+                  : "hover:bg-zinc-50 text-zinc-500 hover:text-[#4a1d33]"
               )}
             >
-              <Settings className="w-5 h-5" />
-              <span className="font-bold text-sm">Painel Admin</span>
+              <div className="flex items-center gap-3">
+                <Settings className={cn(
+                  "w-5 h-5 transition-colors",
+                  activeTab === 'admin' ? "text-white" : "text-zinc-400 group-hover:text-[#38a89d]"
+                )} />
+                <span className="font-semibold text-sm">Painel Admin</span>
+              </div>
             </button>
           )}
-          
+        </nav>
+
+        <div className="p-4 space-y-2">
           <button 
             onClick={handleLogout}
             className="w-full flex items-center gap-3 px-4 py-2 rounded-xl hover:bg-red-50 hover:text-red-500 text-zinc-400 transition-all group"
@@ -150,6 +237,130 @@ export function Sidebar({ activeTab, setActiveTab, isOpen, onClose, profile }: S
           </button>
         </div>
       </div>
+
+      {/* Preview Modal */}
+      {isPreviewModalOpen && previewData && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="bg-white w-full max-w-4xl max-h-[90vh] rounded-[32px] shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-300">
+            <div className="p-6 border-b border-zinc-100 flex items-center justify-between bg-white sticky top-0 z-10">
+              <div className="flex items-center gap-3">
+                <div className="p-3 rounded-2xl bg-emerald-50 text-emerald-500">
+                  <RefreshCcw className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-zinc-800 tracking-tight">Prévia da Sincronização</h3>
+                  <p className="text-sm text-zinc-500">Revise as alterações antes de confirmar.</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setIsPreviewModalOpen(false)}
+                className="p-2 hover:bg-zinc-100 rounded-xl transition-colors text-zinc-400 hover:text-zinc-600"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+            
+            <div className="p-6 overflow-y-auto flex-1 bg-zinc-50/50 space-y-8">
+              {previewData.inserted.length === 0 && previewData.updated.length === 0 ? (
+                <div className="text-center py-12">
+                  <Package className="w-12 h-12 text-zinc-300 mx-auto mb-4" />
+                  <p className="text-lg font-bold text-zinc-700">Seu catálogo já está atualizado!</p>
+                  <p className="text-sm text-zinc-500">Não há novos produtos ou alterações de preço na central.</p>
+                </div>
+              ) : (
+                <>
+                  {previewData.inserted.length > 0 && (
+                    <div className="space-y-4">
+                      <div className="flex items-center gap-2">
+                        <span className="bg-emerald-100 text-emerald-700 px-2.5 py-1 rounded-lg text-xs font-bold uppercase tracking-wider">
+                          {previewData.inserted.length} Novos Produtos
+                        </span>
+                      </div>
+                      <div className="bg-white border border-zinc-200 rounded-2xl overflow-hidden shadow-sm">
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left border-collapse">
+                            <thead>
+                              <tr className="bg-zinc-50 border-b border-zinc-100">
+                                <th className="px-4 py-3 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Produto</th>
+                                <th className="px-4 py-3 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">EAN</th>
+                                <th className="px-4 py-3 text-[10px] font-bold text-zinc-400 uppercase tracking-widest text-right">Custo</th>
+                                <th className="px-4 py-3 text-[10px] font-bold text-zinc-400 uppercase tracking-widest text-right">Venda</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-zinc-100">
+                              {previewData.inserted.map((p, i) => (
+                                <tr key={i} className="hover:bg-zinc-50/50">
+                                  <td className="px-4 py-3 text-sm font-medium text-zinc-800">{p.name}</td>
+                                  <td className="px-4 py-3 text-xs font-mono text-zinc-500">{p.ean || '-'}</td>
+                                  <td className="px-4 py-3 text-sm text-zinc-500 text-right">R$ {p.cost_price?.toFixed(2)}</td>
+                                  <td className="px-4 py-3 text-sm font-bold text-emerald-600 text-right">R$ {p.sale_price?.toFixed(2)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {previewData.updated.length > 0 && (
+                    <div className="space-y-4">
+                      <div className="flex items-center gap-2">
+                        <span className="bg-amber-100 text-amber-700 px-2.5 py-1 rounded-lg text-xs font-bold uppercase tracking-wider">
+                          {previewData.updated.length} Produtos Atualizados
+                        </span>
+                      </div>
+                      <div className="bg-white border border-zinc-200 rounded-2xl overflow-hidden shadow-sm">
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left border-collapse">
+                            <thead>
+                              <tr className="bg-zinc-50 border-b border-zinc-100">
+                                <th className="px-4 py-3 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Produto</th>
+                                <th className="px-4 py-3 text-[10px] font-bold text-zinc-400 uppercase tracking-widest text-right">Custo Antigo</th>
+                                <th className="px-4 py-3 text-[10px] font-bold text-zinc-400 uppercase tracking-widest text-right">Custo Novo</th>
+                                <th className="px-4 py-3 text-[10px] font-bold text-zinc-400 uppercase tracking-widest text-right">Venda Antiga</th>
+                                <th className="px-4 py-3 text-[10px] font-bold text-zinc-400 uppercase tracking-widest text-right">Venda Nova</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-zinc-100">
+                              {previewData.updated.map((p, i) => (
+                                <tr key={i} className="hover:bg-zinc-50/50">
+                                  <td className="px-4 py-3 text-sm font-medium text-zinc-800">{p.payload.name}</td>
+                                  <td className="px-4 py-3 text-sm text-zinc-400 line-through text-right">R$ {p.oldData.cost_price?.toFixed(2)}</td>
+                                  <td className="px-4 py-3 text-sm text-amber-600 font-medium text-right">R$ {p.payload.cost_price?.toFixed(2)}</td>
+                                  <td className="px-4 py-3 text-sm text-zinc-400 line-through text-right">R$ {p.oldData.sale_price?.toFixed(2)}</td>
+                                  <td className="px-4 py-3 text-sm font-bold text-emerald-600 text-right">R$ {p.payload.sale_price?.toFixed(2)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+            
+            <div className="p-6 border-t border-zinc-100 bg-white flex justify-end gap-3 sticky bottom-0">
+              <button
+                onClick={() => setIsPreviewModalOpen(false)}
+                className="px-6 py-3 rounded-xl font-bold text-zinc-600 hover:bg-zinc-100 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleConfirmSync}
+                disabled={syncing || (previewData.inserted.length === 0 && previewData.updated.length === 0)}
+                className="bg-emerald-500 hover:bg-emerald-600 text-white px-8 py-3 rounded-xl font-bold transition-all shadow-lg shadow-emerald-500/20 flex items-center gap-2 disabled:opacity-50"
+              >
+                {syncing ? <Loader2 className="w-5 h-5 animate-spin" /> : <CheckCircle2 className="w-5 h-5" />}
+                Confirmar Sincronização
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

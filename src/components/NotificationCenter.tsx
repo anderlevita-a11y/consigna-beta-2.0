@@ -7,11 +7,12 @@ import {
   CheckCircle2, 
   AlertCircle,
   Navigation,
-  ShoppingBag
+  ShoppingBag,
+  TrendingUp
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 
-export type NotificationType = 'info' | 'warning' | 'error' | 'success' | 'route' | 'sale';
+export type NotificationType = 'info' | 'warning' | 'error' | 'success' | 'route' | 'sale' | 'price_change';
 
 export interface Notification {
   id: string;
@@ -20,6 +21,7 @@ export interface Notification {
   message: string;
   timestamp: Date;
   read: boolean;
+  onClick?: () => void;
 }
 
 interface NotificationContextType {
@@ -84,6 +86,7 @@ export function NotificationCenter() {
       case 'error': return <AlertCircle className="w-5 h-5 text-red-500" />;
       case 'route': return <Navigation className="w-5 h-5 text-blue-500" />;
       case 'sale': return <ShoppingBag className="w-5 h-5 text-purple-500" />;
+      case 'price_change': return <TrendingUp className="w-5 h-5 text-purple-500" />;
       default: return <Info className="w-5 h-5 text-zinc-400" />;
     }
   };
@@ -129,7 +132,10 @@ export function NotificationCenter() {
                       "p-4 flex gap-4 hover:bg-zinc-50 transition-colors group",
                       !notif.read && "bg-emerald-50/30"
                     )}
-                    onClick={() => markAsRead(notif.id)}
+                    onClick={() => {
+                      markAsRead(notif.id);
+                      if (notif.onClick) notif.onClick();
+                    }}
                   >
                     <div className="mt-1">{getIcon(notif.type)}</div>
                     <div className="flex-1 space-y-1">
@@ -174,8 +180,14 @@ export function SystemAlert() {
 
   useEffect(() => {
     const handleError = (event: ErrorEvent) => {
-      setError(event.message);
-      setTimeout(() => setError(null), 5000);
+      let message = event.message;
+      if (message.includes('Failed to fetch')) {
+        message = 'Erro de conexão: Não foi possível alcançar o servidor. Verifique sua internet ou se o Supabase está configurado corretamente.';
+      } else if (message.includes('Edge Function')) {
+        message = 'O servidor de PDF está indisponível. O sistema usará o modo de impressão simplificado automaticamente.';
+      }
+      setError(message);
+      setTimeout(() => setError(null), 8000);
     };
 
     window.addEventListener('error', handleError);
