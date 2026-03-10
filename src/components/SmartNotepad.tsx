@@ -17,10 +17,12 @@ import {
   AlertCircle,
   ChevronRight,
   LayoutDashboard,
-  Smartphone
+  Smartphone,
+  Loader2
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
+import { supabase } from '../lib/supabase';
 
 interface Task {
   id: string;
@@ -57,6 +59,8 @@ interface Feedback {
 
 export function SmartNotepad() {
   const [activeTab, setActiveTab] = useState<'today' | 'content' | 'sales' | 'insights'>('today');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   
   // State for Today
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -80,26 +84,64 @@ export function SmartNotepad() {
   // State for Insights
   const [generalNotes, setGeneralNotes] = useState('');
 
-  // Load data from localStorage
+  // Load data from Supabase (with localStorage fallback)
   useEffect(() => {
-    const saved = localStorage.getItem('smart_notepad_data');
-    if (saved) {
-      const data = JSON.parse(saved);
-      if (data.tasks) setTasks(data.tasks);
-      if (data.habits) setHabits(data.habits);
-      if (data.inegociaveis) setInegociaveis(data.inegociaveis);
-      if (data.insightDoDia) setInsightDoDia(data.insightDoDia);
-      if (data.contentIdeas) setContentIdeas(data.contentIdeas);
-      if (data.captions) setCaptions(data.captions);
-      if (data.leads) setLeads(data.leads);
-      if (data.feedbacks) setFeedbacks(data.feedbacks);
-      if (data.scripts) setScripts(data.scripts);
-      if (data.generalNotes) setGeneralNotes(data.generalNotes);
-    }
+    const loadData = async () => {
+      setLoading(true);
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+    const user = session?.user;
+        if (user) {
+          const { data, error } = await supabase
+            .from('smart_notepad')
+            .select('data')
+            .eq('user_id', user.id)
+            .single();
+
+          if (data?.data) {
+            const notepadData = data.data;
+            if (notepadData.tasks) setTasks(notepadData.tasks);
+            if (notepadData.habits) setHabits(notepadData.habits);
+            if (notepadData.inegociaveis) setInegociaveis(notepadData.inegociaveis);
+            if (notepadData.insightDoDia) setInsightDoDia(notepadData.insightDoDia);
+            if (notepadData.contentIdeas) setContentIdeas(notepadData.contentIdeas);
+            if (notepadData.captions) setCaptions(notepadData.captions);
+            if (notepadData.leads) setLeads(notepadData.leads);
+            if (notepadData.feedbacks) setFeedbacks(notepadData.feedbacks);
+            if (notepadData.scripts) setScripts(notepadData.scripts);
+            if (notepadData.generalNotes) setGeneralNotes(notepadData.generalNotes);
+            setLoading(false);
+            return;
+          }
+        }
+      } catch (err) {
+        console.error('Error loading from Supabase:', err);
+      }
+
+      // Fallback to localStorage
+      const saved = localStorage.getItem('smart_notepad_data');
+      if (saved) {
+        const data = JSON.parse(saved);
+        if (data.tasks) setTasks(data.tasks);
+        if (data.habits) setHabits(data.habits);
+        if (data.inegociaveis) setInegociaveis(data.inegociaveis);
+        if (data.insightDoDia) setInsightDoDia(data.insightDoDia);
+        if (data.contentIdeas) setContentIdeas(data.contentIdeas);
+        if (data.captions) setCaptions(data.captions);
+        if (data.leads) setLeads(data.leads);
+        if (data.feedbacks) setFeedbacks(data.feedbacks);
+        if (data.scripts) setScripts(data.scripts);
+        if (data.generalNotes) setGeneralNotes(data.generalNotes);
+      }
+      setLoading(false);
+    };
+
+    loadData();
   }, []);
 
-  // Save data to localStorage
+  // Save data to localStorage (auto-save)
   useEffect(() => {
+    if (loading) return;
     const data = {
       tasks,
       habits,
@@ -113,7 +155,45 @@ export function SmartNotepad() {
       generalNotes
     };
     localStorage.setItem('smart_notepad_data', JSON.stringify(data));
-  }, [tasks, habits, inegociaveis, insightDoDia, contentIdeas, captions, leads, feedbacks, scripts, generalNotes]);
+  }, [tasks, habits, inegociaveis, insightDoDia, contentIdeas, captions, leads, feedbacks, scripts, generalNotes, loading]);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+    const user = session?.user;
+      if (!user) throw new Error('Usuário não autenticado');
+
+      const data = {
+        tasks,
+        habits,
+        inegociaveis,
+        insightDoDia,
+        contentIdeas,
+        captions,
+        leads,
+        feedbacks,
+        scripts,
+        generalNotes
+      };
+
+      const { error } = await supabase
+        .from('smart_notepad')
+        .upsert({
+          user_id: user.id,
+          data: data,
+          updated_at: new Date().toISOString()
+        });
+
+      if (error) throw error;
+      alert('Bloco de notas salvo com sucesso!');
+    } catch (err: any) {
+      console.error('Error saving to Supabase:', err);
+      alert('Erro ao salvar no servidor: ' + (err.message || 'Tente novamente.'));
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const addTask = (period: 'morning' | 'afternoon' | 'night') => {
     const newTask: Task = {
@@ -157,24 +237,54 @@ export function SmartNotepad() {
     setContentIdeas([...contentIdeas, newIdea]);
   };
 
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-[60vh]">
+        <Loader2 className="w-8 h-8 text-[#38a89d] animate-spin" />
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-6xl mx-auto space-y-8 pb-20 animate-in fade-in duration-500">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-8 rounded-[32px] border border-zinc-100 shadow-sm">
-        <div className="flex items-center gap-4">
-          <div className="w-14 h-14 bg-[#38a89d]/10 rounded-2xl flex items-center justify-center">
-            <StickyNote className="w-7 h-7 text-[#38a89d]" />
+        <div className="flex items-center justify-between w-full md:w-auto">
+          <div className="flex items-center gap-4">
+            <div className="w-14 h-14 bg-[#38a89d]/10 rounded-2xl flex items-center justify-center">
+              <StickyNote className="w-7 h-7 text-[#38a89d]" />
+            </div>
+            <div>
+              <h2 className="text-2xl font-bold text-zinc-800 tracking-tight">Bloco de Notas</h2>
+              <p className="text-sm text-zinc-500">Seu segundo cérebro.</p>
+            </div>
           </div>
-          <div>
-            <h2 className="text-2xl font-bold text-zinc-800 tracking-tight">Bloco de Notas Inteligente</h2>
-            <p className="text-sm text-zinc-500">Seu segundo cérebro para produtividade e marketing.</p>
-          </div>
+          <button 
+            onClick={handleSave}
+            disabled={saving}
+            className="md:hidden flex items-center gap-2 bg-[#38a89d] text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-[#2d8a81] transition-all disabled:opacity-50"
+          >
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            Salvar
+          </button>
         </div>
-        <div className="flex items-center gap-2 bg-zinc-100 p-1.5 rounded-2xl overflow-x-auto w-full md:w-auto no-scrollbar">
-          <TabButton active={activeTab === 'today'} onClick={() => setActiveTab('today')} icon={LayoutDashboard} label="Hoje" />
-          <TabButton active={activeTab === 'content'} onClick={() => setActiveTab('content')} icon={Instagram} label="Conteúdo" />
-          <TabButton active={activeTab === 'sales'} onClick={() => setActiveTab('sales')} icon={Users} label="Vendas" />
-          <TabButton active={activeTab === 'insights'} onClick={() => setActiveTab('insights')} icon={Lightbulb} label="Insights" />
+        
+        <div className="flex flex-col md:flex-row items-center gap-4 w-full md:w-auto">
+          <div className="flex items-center gap-2 bg-zinc-100 p-1.5 rounded-2xl overflow-x-auto w-full md:w-auto no-scrollbar">
+            <TabButton active={activeTab === 'today'} onClick={() => setActiveTab('today')} icon={LayoutDashboard} label="Hoje" />
+            <TabButton active={activeTab === 'content'} onClick={() => setActiveTab('content')} icon={Instagram} label="Conteúdo" />
+            <TabButton active={activeTab === 'sales'} onClick={() => setActiveTab('sales')} icon={Users} label="Vendas" />
+            <TabButton active={activeTab === 'insights'} onClick={() => setActiveTab('insights')} icon={Lightbulb} label="Insights" />
+          </div>
+          
+          <button 
+            onClick={handleSave}
+            disabled={saving}
+            className="hidden md:flex items-center gap-2 bg-[#38a89d] text-white px-6 py-3 rounded-2xl text-sm font-bold hover:bg-[#2d8a81] transition-all shadow-sm shadow-[#38a89d]/20 disabled:opacity-50"
+          >
+            {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
+            Salvar no Servidor
+          </button>
         </div>
       </div>
 

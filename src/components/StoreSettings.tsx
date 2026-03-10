@@ -114,7 +114,8 @@ export function StoreSettings() {
 
   async function fetchProducts() {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+    const user = session?.user;
       if (!user) return;
 
       let allProducts: any[] = [];
@@ -153,7 +154,8 @@ export function StoreSettings() {
 
   async function fetchReviews() {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+    const user = session?.user;
       if (!user) return;
 
       const { data, error } = await supabase
@@ -330,7 +332,8 @@ export function StoreSettings() {
   async function fetchSettings() {
     setLoading(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+    const user = session?.user;
       if (!user) return;
 
       const { data, error } = await supabase
@@ -383,7 +386,8 @@ export function StoreSettings() {
     setSaving(true);
     setMessage(null);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+    const user = session?.user;
       if (!user) return;
 
       const { error } = await supabase
@@ -941,7 +945,8 @@ export function StoreSettings() {
                         setConfirmModal(prev => ({ ...prev, isOpen: false }));
                         try {
                           setSaving(true);
-                          const { data: { user } } = await supabase.auth.getUser();
+                          const { data: { session } } = await supabase.auth.getSession();
+    const user = session?.user;
                           if (!user) return;
 
                           const { error } = await supabase

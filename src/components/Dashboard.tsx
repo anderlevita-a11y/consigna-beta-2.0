@@ -20,7 +20,8 @@ export function Dashboard() {
   useEffect(() => {
     async function fetchStats() {
       try {
-        const { data: { user } } = await supabase.auth.getUser();
+        const { data: { session } } = await supabase.auth.getSession();
+    const user = session?.user;
         if (!user) return;
 
         const { count: productsCount } = await supabase.from('products').select('*', { count: 'exact', head: true }).eq('user_id', user.id);

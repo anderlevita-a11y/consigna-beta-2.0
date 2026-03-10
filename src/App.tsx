@@ -21,6 +21,7 @@ import { StoreSettings } from './components/StoreSettings';
 import { SmartNotepad } from './components/SmartNotepad';
 import { FinancialControl } from './components/FinancialControl';
 import { LegalConfirmationModal } from './components/LegalConfirmationModal';
+import { ResetPasswordModal } from './components/ResetPasswordModal';
 import { Settings, Loader2, Megaphone, BarChart3, Ticket, Calculator, ShieldAlert, Menu, StickyNote, DollarSign } from 'lucide-react';
 import { supabase } from './lib/supabase';
 import { Session } from '@supabase/supabase-js';
@@ -64,20 +65,43 @@ function AppContent() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [legalSettings, setLegalSettings] = useState<AppLegalSettings | null>(null);
   const [showLegalModal, setShowLegalModal] = useState(false);
+  const [showResetPassword, setShowResetPassword] = useState(false);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    // Check URL hash for recovery token on initial load
+    const hash = window.location.hash;
+    if (hash && hash.includes('type=recovery')) {
+      setShowResetPassword(true);
+    }
+
+    supabase.auth.getSession().then(({ data: { session }, error }) => {
+      if (error) {
+        console.error('Session error:', error.message);
+        if (error.message.includes('Refresh Token Not Found') || error.message.includes('Invalid Refresh Token')) {
+          supabase.auth.signOut();
+        }
+      }
       setSession(session);
       if (!session) setLoading(false);
     });
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      if (!session) {
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        setShowResetPassword(true);
+      }
+      
+      if (event === 'SIGNED_OUT') {
+        setSession(null);
         setProfile(null);
         setLoading(false);
+      } else {
+        setSession(session);
+        if (!session) {
+          setProfile(null);
+          setLoading(false);
+        }
       }
     });
 
@@ -399,6 +423,10 @@ function AppContent() {
           termsOfUse={legalSettings.terms_of_use}
           onConfirm={handleConfirmLegal}
         />
+      )}
+
+      {showResetPassword && (
+        <ResetPasswordModal onClose={() => setShowResetPassword(false)} />
       )}
     </div>
   );

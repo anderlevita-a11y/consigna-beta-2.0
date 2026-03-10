@@ -17,20 +17,48 @@ serve(async (req) => {
       httpClient: Stripe.createFetchHttpClient(),
     })
 
-    const { user_id, price_id } = await req.json()
+    const { user_id, price_id, product_id, unit_amount, product_name } = await req.json()
 
-    if (!user_id || !price_id) {
-      throw new Error('Missing user_id or price_id')
+    if (!user_id) {
+      throw new Error('Missing user_id')
+    }
+    
+    if (!price_id && !product_id) {
+      throw new Error('Missing price_id or product_id')
+    }
+
+    let line_item;
+    
+    if (price_id && price_id.startsWith('price_')) {
+      line_item = {
+        price: price_id,
+        quantity: 1,
+      };
+    } else if (product_id) {
+      // Use price_data if product_id is provided
+      line_item = {
+        price_data: {
+          currency: 'brl',
+          product: product_id,
+          unit_amount: unit_amount || 3000, // Default to 30.00 BRL
+        },
+        quantity: 1,
+      };
+    } else {
+      // Fallback if they put product ID in price_id by mistake
+      line_item = {
+        price_data: {
+          currency: 'brl',
+          product: price_id,
+          unit_amount: unit_amount || 3000,
+        },
+        quantity: 1,
+      };
     }
 
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card', 'pix'],
-      line_items: [
-        {
-          price: price_id,
-          quantity: 1,
-        },
-      ],
+      line_items: [line_item],
       mode: 'payment',
       success_url: `${req.headers.get('origin')}/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${req.headers.get('origin')}/cancel`,

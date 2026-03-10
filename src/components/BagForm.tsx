@@ -33,7 +33,8 @@ export function BagForm({ onClose, onSave, campaignId }: BagFormProps) {
 
   async function fetchInitialData() {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+    const user = session?.user;
       if (!user) return;
 
       // Fetch Customers in chunks
@@ -123,7 +124,8 @@ export function BagForm({ onClose, onSave, campaignId }: BagFormProps) {
 
     setLoading(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+    const user = session?.user;
       if (!user) return;
 
       // Get next bag number

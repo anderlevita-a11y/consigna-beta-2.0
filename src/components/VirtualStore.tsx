@@ -116,7 +116,8 @@ export function VirtualStore({ slug }: { slug?: string }) {
           setSettings(storeData);
         }
       } else {
-        const { data: { user } } = await supabase.auth.getUser();
+        const { data: { session } } = await supabase.auth.getSession();
+    const user = session?.user;
         if (user) {
           userId = user.id;
           // Fetch Store Settings
@@ -203,7 +204,8 @@ export function VirtualStore({ slug }: { slug?: string }) {
           .single();
         if (data) userId = data.user_id;
       } else {
-        const { data: { user } } = await supabase.auth.getUser();
+        const { data: { session } } = await supabase.auth.getSession();
+    const user = session?.user;
         if (user) userId = user.id;
       }
 
@@ -230,7 +232,8 @@ export function VirtualStore({ slug }: { slug?: string }) {
     try {
       setUploadingPhoto(true);
       
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+    const user = session?.user;
       if (!user) throw new Error('Usuário não autenticado');
 
       const fileExt = file.name.split('.').pop();

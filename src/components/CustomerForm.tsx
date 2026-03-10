@@ -61,7 +61,8 @@ export function CustomerForm({ customer, onClose, onSave }: CustomerFormProps) {
     else setUploadingProof(true);
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+    const user = session?.user;
       if (!user) throw new Error('Usuário não autenticado');
 
       const fileExt = file.name.split('.').pop();
@@ -97,7 +98,8 @@ export function CustomerForm({ customer, onClose, onSave }: CustomerFormProps) {
     setLoading(true);
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+    const user = session?.user;
       if (!user) throw new Error('Usuário não autenticado');
 
       // Remove immutable fields from formData

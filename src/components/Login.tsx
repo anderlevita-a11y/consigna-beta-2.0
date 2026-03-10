@@ -11,6 +11,7 @@ export function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [resetSent, setResetSent] = useState(false);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -39,14 +40,46 @@ export function Login() {
     setLoading(true);
     setError(null);
     try {
-      const { error } = await supabase.auth.signUp({
+      const { data, error } = await supabase.auth.signUp({
         email,
         password,
       });
       if (error) throw error;
-      alert('Verifique seu e-mail para confirmar o cadastro!');
+      
+      alert('Cadastro realizado com sucesso!');
+      
+      // if (data?.user) {
+      //   const paymentLink = 'https://buy.stripe.com/00w9AL9hc7yb5cvcta1sQ00';
+      //   const url = new URL(paymentLink);
+      //   url.searchParams.append('client_reference_id', data.user.id);
+      //   if (data.user.email) {
+      //     url.searchParams.append('prefilled_email', data.user.email);
+      //   }
+      //   window.location.href = url.toString();
+      // }
     } catch (err: any) {
       setError(err.message || 'Erro ao cadastrar.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResetPassword = async () => {
+    if (!email) {
+      setError('Por favor, digite seu email no campo acima para recuperar a senha.');
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: window.location.origin,
+      });
+      if (error) throw error;
+      setResetSent(true);
+      alert('Instruções de recuperação enviadas para o seu email!');
+    } catch (err: any) {
+      setError(err.message || 'Erro ao tentar recuperar a senha.');
     } finally {
       setLoading(false);
     }
@@ -125,7 +158,12 @@ export function Login() {
               </button>
             </div>
             <div className="text-right">
-              <button type="button" className="text-xs font-bold text-[#4a1d33] hover:underline underline-offset-2">
+              <button 
+                type="button" 
+                onClick={handleResetPassword}
+                disabled={loading}
+                className="text-xs font-bold text-[#4a1d33] hover:underline underline-offset-2 disabled:opacity-50"
+              >
                 Esqueceu a senha?
               </button>
             </div>

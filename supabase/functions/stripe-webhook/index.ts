@@ -29,7 +29,7 @@ serve(async (req) => {
 
     if (event.type === 'checkout.session.completed') {
       const session = event.data.object
-      const userId = session.metadata?.user_id
+      const userId = session.metadata?.user_id || session.client_reference_id
 
       if (userId) {
         // Update profile

@@ -1,7 +1,8 @@
 import { supabase } from './supabase';
 
 export async function syncCatalog(previewOnly: boolean = false) {
-  const { data: { user } } = await supabase.auth.getUser();
+  const { data: { session } } = await supabase.auth.getSession();
+    const user = session?.user;
   if (!user) throw new Error('Usuário não autenticado');
 
   // Fetch central products

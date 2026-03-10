@@ -56,7 +56,8 @@ export function Routes() {
   async function fetchRoutes() {
     setLoading(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+    const user = session?.user;
       if (!user) return;
 
       const { data, error } = await supabase
@@ -76,7 +77,8 @@ export function Routes() {
   }
 
   async function fetchInitialData() {
-    const { data: { user } } = await supabase.auth.getUser();
+    const { data: { session } } = await supabase.auth.getSession();
+    const user = session?.user;
     if (!user) return;
 
     const [campRes, custRes] = await Promise.all([
@@ -123,36 +125,107 @@ export function Routes() {
   };
 
   const optimizeRoute = () => {
-    if (!currentPos || selectedCustomers.length === 0) return;
+    if (!currentPos) {
+      alert('Localização GPS não disponível. Verifique as permissões do navegador.');
+      getUserLocation();
+      return;
+    }
+    if (selectedCustomers.length === 0) return;
 
     let unvisited = [...selectedCustomers];
     let optimized: Customer[] = [];
     let currentLat = currentPos.lat;
     let currentLng = currentPos.lng;
 
-    while (unvisited.length > 0) {
+    // Separate customers with and without GPS coordinates
+    let withGps = unvisited.filter(c => c.latitude && c.longitude);
+    let withoutGps = unvisited.filter(c => !c.latitude || !c.longitude);
+
+    // Nearest Neighbor Algorithm
+    while (withGps.length > 0) {
       let nearestIdx = 0;
       let minDist = Infinity;
 
-      unvisited.forEach((cust, idx) => {
-        if (cust.latitude && cust.longitude) {
-          const dist = calculateDistance(currentLat, currentLng, cust.latitude, cust.longitude);
+      withGps.forEach((cust, idx) => {
+        const dist = calculateDistance(currentLat, currentLng, cust.latitude!, cust.longitude!);
+        if (dist < minDist) {
+          minDist = dist;
+          nearestIdx = idx;
+        }
+      });
+
+      const nextCust = withGps.splice(nearestIdx, 1)[0];
+      optimized.push(nextCust);
+      currentLat = nextCust.latitude!;
+      currentLng = nextCust.longitude!;
+    }
+
+    setSelectedCustomers([...optimized, ...withoutGps]);
+    alert('Rota otimizada com a melhor sequência de atendimento!');
+  };
+
+  const optimizeActiveRoute = async () => {
+    if (!currentPos) {
+      alert('Localização GPS não disponível.');
+      getUserLocation();
+      return;
+    }
+    if (!activeRoute || !activeRoute.stops) return;
+    
+    setLoading(true);
+    try {
+      let unvisited = [...activeRoute.stops];
+      let optimizedStops: RouteStop[] = [];
+      let currentLat = currentPos.lat;
+      let currentLng = currentPos.lng;
+
+      // Separate stops with and without GPS coordinates
+      let withGps = unvisited.filter(s => s.customer?.latitude && s.customer?.longitude);
+      let withoutGps = unvisited.filter(s => !s.customer?.latitude || !s.customer?.longitude);
+
+      // Nearest Neighbor Algorithm
+      while (withGps.length > 0) {
+        let nearestIdx = 0;
+        let minDist = Infinity;
+
+        withGps.forEach((stop, idx) => {
+          const dist = calculateDistance(currentLat, currentLng, stop.customer!.latitude!, stop.customer!.longitude!);
           if (dist < minDist) {
             minDist = dist;
             nearestIdx = idx;
           }
-        }
-      });
+        });
 
-      const nextCust = unvisited.splice(nearestIdx, 1)[0];
-      optimized.push(nextCust);
-      if (nextCust.latitude && nextCust.longitude) {
-        currentLat = nextCust.latitude;
-        currentLng = nextCust.longitude;
+        const nextStop = withGps.splice(nearestIdx, 1)[0];
+        optimizedStops.push(nextStop);
+        currentLat = nextStop.customer!.latitude!;
+        currentLng = nextStop.customer!.longitude!;
       }
-    }
 
-    setSelectedCustomers(optimized);
+      const finalStops = [...optimizedStops, ...withoutGps];
+
+      // Update order_index in database
+      await Promise.all(finalStops.map((stop, i) => 
+        supabase
+          .from('route_stops')
+          .update({ order_index: i })
+          .eq('id', stop.id)
+      ));
+
+      // Update local state
+      const updatedStops = finalStops.map((s, idx) => ({ ...s, order_index: idx }));
+      setActiveRoute({ ...activeRoute, stops: updatedStops });
+      
+      // Update routes list
+      setRoutes(routes.map(r => r.id === activeRoute.id ? { ...r, stops: updatedStops } : r));
+      
+      alert('Rota otimizada com a melhor sequência de atendimento!');
+    } catch (err) {
+      console.error('Error optimizing active route:', err);
+      alert('Erro ao otimizar rota');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const moveItem = (index: number, direction: 'up' | 'down') => {
@@ -178,7 +251,8 @@ export function Routes() {
 
     setLoading(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+    const user = session?.user;
       if (!user) return;
 
       const { data: route, error: routeError } = await supabase
@@ -397,8 +471,17 @@ export function Routes() {
                               <User className="w-5 h-5 text-zinc-400" />
                             </div>
                             <div>
-                              <p className="font-bold text-zinc-800 text-sm">{cust.nome}</p>
-                              <p className="text-[10px] text-zinc-400">{cust.cidade} - {cust.bairro}</p>
+                              <div className="flex items-center gap-2">
+                                <p className="font-bold text-zinc-800 text-sm">{cust.nome}</p>
+                                {(!cust.latitude || !cust.longitude) && (
+                                  <span className="px-2 py-0.5 rounded-md bg-red-50 text-red-600 text-[9px] font-bold uppercase tracking-wider border border-red-100">
+                                    Sem GPS
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-[10px] text-zinc-400 mt-0.5">
+                                {[cust.logradouro, cust.address_number, cust.bairro, cust.cidade].filter(Boolean).join(', ') || 'Sem endereço cadastrado'}
+                              </p>
                             </div>
                           </div>
                           
@@ -463,15 +546,25 @@ export function Routes() {
             </div>
           </div>
           
-          {activeRoute.status !== 'completed' && (
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full sm:w-auto">
             <button 
-              onClick={() => handleFinishRoute(activeRoute.id)}
-              className="flex items-center justify-center gap-2 bg-[#00a86b] hover:bg-[#008f5b] text-white px-6 py-3 sm:py-2.5 rounded-xl font-bold text-sm transition-all shadow-lg shadow-emerald-500/20 w-full sm:w-auto"
+              onClick={optimizeActiveRoute}
+              disabled={loading}
+              className="flex items-center justify-center gap-2 bg-zinc-900 hover:bg-zinc-800 text-white px-4 py-3 sm:py-2.5 rounded-xl font-bold text-xs transition-all shadow-lg w-full sm:w-auto"
             >
-              <CheckCircle2 className="w-4 h-4" />
-              Finalizar Rota
+              <Map className="w-4 h-4" />
+              Otimizar via GPS
             </button>
-          )}
+            {activeRoute.status !== 'completed' && (
+              <button 
+                onClick={() => handleFinishRoute(activeRoute.id)}
+                className="flex items-center justify-center gap-2 bg-[#00a86b] hover:bg-[#008f5b] text-white px-6 py-3 sm:py-2.5 rounded-xl font-bold text-sm transition-all shadow-lg shadow-emerald-500/20 w-full sm:w-auto"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                Finalizar Rota
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="bg-white border border-zinc-200 rounded-2xl p-6 shadow-sm">
@@ -522,14 +615,23 @@ export function Routes() {
                       )} />
                     </div>
                     <div>
+                      <div className="flex items-center gap-2">
+                        <p className={cn(
+                          "font-bold text-sm",
+                          stop.status === 'visited' ? "text-emerald-900" : "text-zinc-800"
+                        )}>{stop.customer?.nome}</p>
+                        {(!stop.customer?.latitude || !stop.customer?.longitude) && (
+                          <span className="px-2 py-0.5 rounded-md bg-red-50 text-red-600 text-[9px] font-bold uppercase tracking-wider border border-red-100">
+                            Sem GPS
+                          </span>
+                        )}
+                      </div>
                       <p className={cn(
-                        "font-bold text-sm",
-                        stop.status === 'visited' ? "text-emerald-900" : "text-zinc-800"
-                      )}>{stop.customer?.nome}</p>
-                      <p className={cn(
-                        "text-[10px]",
+                        "text-[10px] mt-0.5",
                         stop.status === 'visited' ? "text-emerald-600/70" : "text-zinc-400"
-                      )}>{stop.customer?.cidade} - {stop.customer?.bairro}</p>
+                      )}>
+                        {[stop.customer?.logradouro, stop.customer?.address_number, stop.customer?.bairro, stop.customer?.cidade].filter(Boolean).join(', ') || 'Sem endereço cadastrado'}
+                      </p>
                     </div>
                   </div>
                   

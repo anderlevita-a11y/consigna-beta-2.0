@@ -366,7 +366,8 @@ Data da última atualização: 09 de marco. Responsável Legal: Anderson Rodrigu
 
     setImporting(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+    const user = session?.user;
       if (!user) throw new Error('Usuário não autenticado');
 
       const rows = excelData.split('\n').filter(row => row.trim());

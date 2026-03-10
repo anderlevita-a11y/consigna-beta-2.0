@@ -54,7 +54,8 @@ export function SweepstakesManager() {
   async function fetchSweepstakes() {
     setLoading(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+    const user = session?.user;
       if (!user) return;
 
       let query = supabase
@@ -289,7 +290,8 @@ function SweepstakesForm({ onClose, onSave }: { onClose: () => void; onSave: () 
     e.preventDefault();
     setLoading(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+    const user = session?.user;
       if (!user) return;
 
       const { error } = await supabase

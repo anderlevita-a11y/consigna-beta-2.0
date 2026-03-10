@@ -21,6 +21,7 @@ import {
 import { supabase } from '../lib/supabase';
 import { Profile } from '../types';
 import { cn } from '../lib/utils';
+import { loadStripe } from '@stripe/stripe-js';
 
 export function ProfileScreen() {
   const [loading, setLoading] = useState(true);
@@ -35,7 +36,8 @@ export function ProfileScreen() {
 
   useEffect(() => {
     async function fetchProfile() {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+    const user = session?.user;
       if (user) {
         const { data, error } = await supabase
           .from('profiles')
@@ -60,27 +62,47 @@ export function ProfileScreen() {
   const handleUpgrade = async () => {
     setUpgrading(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user;
       if (!user) throw new Error('Usuário não autenticado');
 
-      const priceId = import.meta.env.VITE_STRIPE_PRICE_ID_PRO;
-      if (!priceId) {
-        throw new Error('ID do preço do Stripe não configurado (VITE_STRIPE_PRICE_ID_PRO)');
+      // Use the direct Stripe Payment Link provided by the user
+      const paymentLink = 'https://buy.stripe.com/00w9AL9hc7yb5cvcta1sQ00';
+      
+      // Append user ID and email to the payment link so the webhook can identify the user
+      const url = new URL(paymentLink);
+      url.searchParams.append('client_reference_id', user.id);
+      if (user.email) {
+        url.searchParams.append('prefilled_email', user.email);
       }
 
-      const { data, error } = await supabase.functions.invoke('create-checkout', {
-        body: { 
-          user_id: user.id,
-          price_id: priceId
-        }
-      });
+      window.location.href = url.toString();
+    } catch (err: any) {
+      console.error(err);
+      alert('Erro ao iniciar checkout: ' + (err.message || 'Tente novamente.'));
+    } finally {
+      setUpgrading(false);
+    }
+  };
 
-      if (error) throw error;
-      if (data?.url) {
-        window.location.href = data.url;
-      } else {
-        throw new Error('URL de checkout não retornada');
+  const handleCheckout = async () => {
+    setUpgrading(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user;
+      if (!user) throw new Error('Usuário não autenticado');
+
+      // Use the direct Stripe Payment Link provided by the user
+      const paymentLink = 'https://buy.stripe.com/00w9AL9hc7yb5cvcta1sQ00';
+      
+      // Append user ID and email to the payment link so the webhook can identify the user
+      const url = new URL(paymentLink);
+      url.searchParams.append('client_reference_id', user.id);
+      if (user.email) {
+        url.searchParams.append('prefilled_email', user.email);
       }
+
+      window.location.href = url.toString();
     } catch (err: any) {
       console.error(err);
       alert('Erro ao iniciar checkout: ' + (err.message || 'Tente novamente.'));
@@ -123,7 +145,8 @@ export function ProfileScreen() {
 
     setUploading(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+    const user = session?.user;
       if (!user) throw new Error('Usuário não autenticado');
 
       const fileExt = file.name.split('.').pop();
@@ -158,8 +181,9 @@ export function ProfileScreen() {
     try {
       // Extract path from public URL
       // Example URL: https://.../storage/v1/object/public/documents/documents/user_id/random.jpg
-      const urlParts = profile.documento_url.split('/documents/');
-      const filePath = urlParts[urlParts.length - 1];
+      const urlParts = profile.documento_url.split('/object/public/documents/');
+      if (urlParts.length < 2) throw new Error('URL de documento inválida');
+      const filePath = urlParts[1];
 
       const { error } = await supabase.storage
         .from('documents')
@@ -523,20 +547,58 @@ export function ProfileScreen() {
               />
               <p className="text-[10px] text-zinc-400">O seu acesso é liberado manualmente pelo administrador ou via assinatura PRO.</p>
               
-              {((!profile?.access_key_code || isTrial) && profile?.role !== 'admin' && profile?.plano_tipo !== 'pro') && (
+              {false && profile?.role !== 'admin' && profile?.plano_tipo !== 'pro' && (
                 <button 
                   onClick={handleUpgrade}
                   disabled={upgrading}
                   className="w-full mt-4 flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white py-4 rounded-2xl font-bold transition-all shadow-lg shadow-emerald-500/20"
                 >
                   {upgrading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Crown className="w-5 h-5" />}
-                  Fazer Upgrade para PRO (Pix/Cartão)
+                  Assinar Promo Lançamento (R$ 30,00)
                 </button>
               )}
             </div>
           </div>
         </div>
       </section>
+
+      {/* Promo Lançamento Card */}
+      {false && (!profile?.plano_tipo || profile?.plano_tipo !== 'pro') && profile?.role !== 'admin' && (
+        <section className="bg-gradient-to-br from-[#38a89d] to-[#2d8a81] rounded-3xl p-6 sm:p-8 text-white shadow-xl relative overflow-hidden">
+          <div className="absolute top-0 right-0 p-8 opacity-10">
+            <Crown className="w-32 h-32" />
+          </div>
+          <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-8">
+            <div className="space-y-4 text-center md:text-left">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/20 backdrop-blur-sm text-sm font-bold uppercase tracking-widest">
+                <Crown className="w-4 h-4" />
+                Promo Lançamento
+              </div>
+              <h3 className="text-3xl md:text-4xl font-bold">Consigna Beauty PRO</h3>
+              <p className="text-emerald-50 max-w-md text-sm md:text-base opacity-90">
+                Tenha acesso ilimitado a todas as ferramentas de gestão, rotas otimizadas e controle financeiro avançado.
+              </p>
+              <div className="flex items-baseline gap-2 justify-center md:justify-start">
+                <span className="text-5xl font-black">R$ 30,00</span>
+                <span className="text-emerald-100 font-medium">/mês</span>
+              </div>
+            </div>
+            <div className="w-full md:w-auto">
+              <button 
+                onClick={handleCheckout}
+                disabled={upgrading}
+                className="w-full md:w-auto px-8 py-4 bg-white text-[#38a89d] hover:bg-zinc-50 rounded-2xl font-black text-lg transition-all shadow-lg hover:shadow-xl hover:-translate-y-1 flex items-center justify-center gap-3 disabled:opacity-70 disabled:hover:translate-y-0"
+              >
+                {upgrading ? <Loader2 className="w-6 h-6 animate-spin" /> : <CreditCard className="w-6 h-6" />}
+                Assinar Agora
+              </button>
+              <p className="text-center text-xs text-emerald-100 mt-3 font-medium">
+                Pagamento seguro via Stripe
+              </p>
+            </div>
+          </div>
+        </section>
+      )}
 
       <div className="flex items-center justify-center gap-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">
         <button 

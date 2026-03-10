@@ -123,7 +123,8 @@ export function Products() {
 
   async function fetchStoreSettings() {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+    const user = session?.user;
       if (!user) return;
       const { data } = await supabase
         .from('store_settings')
@@ -150,7 +151,8 @@ export function Products() {
   }
 
   async function fetchProfile() {
-    const { data: { user } } = await supabase.auth.getUser();
+    const { data: { session } } = await supabase.auth.getSession();
+    const user = session?.user;
     if (user) {
       const { data } = await supabase
         .from('profiles')
@@ -237,7 +239,8 @@ export function Products() {
 
     setImporting(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+    const user = session?.user;
       if (!user) throw new Error('Usuário não autenticado');
 
       const rows = excelData.split('\n').filter(row => row.trim());
@@ -321,7 +324,8 @@ export function Products() {
   async function fetchProducts() {
     setLoading(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+    const user = session?.user;
       if (!user) return;
 
       let allProducts: Product[] = [];
@@ -418,7 +422,8 @@ export function Products() {
     e.preventDefault();
     setSaving(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+    const user = session?.user;
       if (!user) return;
 
       // Convert empty EAN or '0' to null to avoid unique constraint violations on placeholders
@@ -470,7 +475,8 @@ export function Products() {
 
   const handleAddSingleFromCentral = async (centralProduct: any) => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+    const user = session?.user;
       if (!user) return;
 
       const isValidEan = centralProduct.ean && centralProduct.ean !== '0' && centralProduct.ean !== '';
@@ -535,7 +541,8 @@ export function Products() {
     if (!selectedCentralProduct) return;
     
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+    const user = session?.user;
       if (!user) return;
 
       const { error } = await supabase

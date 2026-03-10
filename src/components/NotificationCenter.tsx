@@ -179,19 +179,32 @@ export function SystemAlert() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const handleError = (event: ErrorEvent) => {
-      let message = event.message;
-      if (message.includes('Failed to fetch')) {
-        message = 'Erro de conexão: Não foi possível alcançar o servidor. Verifique sua internet ou se o Supabase está configurado corretamente.';
+    const handleError = (message: string) => {
+      if (message.includes('Failed to fetch') || message.includes('Falha ao conectar com o Supabase')) {
+        message = 'Erro de conexão: O Supabase está pausado ou a URL está incorreta. Acesse o painel do Supabase e restaure seu projeto.';
       } else if (message.includes('Edge Function')) {
         message = 'O servidor de PDF está indisponível. O sistema usará o modo de impressão simplificado automaticamente.';
       }
       setError(message);
-      setTimeout(() => setError(null), 8000);
+      setTimeout(() => setError(null), 10000);
     };
 
-    window.addEventListener('error', handleError);
-    return () => window.removeEventListener('error', handleError);
+    const onWindowError = (event: ErrorEvent) => {
+      handleError(event.message);
+    };
+
+    const onUnhandledRejection = (event: PromiseRejectionEvent) => {
+      const msg = event.reason?.message || String(event.reason);
+      handleError(msg);
+    };
+
+    window.addEventListener('error', onWindowError);
+    window.addEventListener('unhandledrejection', onUnhandledRejection);
+    
+    return () => {
+      window.removeEventListener('error', onWindowError);
+      window.removeEventListener('unhandledrejection', onUnhandledRejection);
+    };
   }, []);
 
   if (!error) return null;

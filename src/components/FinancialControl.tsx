@@ -14,10 +14,13 @@ import {
   BarChart3,
   Download,
   Search,
-  Tag
+  Tag,
+  Loader2,
+  Save
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
+import { supabase } from '../lib/supabase';
 import { 
   AreaChart, 
   Area, 
@@ -56,6 +59,8 @@ const COLORS = ['#38a89d', '#4a1d33', '#f59e0b', '#ef4444', '#8b5cf6', '#3b82f6'
 export function FinancialControl() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [categories, setCategories] = useState<CategoryState>(DEFAULT_CATEGORIES);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isAddingCategory, setIsAddingCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
@@ -69,37 +74,50 @@ export function FinancialControl() {
     category: DEFAULT_CATEGORIES.expense[0]
   });
 
-  // Load data
+  // Load data from Supabase
   useEffect(() => {
-    const savedTransactions = localStorage.getItem('financial_data');
-    if (savedTransactions) {
-      setTransactions(JSON.parse(savedTransactions));
-    } else {
-      // Sample data for initial view
-      const sampleData: Transaction[] = [
-        { id: '1', description: 'Venda de Kit Beauty', amount: 450.00, type: 'income', category: 'Vendas', date: '2024-03-01' },
-        { id: '2', description: 'Fornecedor de Embalagens', amount: 120.00, type: 'expense', category: 'Fornecedores', date: '2024-03-02' },
-        { id: '3', description: 'Anúncios Instagram', amount: 200.00, type: 'expense', category: 'Marketing', date: '2024-03-03' },
-        { id: '4', description: 'Comissão Vendedora Ana', amount: 150.00, type: 'income', category: 'Comissões', date: '2024-03-04' },
-        { id: '5', description: 'Aluguel Sala', amount: 800.00, type: 'expense', category: 'Aluguel', date: '2024-03-05' },
-      ];
-      setTransactions(sampleData);
-    }
+    const loadData = async () => {
+      setLoading(true);
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+    const user = session?.user;
+        if (user) {
+          // Load transactions
+          const { data: transData, error: transError } = await supabase
+            .from('financial_transactions')
+            .select('*')
+            .eq('user_id', user.id)
+            .order('date', { ascending: false });
 
-    const savedCategories = localStorage.getItem('financial_categories');
-    if (savedCategories) {
-      setCategories(JSON.parse(savedCategories));
-    }
+          if (transError) throw transError;
+          if (transData) setTransactions(transData);
+
+          // Load categories
+          const { data: catData, error: catError } = await supabase
+            .from('financial_categories')
+            .select('categories')
+            .eq('user_id', user.id)
+            .single();
+
+          if (catData?.categories) {
+            setCategories(catData.categories);
+          }
+        }
+      } catch (err) {
+        console.error('Error loading financial data:', err);
+        // Fallback to localStorage if needed
+        const savedTransactions = localStorage.getItem('financial_data');
+        if (savedTransactions) setTransactions(JSON.parse(savedTransactions));
+        
+        const savedCategories = localStorage.getItem('financial_categories');
+        if (savedCategories) setCategories(JSON.parse(savedCategories));
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadData();
   }, []);
-
-  // Save data
-  useEffect(() => {
-    localStorage.setItem('financial_data', JSON.stringify(transactions));
-  }, [transactions]);
-
-  useEffect(() => {
-    localStorage.setItem('financial_categories', JSON.stringify(categories));
-  }, [categories]);
 
   const handleAddCategory = () => {
     if (!newCategoryName.trim()) return;
@@ -166,31 +184,83 @@ export function FinancialControl() {
     })
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
-  const handleAddTransaction = (e: React.FormEvent) => {
+  const handleAddTransaction = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTransaction.description || !newTransaction.amount) return;
 
-    const transaction: Transaction = {
-      id: Date.now().toString(),
-      description: newTransaction.description as string,
-      amount: Number(newTransaction.amount),
-      type: newTransaction.type as 'income' | 'expense',
-      category: newTransaction.category as string,
-      date: newTransaction.date as string
-    };
+    setSaving(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+    const user = session?.user;
+      if (!user) throw new Error('Usuário não autenticado');
 
-    setTransactions([transaction, ...transactions]);
-    setIsModalOpen(false);
-    setNewTransaction({
-      type: 'expense',
-      date: new Date().toISOString().split('T')[0],
-      category: categories.expense[0]
-    });
+      const transactionData = {
+        user_id: user.id,
+        description: newTransaction.description as string,
+        amount: Number(newTransaction.amount),
+        type: newTransaction.type as 'income' | 'expense',
+        category: newTransaction.category as string,
+        date: newTransaction.date as string
+      };
+
+      const { data, error } = await supabase
+        .from('financial_transactions')
+        .insert([transactionData])
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      setTransactions([data, ...transactions]);
+      setIsModalOpen(false);
+      setNewTransaction({
+        type: 'expense',
+        date: new Date().toISOString().split('T')[0],
+        category: categories.expense[0]
+      });
+      
+      // Also save categories to Supabase if they changed (added new one)
+      await supabase
+        .from('financial_categories')
+        .upsert({
+          user_id: user.id,
+          categories: categories,
+          updated_at: new Date().toISOString()
+        });
+
+    } catch (err: any) {
+      console.error('Error adding transaction:', err);
+      alert('Erro ao salvar lançamento: ' + (err.message || 'Tente novamente.'));
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const removeTransaction = (id: string) => {
-    setTransactions(transactions.filter(t => t.id !== id));
+  const removeTransaction = async (id: string) => {
+    if (!confirm('Deseja realmente excluir este lançamento?')) return;
+
+    try {
+      const { error } = await supabase
+        .from('financial_transactions')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+
+      setTransactions(transactions.filter(t => t.id !== id));
+    } catch (err: any) {
+      console.error('Error removing transaction:', err);
+      alert('Erro ao excluir: ' + (err.message || 'Tente novamente.'));
+    }
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-[60vh]">
+        <Loader2 className="w-8 h-8 text-[#38a89d] animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-7xl mx-auto space-y-8 pb-20 animate-in fade-in duration-500">
@@ -588,8 +658,10 @@ export function FinancialControl() {
                   </button>
                   <button 
                     type="submit"
-                    className="flex-1 bg-zinc-900 text-white px-6 py-4 rounded-2xl font-bold hover:bg-zinc-800 transition-all shadow-lg"
+                    disabled={saving}
+                    className="flex-1 bg-zinc-900 text-white px-6 py-4 rounded-2xl font-bold hover:bg-zinc-800 transition-all shadow-lg disabled:opacity-50 flex items-center justify-center gap-2"
                   >
+                    {saving && <Loader2 className="w-4 h-4 animate-spin" />}
                     Confirmar
                   </button>
                 </div>
