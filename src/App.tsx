@@ -169,10 +169,18 @@ function AppContent() {
 
     // Handle global auth refresh errors
     const handleError = (event: PromiseRejectionEvent) => {
-      if (event.reason?.message?.includes('Refresh Token Not Found') || 
-          event.reason?.message?.includes('Invalid Refresh Token')) {
+      const msg = event.reason?.message;
+      if (typeof msg === 'string' && (
+          msg.includes('Refresh Token Not Found') || 
+          msg.includes('Invalid Refresh Token') ||
+          msg.includes('refresh_token_not_found')
+      )) {
+        event.preventDefault(); // Prevent the error from showing in the console
         console.warn('Auth refresh failed, signing out...');
-        supabase.auth.signOut();
+        supabase.auth.signOut().catch(() => {});
+        localStorage.removeItem('supabase.auth.token');
+        setSession(null);
+        setLoading(false);
       }
     };
 

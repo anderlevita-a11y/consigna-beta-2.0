@@ -218,11 +218,11 @@ export function BagForm({ onClose, onSave, campaignId }: BagFormProps) {
   };
 
   const filteredProducts = productSearch 
-    ? products.filter(p => p.name.toLowerCase().includes(productSearch.toLowerCase()) || p.ean?.includes(productSearch)).slice(0, 50)
+    ? products.filter(p => p.name.toLowerCase().includes(productSearch.toLowerCase()) || String(p.ean || '').includes(productSearch)).slice(0, 50)
     : [];
 
   const filteredCustomers = customerSearch
-    ? customers.filter(c => c.nome.toLowerCase().includes(customerSearch.toLowerCase()) || c.cpf?.includes(customerSearch)).slice(0, 50)
+    ? customers.filter(c => c.nome.toLowerCase().includes(customerSearch.toLowerCase()) || String(c.cpf || '').includes(customerSearch)).slice(0, 50)
     : [];
 
   return (

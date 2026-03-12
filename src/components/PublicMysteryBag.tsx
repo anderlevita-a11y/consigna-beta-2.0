@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { MysteryBagCampaign, MysteryBag } from '../types';
-import { Loader2, ShoppingBag, Trophy, Info, Upload, CheckCircle2, Gift } from 'lucide-react';
+import { MysteryBagCampaign, MysteryBag, StoreSettings } from '../types';
+import { Loader2, ShoppingBag, Trophy, Info, Upload, CheckCircle2, Gift, ChevronLeft } from 'lucide-react';
 import { cn, validateCPF, validatePhone } from '../lib/utils';
 
 export function PublicMysteryBag() {
@@ -11,6 +11,7 @@ export function PublicMysteryBag() {
   const [loading, setLoading] = useState(true);
   const [selectedBag, setSelectedBag] = useState<MysteryBag | null>(null);
   const [step, setStep] = useState<'select' | 'form' | 'payment' | 'success'>('select');
+  const [storeSettings, setStoreSettings] = useState<StoreSettings | null>(null);
   
   const [formData, setFormData] = useState({
     name: '',
@@ -47,6 +48,17 @@ export function PublicMysteryBag() {
       
       if (campaignError) throw campaignError;
       setCampaign(campaignData);
+
+      // Fetch Store Settings
+      const { data: storeData } = await supabase
+        .from('store_settings')
+        .select('*')
+        .eq('user_id', campaignData.user_id)
+        .single();
+      
+      if (storeData) {
+        setStoreSettings(storeData);
+      }
 
       const { data: bagsData, error: bagsError } = await supabase
         .from('mystery_bags')
@@ -170,13 +182,35 @@ export function PublicMysteryBag() {
   }
 
   return (
-    <div className="min-h-screen bg-zinc-50 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-3xl mx-auto space-y-8">
+    <div className="min-h-screen bg-zinc-50 pb-24">
+      {/* Store Header */}
+      {storeSettings && (
+        <header className="bg-white border-b border-zinc-100 px-6 py-4 sticky top-0 z-30 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            {storeSettings.logo_url ? (
+              <img src={storeSettings.logo_url} alt="Logo" className="h-8 w-auto object-contain" referrerPolicy="no-referrer" />
+            ) : (
+              <span className="font-serif italic font-bold text-zinc-900">{storeSettings.store_name}</span>
+            )}
+          </div>
+          {storeSettings.store_slug && (
+            <button 
+              onClick={() => window.location.href = `/?s=${storeSettings.store_slug}`}
+              className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest hover:text-zinc-600 flex items-center gap-1"
+            >
+              <ChevronLeft className="w-3 h-3" />
+              Voltar para a Loja
+            </button>
+          )}
+        </header>
+      )}
+
+      <div className="max-w-3xl mx-auto space-y-8 py-12 px-4 sm:px-6 lg:px-8">
         
         {/* Header */}
         <div className="bg-white rounded-[40px] p-8 sm:p-12 shadow-sm text-center space-y-6">
-          <div className="w-16 h-16 bg-emerald-50 rounded-full flex items-center justify-center mx-auto">
-            <Gift className="w-8 h-8 text-emerald-500" />
+          <div className="w-16 h-16 bg-emerald-50 rounded-full flex items-center justify-center mx-auto" style={storeSettings?.primary_color ? { backgroundColor: `${storeSettings.primary_color}1a` } : {}}>
+            <Gift className="w-8 h-8 text-emerald-500" style={storeSettings?.primary_color ? { color: storeSettings.primary_color } : {}} />
           </div>
           <div>
             <h1 className="text-3xl sm:text-4xl font-bold text-zinc-800 tracking-tight mb-4">{campaign.title}</h1>
@@ -188,7 +222,7 @@ export function PublicMysteryBag() {
           <div className="flex flex-wrap items-center justify-center gap-4 pt-4">
             <div className="bg-zinc-50 px-6 py-3 rounded-2xl">
               <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-1">Valor da Sacola</p>
-              <p className="text-xl font-bold text-emerald-600">R$ {campaign.bag_price.toFixed(2)}</p>
+              <p className="text-xl font-bold text-emerald-600" style={storeSettings?.primary_color ? { color: storeSettings.primary_color } : {}}>R$ {campaign.bag_price.toFixed(2)}</p>
             </div>
             <div className="bg-zinc-50 px-6 py-3 rounded-2xl">
               <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-1">Total de Sacolas</p>
@@ -202,7 +236,7 @@ export function PublicMysteryBag() {
           <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
             <div className="bg-white rounded-[40px] p-8 shadow-sm">
               <h2 className="text-xl font-bold text-zinc-800 mb-6 flex items-center gap-2">
-                <ShoppingBag className="w-5 h-5 text-emerald-500" />
+                <ShoppingBag className="w-5 h-5 text-emerald-500" style={storeSettings?.primary_color ? { color: storeSettings.primary_color } : {}} />
                 Escolha sua Sacola Surpresa
               </h2>
               
@@ -221,7 +255,7 @@ export function PublicMysteryBag() {
                         </div>
                         <div className="flex-1">
                           <p className="text-xs text-zinc-500 uppercase tracking-widest font-bold mb-1">Prêmio</p>
-                          <p className="font-bold text-emerald-600">{bag.prize_description}</p>
+                          <p className="font-bold text-emerald-600" style={storeSettings?.primary_color ? { color: storeSettings.primary_color } : {}}>{bag.prize_description}</p>
                           {bag.buyer_name && (
                             <p className="text-xs text-zinc-600 mt-1">Ganhador(a): <span className="font-bold">{bag.buyer_name}</span></p>
                           )}
@@ -246,6 +280,22 @@ export function PublicMysteryBag() {
                               ? "bg-zinc-100 text-zinc-400 cursor-not-allowed" 
                               : "bg-emerald-50 text-emerald-600 hover:bg-emerald-500 hover:text-white shadow-sm hover:shadow-md hover:-translate-y-1 group"
                           )}
+                          style={isAvailable && storeSettings?.primary_color ? { 
+                            backgroundColor: `${storeSettings.primary_color}1a`,
+                            color: storeSettings.primary_color
+                          } : {}}
+                          onMouseEnter={(e) => {
+                            if (isAvailable && storeSettings?.primary_color) {
+                              e.currentTarget.style.backgroundColor = storeSettings.primary_color;
+                              e.currentTarget.style.color = 'white';
+                            }
+                          }}
+                          onMouseLeave={(e) => {
+                            if (isAvailable && storeSettings?.primary_color) {
+                              e.currentTarget.style.backgroundColor = `${storeSettings.primary_color}1a`;
+                              e.currentTarget.style.color = storeSettings.primary_color;
+                            }
+                          }}
                         >
                           <ShoppingBag className={cn("w-6 h-6", !isAvailable ? "opacity-50" : "group-hover:scale-110 transition-transform")} />
                           <span className="font-bold text-sm">#{String(bag.display_number).padStart(2, '0')}</span>
@@ -255,7 +305,7 @@ export function PublicMysteryBag() {
                   </div>
                   <div className="flex items-center justify-center gap-6 mt-8 pt-8 border-t border-zinc-100">
                     <div className="flex items-center gap-2">
-                      <div className="w-4 h-4 rounded bg-emerald-50 border border-emerald-100"></div>
+                      <div className="w-4 h-4 rounded bg-emerald-50 border border-emerald-100" style={storeSettings?.primary_color ? { backgroundColor: `${storeSettings.primary_color}1a`, borderColor: `${storeSettings.primary_color}33` } : {}}></div>
                       <span className="text-xs font-bold text-zinc-500 uppercase tracking-wider">Disponível</span>
                     </div>
                     <div className="flex items-center gap-2">
@@ -282,7 +332,7 @@ export function PublicMysteryBag() {
         {step === 'form' && selectedBag && (
           <div className="bg-white rounded-[40px] p-8 sm:p-12 shadow-sm max-w-xl mx-auto animate-in fade-in slide-in-from-bottom-4 duration-500">
             <div className="text-center mb-8">
-              <div className="inline-flex flex-col items-center justify-center w-20 h-20 rounded-2xl bg-emerald-50 text-emerald-600 font-bold mb-4">
+              <div className="inline-flex flex-col items-center justify-center w-20 h-20 rounded-2xl bg-emerald-50 text-emerald-600 font-bold mb-4" style={storeSettings?.primary_color ? { backgroundColor: `${storeSettings.primary_color}1a`, color: storeSettings.primary_color } : {}}>
                 <ShoppingBag className="w-6 h-6 mb-1" />
                 <span>#{String(selectedBag.display_number).padStart(2, '0')}</span>
               </div>
@@ -299,6 +349,7 @@ export function PublicMysteryBag() {
                   value={formData.name}
                   onChange={e => setFormData({...formData, name: e.target.value})}
                   className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm focus:border-emerald-500 outline-none transition-all"
+                  style={{ '--tw-ring-color': storeSettings?.primary_color } as any}
                 />
               </div>
               <div className="space-y-2">
@@ -309,6 +360,7 @@ export function PublicMysteryBag() {
                   value={formData.cpf}
                   onChange={e => setFormData({...formData, cpf: e.target.value})}
                   className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm focus:border-emerald-500 outline-none transition-all"
+                  style={{ '--tw-ring-color': storeSettings?.primary_color } as any}
                 />
               </div>
               <div className="space-y-2">
@@ -319,6 +371,7 @@ export function PublicMysteryBag() {
                   value={formData.phone}
                   onChange={e => setFormData({...formData, phone: e.target.value})}
                   className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm focus:border-emerald-500 outline-none transition-all"
+                  style={{ '--tw-ring-color': storeSettings?.primary_color } as any}
                 />
               </div>
 
@@ -333,6 +386,7 @@ export function PublicMysteryBag() {
                 <button 
                   type="submit"
                   className="flex-1 bg-[#00a86b] hover:bg-[#008f5b] text-white px-6 py-4 rounded-2xl font-bold transition-all shadow-lg shadow-emerald-500/20"
+                  style={storeSettings?.primary_color ? { backgroundColor: storeSettings.primary_color, boxShadow: `0 10px 15px -3px ${storeSettings.primary_color}33` } : {}}
                 >
                   Continuar
                 </button>
@@ -350,7 +404,7 @@ export function PublicMysteryBag() {
 
             <div className="bg-zinc-50 rounded-3xl p-6 mb-8 text-center">
               <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Total a Pagar</p>
-              <p className="text-4xl font-bold text-emerald-600">R$ {campaign.bag_price.toFixed(2)}</p>
+              <p className="text-4xl font-bold text-emerald-600" style={storeSettings?.primary_color ? { color: storeSettings.primary_color } : {}}>R$ {campaign.bag_price.toFixed(2)}</p>
             </div>
 
             <div className="space-y-6">
@@ -376,13 +430,15 @@ export function PublicMysteryBag() {
                     receiptUrl 
                       ? "border-emerald-500 bg-emerald-50" 
                       : "border-zinc-200 bg-zinc-50 hover:bg-zinc-100"
-                  )}>
+                  )}
+                  style={receiptUrl && storeSettings?.primary_color ? { borderColor: storeSettings.primary_color, backgroundColor: `${storeSettings.primary_color}0d` } : {}}
+                  >
                     {uploading ? (
-                      <Loader2 className="w-8 h-8 animate-spin text-emerald-500 mx-auto" />
+                      <Loader2 className="w-8 h-8 animate-spin text-emerald-500 mx-auto" style={storeSettings?.primary_color ? { color: storeSettings.primary_color } : {}} />
                     ) : receiptUrl ? (
                       <div className="space-y-2">
-                        <CheckCircle2 className="w-8 h-8 text-emerald-500 mx-auto" />
-                        <p className="text-sm font-bold text-emerald-700">Comprovante anexado!</p>
+                        <CheckCircle2 className="w-8 h-8 text-emerald-500 mx-auto" style={storeSettings?.primary_color ? { color: storeSettings.primary_color } : {}} />
+                        <p className="text-sm font-bold text-emerald-700" style={storeSettings?.primary_color ? { color: storeSettings.primary_color } : {}}>Comprovante anexado!</p>
                       </div>
                     ) : (
                       <div className="space-y-2">
@@ -407,6 +463,7 @@ export function PublicMysteryBag() {
                   onClick={handleConfirmPurchase}
                   disabled={!receiptUrl || loading}
                   className="flex-1 bg-[#00a86b] hover:bg-[#008f5b] text-white px-6 py-4 rounded-2xl font-bold transition-all shadow-lg shadow-emerald-500/20 disabled:opacity-50 flex items-center justify-center gap-2"
+                  style={storeSettings?.primary_color ? { backgroundColor: storeSettings.primary_color, boxShadow: `0 10px 15px -3px ${storeSettings.primary_color}33` } : {}}
                 >
                   {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Confirmar Compra'}
                 </button>
@@ -417,12 +474,12 @@ export function PublicMysteryBag() {
 
         {step === 'success' && selectedBag && (
           <div className="bg-white rounded-[40px] p-8 sm:p-12 shadow-sm max-w-xl mx-auto text-center animate-in zoom-in-95 duration-500">
-            <div className="w-20 h-20 bg-emerald-50 rounded-full flex items-center justify-center mx-auto mb-6">
-              <CheckCircle2 className="w-10 h-10 text-emerald-500" />
+            <div className="w-20 h-20 bg-emerald-50 rounded-full flex items-center justify-center mx-auto mb-6" style={storeSettings?.primary_color ? { backgroundColor: `${storeSettings.primary_color}1a` } : {}}>
+              <CheckCircle2 className="w-10 h-10 text-emerald-500" style={storeSettings?.primary_color ? { color: storeSettings.primary_color } : {}} />
             </div>
             <h2 className="text-3xl font-bold text-zinc-800 mb-4">Sucesso!</h2>
             <p className="text-zinc-600 mb-8">
-              Seu comprovante foi enviado e a sacola <strong className="text-emerald-600">#{String(selectedBag.display_number).padStart(2, '0')}</strong> está reservada. 
+              Seu comprovante foi enviado e a sacola <strong className="text-emerald-600" style={storeSettings?.primary_color ? { color: storeSettings.primary_color } : {}}>#{String(selectedBag.display_number).padStart(2, '0')}</strong> está reservada. 
               Aguarde a aprovação do administrador e o final da campanha para descobrir seu prêmio!
             </p>
             <button 

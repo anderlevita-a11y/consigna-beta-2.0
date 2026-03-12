@@ -181,7 +181,7 @@ export function LabelCenter({ onClose, initialProduct }: LabelCenterProps) {
 
   const filteredProducts = products.filter(p => 
     p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (p.ean && p.ean.includes(searchTerm))
+    String(p.ean || '').includes(searchTerm)
   );
 
   const handlePrint = () => {

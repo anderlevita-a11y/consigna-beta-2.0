@@ -179,7 +179,8 @@ export function SystemAlert() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const handleError = (message: string) => {
+    const handleError = (message: any) => {
+      if (typeof message !== 'string') return;
       if (message.includes('Failed to fetch') || message.includes('Falha ao conectar com o Supabase')) {
         message = 'Erro de conexão: O Supabase está pausado ou a URL está incorreta. Acesse o painel do Supabase e restaure seu projeto.';
       } else if (message.includes('Edge Function')) {

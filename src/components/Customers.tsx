@@ -64,7 +64,7 @@ export function Customers() {
 
   const filteredCustomers = customers.filter(c => 
     c.nome?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    c.whatsapp?.toLowerCase().includes(searchTerm.toLowerCase())
+    String(c.whatsapp || '').includes(searchTerm)
   );
 
   const displayedCustomers = filteredCustomers.slice(0, 100);

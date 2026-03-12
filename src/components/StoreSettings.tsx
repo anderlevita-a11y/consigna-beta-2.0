@@ -1009,7 +1009,7 @@ export function StoreSettings() {
                   return (
                     p.name.toLowerCase().includes(searchLower) ||
                     (p.label_name && p.label_name.toLowerCase().includes(searchLower)) ||
-                    (p.ean && p.ean.includes(searchLower))
+                    String(p.ean || '').includes(searchLower)
                   );
                 }
                 // Se não estiver buscando, mostra apenas os que já estão ativos na vitrine

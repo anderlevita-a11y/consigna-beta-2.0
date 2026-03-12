@@ -13,11 +13,16 @@ import {
   Trash2,
   Play,
   Check,
-  ChevronRight
+  ChevronRight,
+  ExternalLink,
+  User,
+  X,
+  Share2
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { Route, RouteStop, Customer, Campaign } from '../types';
 import { cn } from '../lib/utils';
+import { ConfirmationModal } from './ConfirmationModal';
 
 export function Routes() {
   const [routes, setRoutes] = useState<Route[]>([]);
@@ -32,12 +37,115 @@ export function Routes() {
   const [selectedCampaign, setSelectedCampaign] = useState<string>('');
   const [selectedCustomers, setSelectedCustomers] = useState<Customer[]>([]);
   const [routeName, setRouteName] = useState('');
+  const [startTime, setStartTime] = useState('08:00');
+  const [serviceTime, setServiceTime] = useState(25);
+  const [lunchStart, setLunchStart] = useState('12:00');
+  const [lunchDuration, setLunchDuration] = useState(60);
+  const [showNavModal, setShowNavModal] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [routeToDelete, setRouteToDelete] = useState<string | null>(null);
 
   useEffect(() => {
     fetchRoutes();
     fetchInitialData();
     getUserLocation();
   }, []);
+
+  const calculateSchedule = (route: Partial<Route>, stops: any[]) => {
+    const start = route.start_time || '08:00';
+    const serviceMin = route.estimated_service_time || 25;
+    const lunchStartStr = route.lunch_break_start_time || '12:00';
+    const lunchDur = route.lunch_break_duration || 60;
+    
+    let currentTime = new Date(`2000-01-01T${start}:00`);
+    const lunchStartTime = new Date(`2000-01-01T${lunchStartStr}:00`);
+    const lunchEndTime = new Date(lunchStartTime.getTime() + lunchDur * 60000);
+    
+    let lunchTaken = false;
+
+    return stops.map((stop, idx) => {
+      let travelTime = 15; // Default 15 min
+      
+      const cust = stop.customer || stop;
+      
+      if (idx === 0) {
+        if (currentPos && cust.latitude) {
+          const dist = calculateDistance(currentPos.lat, currentPos.lng, cust.latitude, cust.longitude!);
+          travelTime = Math.max(5, Math.round(dist * 2));
+        }
+      } else {
+        const prev = stops[idx - 1];
+        const prevCust = prev.customer || prev;
+        if (prevCust.latitude && cust.latitude) {
+          const dist = calculateDistance(prevCust.latitude, prevCust.longitude!, cust.latitude, cust.longitude!);
+          travelTime = Math.max(5, Math.round(dist * 2));
+        }
+      }
+      
+      currentTime = new Date(currentTime.getTime() + travelTime * 60000);
+      
+      if (!lunchTaken && currentTime >= lunchStartTime) {
+        currentTime = new Date(Math.max(currentTime.getTime(), lunchEndTime.getTime()));
+        lunchTaken = true;
+      }
+      
+      const arrival = new Date(currentTime);
+      currentTime = new Date(currentTime.getTime() + serviceMin * 60000);
+      
+      return {
+        ...stop,
+        estimated_arrival: arrival.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      };
+    });
+  };
+
+  const handleShareRoute = () => {
+    if (!activeRoute || !activeRoute.stops) return;
+    
+    const scheduledStops = calculateSchedule(activeRoute, activeRoute.stops);
+    
+    let message = `*Agenda da Rota: ${activeRoute.name}*\n\n`;
+    scheduledStops.forEach((stop, idx) => {
+      message += `${idx + 1}. *${stop.estimated_arrival}* - ${stop.customer?.nome}\n`;
+      message += `   📍 ${[stop.customer?.logradouro, stop.customer?.address_number, stop.customer?.bairro].filter(Boolean).join(', ')}\n\n`;
+    });
+    
+    const encodedMessage = encodeURIComponent(message);
+    window.open(`https://wa.me/?text=${encodedMessage}`, '_blank');
+  };
+
+  const handleNextStop = async () => {
+    if (!activeRoute || !activeRoute.stops) return;
+    
+    const nextStop = activeRoute.stops
+      .filter(s => s.status === 'pending')
+      .sort((a, b) => a.order_index - b.order_index)[0];
+      
+    if (!nextStop) {
+      alert('Todas as paradas foram concluídas!');
+      return;
+    }
+
+    // Mark current as visited if there was one
+    // Actually, the user said "clicando novamente abrirá a proxima rota da sequencia dando checkout no atendimento da cliente"
+    // This implies we checkout the *current* and open the *next*.
+    
+    await handleMarkVisited(nextStop.id, 'pending');
+    
+    // Find the NEW next stop after marking the previous one as visited
+    const newNextStop = activeRoute.stops
+      .filter(s => s.status === 'pending' && s.id !== nextStop.id)
+      .sort((a, b) => a.order_index - b.order_index)[0];
+
+    if (newNextStop) {
+      const url = getNavigateToStopUrl(newNextStop, 'maps');
+      if (url) window.open(url, '_blank');
+    } else {
+      alert('Última parada concluída! Finalizando rota...');
+      handleFinishRoute(activeRoute.id);
+    }
+  };
 
   const getUserLocation = () => {
     if (navigator.geolocation) {
@@ -333,9 +441,12 @@ export function Routes() {
         .from('routes')
         .insert([{
           name: routeName,
-          campaign_id: selectedCampaign || null,
           user_id: user.id,
-          status: 'pending'
+          status: 'pending',
+          start_time: startTime,
+          estimated_service_time: serviceTime,
+          lunch_break_start_time: lunchStart,
+          lunch_break_duration: lunchDuration
         }])
         .select()
         .single();
@@ -359,8 +470,20 @@ export function Routes() {
         throw stopsError;
       }
 
+      // Prepare active route with stops and customer data
+      const routeWithStops = {
+        ...route,
+        stops: stops.map((s, i) => ({
+          ...s,
+          customer: selectedCustomers[i]
+        }))
+      };
+
       setView('list');
+      setRouteName('');
+      setSelectedCustomers([]);
       fetchRoutes();
+      alert('Rota salva com sucesso!');
     } catch (err: any) {
       console.error('Error saving route:', err);
       alert('Erro ao salvar rota: ' + (err.message || JSON.stringify(err)));
@@ -390,7 +513,7 @@ export function Routes() {
       
       // Update routes list
       setRoutes(routes.map(r => {
-        if (r.id === activeRoute?.id) {
+        if (r.id === activeRoute?.id || r.id === routes.find(route => route.stops?.some(s => s.id === stopId))?.id) {
           return {
             ...r,
             stops: r.stops?.map(stop => 
@@ -403,6 +526,40 @@ export function Routes() {
     } catch (err: any) {
       console.error('Error updating stop status:', err);
       alert('Erro ao atualizar status da parada: ' + (err.message || JSON.stringify(err)));
+    }
+  };
+
+  const handleDeleteRoute = async (routeId: string) => {
+    setLoading(true);
+    try {
+      // Delete stops first (cascade should handle it but let's be safe)
+      const { error: stopsError } = await supabase
+        .from('route_stops')
+        .delete()
+        .eq('route_id', routeId);
+
+      if (stopsError) throw stopsError;
+
+      const { error: routeError } = await supabase
+        .from('routes')
+        .delete()
+        .eq('id', routeId);
+
+      if (routeError) throw routeError;
+
+      setRoutes(routes.filter(r => r.id !== routeId));
+      if (activeRoute?.id === routeId) {
+        setActiveRoute(null);
+        setView('list');
+      }
+      alert('Rota excluída com sucesso!');
+    } catch (err: any) {
+      console.error('Error deleting route:', err);
+      alert('Erro ao excluir rota: ' + (err.message || JSON.stringify(err)));
+    } finally {
+      setLoading(false);
+      setDeleteModalOpen(false);
+      setRouteToDelete(null);
     }
   };
 
@@ -444,8 +601,8 @@ export function Routes() {
               disabled={loading}
               className="flex items-center justify-center gap-2 bg-[#00a86b] hover:bg-[#008f5b] text-white px-6 py-3 sm:py-2.5 rounded-xl font-bold text-sm transition-all shadow-lg shadow-emerald-500/20 w-full sm:w-auto"
             >
-              <CheckCircle2 className="w-4 h-4" />
-              Finalizar Rota
+              <Check className="w-4 h-4" />
+              Salvar Rota
             </button>
           </div>
         </div>
@@ -463,7 +620,69 @@ export function Routes() {
                   value={routeName}
                   onChange={(e) => setRouteName(e.target.value)}
                   className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3 text-sm text-zinc-800 focus:border-emerald-500 outline-none transition-all"
+                  autoComplete="off"
+                  data-form-type="other"
+                  data-lpignore="true"
+                  data-1p-ignore="true"
                 />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Início</label>
+                  <input 
+                    type="time" 
+                    value={startTime}
+                    onChange={(e) => setStartTime(e.target.value)}
+                    className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3 text-sm text-zinc-800 focus:border-emerald-500 outline-none transition-all"
+                    autoComplete="off"
+                    data-form-type="other"
+                    data-lpignore="true"
+                    data-1p-ignore="true"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Tempo/Atend. (min)</label>
+                  <input 
+                    type="number" 
+                    value={serviceTime}
+                    onChange={(e) => setServiceTime(parseInt(e.target.value) || 0)}
+                    className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3 text-sm text-zinc-800 focus:border-emerald-500 outline-none transition-all"
+                    autoComplete="off"
+                    data-form-type="other"
+                    data-lpignore="true"
+                    data-1p-ignore="true"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Início Almoço</label>
+                  <input 
+                    type="time" 
+                    value={lunchStart}
+                    onChange={(e) => setLunchStart(e.target.value)}
+                    className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3 text-sm text-zinc-800 focus:border-emerald-500 outline-none transition-all"
+                    autoComplete="off"
+                    data-form-type="other"
+                    data-lpignore="true"
+                    data-1p-ignore="true"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Duração Almoço (min)</label>
+                  <input 
+                    type="number" 
+                    value={lunchDuration}
+                    onChange={(e) => setLunchDuration(parseInt(e.target.value) || 0)}
+                    className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3 text-sm text-zinc-800 focus:border-emerald-500 outline-none transition-all"
+                    autoComplete="off"
+                    data-form-type="other"
+                    data-lpignore="true"
+                    data-1p-ignore="true"
+                  />
+                </div>
               </div>
 
               <div className="space-y-2">
@@ -563,7 +782,7 @@ export function Routes() {
                             </div>
                           </div>
                           
-                          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <div className="flex items-center gap-1">
                             <button 
                               onClick={() => moveItem(idx, 'up')}
                               disabled={idx === 0}
@@ -626,21 +845,13 @@ export function Routes() {
           
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full sm:w-auto">
             {activeRoute.status !== 'completed' && (
-              <a 
-                href={getNavigateFullRouteUrl() || '#'}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={(e) => {
-                  if (!getNavigateFullRouteUrl()) {
-                    e.preventDefault();
-                    alert('Nenhuma parada pendente com GPS para navegar.');
-                  }
-                }}
+              <button 
+                onClick={() => setShowNavModal(true)}
                 className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-3 sm:py-2.5 rounded-xl font-bold text-xs transition-all shadow-lg shadow-blue-500/20 w-full sm:w-auto"
               >
                 <Navigation className="w-4 h-4" />
                 Iniciar Navegação
-              </a>
+              </button>
             )}
             <button 
               onClick={optimizeActiveRoute}
@@ -649,6 +860,13 @@ export function Routes() {
             >
               <Map className="w-4 h-4" />
               Otimizar via GPS
+            </button>
+            <button 
+              onClick={handleShareRoute}
+              className="flex items-center justify-center gap-2 bg-emerald-50 text-emerald-600 px-4 py-3 sm:py-2.5 rounded-xl font-bold text-xs transition-all hover:bg-emerald-100 w-full sm:w-auto"
+            >
+              <Share2 className="w-4 h-4" />
+              Compartilhar Agenda
             </button>
             {activeRoute.status !== 'completed' && (
               <button 
@@ -696,6 +914,9 @@ export function Routes() {
                     <div>
                       <div className="flex items-center gap-2">
                         <p className="font-bold text-sm text-zinc-800">{stop.customer?.nome}</p>
+                        <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md">
+                          {calculateSchedule(activeRoute, activeRoute.stops || [])[idx]?.estimated_arrival}
+                        </span>
                         {(!stop.customer?.latitude || !stop.customer?.longitude) && (
                           <span className="px-2 py-0.5 rounded-md bg-red-50 text-red-600 text-[9px] font-bold uppercase tracking-wider border border-red-100">
                             Sem GPS
@@ -709,7 +930,7 @@ export function Routes() {
                   </div>
                   
                   <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity mr-2">
+                    <div className="flex items-center gap-1 mr-2">
                       <button 
                         onClick={() => moveActiveRouteItem(idx, 'up')}
                         disabled={idx === 0}
@@ -822,6 +1043,10 @@ export function Routes() {
     );
   }
 
+  const nextStop = activeRoute?.stops
+    ?.filter(s => s.status === 'pending')
+    .sort((a, b) => a.order_index - b.order_index)[0];
+
   return (
     <div className="space-y-8">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -865,12 +1090,25 @@ export function Routes() {
                     </p>
                   </div>
                 </div>
-                <span className={cn(
-                  "px-2 py-1 rounded-lg text-[10px] font-bold uppercase",
-                  route.status === 'completed' ? "bg-emerald-50 text-emerald-600" : "bg-amber-50 text-amber-600"
-                )}>
-                  {route.status === 'completed' ? 'Finalizada' : 'Pendente'}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className={cn(
+                    "px-2 py-1 rounded-lg text-[10px] font-bold uppercase",
+                    route.status === 'completed' ? "bg-emerald-50 text-emerald-600" : "bg-amber-50 text-amber-600"
+                  )}>
+                    {route.status === 'completed' ? 'Finalizada' : 'Pendente'}
+                  </span>
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setRouteToDelete(route.id);
+                      setDeleteModalOpen(true);
+                    }}
+                    className="p-2 hover:bg-red-50 text-red-400 rounded-lg transition-colors"
+                    title="Excluir Rota"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
 
               <div className="space-y-3 mb-6">
@@ -899,26 +1137,87 @@ export function Routes() {
           ))
         )}
       </div>
+      {showNavModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="bg-white w-full max-w-sm rounded-[32px] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300">
+            <div className="p-6 border-b border-zinc-100 flex items-center justify-between">
+              <h3 className="font-bold text-zinc-800">Escolha o Aplicativo</h3>
+              <button onClick={() => setShowNavModal(false)} className="p-2 hover:bg-zinc-100 rounded-xl transition-colors">
+                <X className="w-5 h-5 text-zinc-400" />
+              </button>
+            </div>
+            <div className="p-6 space-y-3">
+              <a 
+                href={getNavigateFullRouteUrl() || '#'}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => setShowNavModal(false)}
+                className="flex items-center justify-between p-4 bg-zinc-50 hover:bg-zinc-100 rounded-2xl border border-zinc-100 transition-all group"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-white border border-zinc-200 flex items-center justify-center shadow-sm">
+                    <Map className="w-5 h-5 text-blue-500" />
+                  </div>
+                  <div>
+                    <p className="font-bold text-zinc-800 text-sm">Google Maps</p>
+                    <p className="text-[10px] text-zinc-400 uppercase tracking-widest">Suporta múltiplos pontos</p>
+                  </div>
+                </div>
+                <ExternalLink className="w-4 h-4 text-zinc-300 group-hover:text-zinc-500 transition-colors" />
+              </a>
+
+              <a 
+                href={activeRoute?.stops?.find(s => s.status === 'pending' && s.customer?.latitude)?.customer ? getNavigateToStopUrl(activeRoute.stops.find(s => s.status === 'pending' && s.customer?.latitude)!, 'waze') || '#' : '#'}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => setShowNavModal(false)}
+                className="flex items-center justify-between p-4 bg-zinc-50 hover:bg-zinc-100 rounded-2xl border border-zinc-100 transition-all group"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-white border border-zinc-200 flex items-center justify-center shadow-sm">
+                    <Navigation className="w-5 h-5 text-cyan-500" />
+                  </div>
+                  <div>
+                    <p className="font-bold text-zinc-800 text-sm">Waze</p>
+                    <p className="text-[10px] text-zinc-400 uppercase tracking-widest">Apenas próximo ponto</p>
+                  </div>
+                </div>
+                <ExternalLink className="w-4 h-4 text-zinc-300 group-hover:text-zinc-500 transition-colors" />
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <ConfirmationModal
+        isOpen={deleteModalOpen}
+        title="Excluir Rota"
+        message="Tem certeza que deseja excluir esta rota? Esta ação não pode ser desfeita e todas as paradas associadas serão removidas."
+        confirmText="Excluir Rota"
+        cancelText="Manter Rota"
+        variant="danger"
+        onConfirm={() => routeToDelete && handleDeleteRoute(routeToDelete)}
+        onCancel={() => {
+          setDeleteModalOpen(false);
+          setRouteToDelete(null);
+        }}
+      />
+
+      {activeRoute && activeRoute.status !== 'completed' && view === 'view' && nextStop && (
+        <button
+          onClick={handleNextStop}
+          className="fixed bottom-8 right-8 z-50 flex items-center gap-3 bg-zinc-900 text-white px-6 py-4 rounded-full font-bold shadow-2xl hover:scale-105 transition-all animate-in slide-in-from-bottom-8 group"
+        >
+          <div className="flex flex-col items-end mr-1">
+            <span className="text-[10px] text-zinc-400 uppercase tracking-widest">Check-out & Próximo</span>
+            <span className="text-sm truncate max-w-[150px]">{nextStop.customer?.nome}</span>
+          </div>
+          <div className="w-10 h-10 rounded-full bg-emerald-500 flex items-center justify-center group-hover:bg-emerald-400 transition-colors">
+            <Play className="w-5 h-5 text-white fill-current ml-0.5" />
+          </div>
+        </button>
+      )}
     </div>
   );
 }
 
-function User({ className }: { className?: string }) {
-  return (
-    <svg 
-      xmlns="http://www.w3.org/2000/svg" 
-      width="24" 
-      height="24" 
-      viewBox="0 0 24 24" 
-      fill="none" 
-      stroke="currentColor" 
-      strokeWidth="2" 
-      strokeLinecap="round" 
-      strokeLinejoin="round" 
-      className={className}
-    >
-      <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
-      <circle cx="12" cy="7" r="4" />
-    </svg>
-  );
-}

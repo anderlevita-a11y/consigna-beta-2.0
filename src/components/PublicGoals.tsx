@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { GoalCampaign, GoalParticipant } from '../types';
-import { Loader2, Target, Gift, MessageSquare, MapPin, User, Send, CheckCircle2, ChevronRight, Share2 } from 'lucide-react';
+import { GoalCampaign, GoalParticipant, StoreSettings } from '../types';
+import { Loader2, Target, Gift, MessageSquare, MapPin, User, Send, CheckCircle2, ChevronRight, Share2, ChevronLeft } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { format } from 'date-fns';
 
@@ -12,6 +12,7 @@ export function PublicGoals() {
   const [participants, setParticipants] = useState<GoalParticipant[]>([]);
   const [loading, setLoading] = useState(true);
   const [step, setStep] = useState<'list' | 'details' | 'form' | 'success'>('list');
+  const [storeSettings, setStoreSettings] = useState<StoreSettings | null>(null);
   
   const [formData, setFormData] = useState({
     name: '',
@@ -50,6 +51,17 @@ export function PublicGoals() {
         
         if (campaignError) throw campaignError;
         setSelectedCampaign(campaignData);
+
+        // Fetch Store Settings
+        const { data: storeData } = await supabase
+          .from('store_settings')
+          .select('*')
+          .eq('user_id', campaignData.user_id)
+          .single();
+        
+        if (storeData) {
+          setStoreSettings(storeData);
+        }
 
         // Fetch participants
         const { data: participantsData, error: participantsError } = await supabase
@@ -149,13 +161,35 @@ export function PublicGoals() {
   }
 
   return (
-    <div className="min-h-screen bg-zinc-50 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-3xl mx-auto space-y-8">
+    <div className="min-h-screen bg-zinc-50 pb-24">
+      {/* Store Header */}
+      {storeSettings && (
+        <header className="bg-white border-b border-zinc-100 px-6 py-4 sticky top-0 z-30 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            {storeSettings.logo_url ? (
+              <img src={storeSettings.logo_url} alt="Logo" className="h-8 w-auto object-contain" referrerPolicy="no-referrer" />
+            ) : (
+              <span className="font-serif italic font-bold text-zinc-900">{storeSettings.store_name}</span>
+            )}
+          </div>
+          {storeSettings.store_slug && (
+            <button 
+              onClick={() => window.location.href = `/?s=${storeSettings.store_slug}`}
+              className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest hover:text-zinc-600 flex items-center gap-1"
+            >
+              <ChevronLeft className="w-3 h-3" />
+              Voltar para a Loja
+            </button>
+          )}
+        </header>
+      )}
+
+      <div className="max-w-3xl mx-auto space-y-8 py-12 px-4 sm:px-6 lg:px-8">
         
         {/* Header */}
         <div className="bg-white rounded-[40px] p-8 sm:p-12 shadow-sm text-center space-y-6">
-          <div className="w-16 h-16 bg-emerald-50 rounded-full flex items-center justify-center mx-auto">
-            <Target className="w-8 h-8 text-emerald-500" />
+          <div className="w-16 h-16 bg-emerald-50 rounded-full flex items-center justify-center mx-auto" style={storeSettings?.primary_color ? { backgroundColor: `${storeSettings.primary_color}1a` } : {}}>
+            <Target className="w-8 h-8 text-emerald-500" style={storeSettings?.primary_color ? { color: storeSettings.primary_color } : {}} />
           </div>
           <div>
             <h1 className="text-3xl sm:text-4xl font-bold text-zinc-800 tracking-tight mb-4">
@@ -185,8 +219,8 @@ export function PublicGoals() {
                 >
                   <div className="flex items-center justify-between mb-6">
                     <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 rounded-2xl bg-emerald-50 flex items-center justify-center group-hover:scale-110 transition-transform">
-                        <Target className="w-6 h-6 text-emerald-500" />
+                      <div className="w-12 h-12 rounded-2xl bg-emerald-50 flex items-center justify-center group-hover:scale-110 transition-transform" style={storeSettings?.primary_color ? { backgroundColor: `${storeSettings.primary_color}1a` } : {}}>
+                        <Target className="w-6 h-6 text-emerald-500" style={storeSettings?.primary_color ? { color: storeSettings.primary_color } : {}} />
                       </div>
                       <div>
                         <h3 className="text-xl font-bold text-zinc-800">{campaign.title}</h3>
@@ -196,20 +230,23 @@ export function PublicGoals() {
                         </p>
                       </div>
                     </div>
-                    <ChevronRight className="w-6 h-6 text-zinc-300 group-hover:text-emerald-500 transition-colors" />
+                    <ChevronRight className="w-6 h-6 text-zinc-300 group-hover:text-emerald-500 transition-colors" style={storeSettings?.primary_color ? { '--tw-text-opacity': '1', color: storeSettings.primary_color } as any : {}} />
                   </div>
 
                   <div className="space-y-2">
                     <div className="flex justify-between text-xs font-bold uppercase tracking-widest">
                       <span className="text-zinc-400">Progresso</span>
-                      <span className="text-emerald-600">
+                      <span className="text-emerald-600" style={storeSettings?.primary_color ? { color: storeSettings.primary_color } : {}}>
                         {Math.min(100, (campaign.current_value / campaign.goal_value) * 100).toFixed(0)}%
                       </span>
                     </div>
                     <div className="h-2 bg-zinc-100 rounded-full overflow-hidden">
                       <div 
                         className="h-full bg-emerald-500 transition-all duration-500"
-                        style={{ width: `${Math.min(100, (campaign.current_value / campaign.goal_value) * 100)}%` }}
+                        style={{ 
+                          width: `${Math.min(100, (campaign.current_value / campaign.goal_value) * 100)}%`,
+                          backgroundColor: storeSettings?.primary_color || undefined
+                        }}
                       />
                     </div>
                   </div>
@@ -231,21 +268,24 @@ export function PublicGoals() {
                 </div>
                 <div className="bg-zinc-50 px-6 py-4 rounded-2xl text-center">
                   <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-1">Meta</p>
-                  <p className="text-2xl font-bold text-emerald-600">{selectedCampaign.goal_value}</p>
+                  <p className="text-2xl font-bold text-emerald-600" style={storeSettings?.primary_color ? { color: storeSettings.primary_color } : {}}>{selectedCampaign.goal_value}</p>
                 </div>
               </div>
 
               <div className="space-y-4">
                 <div className="flex justify-between text-xs font-bold uppercase tracking-widest">
                   <span className="text-zinc-400">Progresso da Meta</span>
-                  <span className="text-emerald-600">
+                  <span className="text-emerald-600" style={storeSettings?.primary_color ? { color: storeSettings.primary_color } : {}}>
                     {Math.min(100, (selectedCampaign.current_value / selectedCampaign.goal_value) * 100).toFixed(0)}%
                   </span>
                 </div>
                 <div className="h-4 bg-zinc-100 rounded-full overflow-hidden">
                   <div 
                     className="h-full bg-emerald-500 transition-all duration-500"
-                    style={{ width: `${Math.min(100, (selectedCampaign.current_value / selectedCampaign.goal_value) * 100)}%` }}
+                    style={{ 
+                      width: `${Math.min(100, (selectedCampaign.current_value / selectedCampaign.goal_value) * 100)}%`,
+                      backgroundColor: storeSettings?.primary_color || undefined
+                    }}
                   />
                 </div>
               </div>
@@ -254,6 +294,7 @@ export function PublicGoals() {
                 <button 
                   onClick={() => setStep('form')}
                   className="flex-1 bg-[#00a86b] hover:bg-[#008f5b] text-white px-8 py-4 rounded-2xl font-bold transition-all shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2"
+                  style={storeSettings?.primary_color ? { backgroundColor: storeSettings.primary_color, boxShadow: `0 10px 15px -3px ${storeSettings.primary_color}33` } : {}}
                 >
                   <User className="w-5 h-5" />
                   Participar Agora
@@ -272,7 +313,7 @@ export function PublicGoals() {
             {/* Messages / Participants */}
             <div className="bg-white rounded-[40px] p-8 shadow-sm">
               <h3 className="text-xl font-bold text-zinc-800 mb-6 flex items-center gap-2">
-                <MessageSquare className="w-5 h-5 text-emerald-500" />
+                <MessageSquare className="w-5 h-5 text-emerald-500" style={storeSettings?.primary_color ? { color: storeSettings.primary_color } : {}} />
                 Recados dos Participantes
               </h3>
               
@@ -284,8 +325,8 @@ export function PublicGoals() {
                     <div key={p.id} className="bg-zinc-50 rounded-3xl p-6 space-y-3">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
-                          <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center">
-                            <User className="w-4 h-4 text-emerald-600" />
+                          <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center" style={storeSettings?.primary_color ? { backgroundColor: `${storeSettings.primary_color}1a` } : {}}>
+                            <User className="w-4 h-4 text-emerald-600" style={storeSettings?.primary_color ? { color: storeSettings.primary_color } : {}} />
                           </div>
                           <div>
                             <p className="text-sm font-bold text-zinc-800">{p.name}</p>
@@ -329,6 +370,7 @@ export function PublicGoals() {
                   value={formData.name}
                   onChange={e => setFormData({...formData, name: e.target.value})}
                   className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm focus:border-emerald-500 outline-none transition-all"
+                  style={{ '--tw-ring-color': storeSettings?.primary_color } as any}
                 />
               </div>
               <div className="space-y-2">
@@ -339,6 +381,7 @@ export function PublicGoals() {
                   value={formData.city}
                   onChange={e => setFormData({...formData, city: e.target.value})}
                   className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm focus:border-emerald-500 outline-none transition-all"
+                  style={{ '--tw-ring-color': storeSettings?.primary_color } as any}
                 />
               </div>
               <div className="space-y-2">
@@ -348,6 +391,7 @@ export function PublicGoals() {
                   onChange={e => setFormData({...formData, message: e.target.value})}
                   placeholder="Deixe uma mensagem de incentivo..."
                   className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm focus:border-emerald-500 outline-none transition-all min-h-[100px]"
+                  style={{ '--tw-ring-color': storeSettings?.primary_color } as any}
                 />
               </div>
 
@@ -363,6 +407,7 @@ export function PublicGoals() {
                   type="submit"
                   disabled={submitting}
                   className="flex-1 bg-[#00a86b] hover:bg-[#008f5b] text-white px-6 py-4 rounded-2xl font-bold transition-all shadow-lg shadow-emerald-500/20 disabled:opacity-50 flex items-center justify-center gap-2"
+                  style={storeSettings?.primary_color ? { backgroundColor: storeSettings.primary_color, boxShadow: `0 10px 15px -3px ${storeSettings.primary_color}33` } : {}}
                 >
                   {submitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
                   Enviar e Participar
@@ -375,8 +420,8 @@ export function PublicGoals() {
         {/* Success View */}
         {step === 'success' && (
           <div className="bg-white rounded-[40px] p-8 sm:p-12 shadow-sm max-w-xl mx-auto text-center animate-in zoom-in-95 duration-500">
-            <div className="w-20 h-20 bg-emerald-50 rounded-full flex items-center justify-center mx-auto mb-6">
-              <CheckCircle2 className="w-10 h-10 text-emerald-500" />
+            <div className="w-20 h-20 bg-emerald-50 rounded-full flex items-center justify-center mx-auto mb-6" style={storeSettings?.primary_color ? { backgroundColor: `${storeSettings.primary_color}1a` } : {}}>
+              <CheckCircle2 className="w-10 h-10 text-emerald-500" style={storeSettings?.primary_color ? { color: storeSettings.primary_color } : {}} />
             </div>
             <h2 className="text-3xl font-bold text-zinc-800 mb-4">Participação Confirmada!</h2>
             <p className="text-zinc-600 mb-8">
@@ -390,6 +435,7 @@ export function PublicGoals() {
                   setStep('details');
                 }}
                 className="bg-[#00a86b] hover:bg-[#008f5b] text-white px-8 py-4 rounded-2xl font-bold transition-all"
+                style={storeSettings?.primary_color ? { backgroundColor: storeSettings.primary_color } : {}}
               >
                 Voltar para a Campanha
               </button>

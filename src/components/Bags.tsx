@@ -125,7 +125,7 @@ export function Bags() {
   }
 
   const filteredCustomers = customerSearch
-    ? customers.filter(c => c.nome.toLowerCase().includes(customerSearch.toLowerCase()) || c.cpf?.includes(customerSearch)).slice(0, 10)
+    ? customers.filter(c => c.nome.toLowerCase().includes(customerSearch.toLowerCase()) || String(c.cpf || '').includes(customerSearch)).slice(0, 10)
     : [];
 
   const displayedBags = bags.slice(0, 100);

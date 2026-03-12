@@ -162,6 +162,10 @@ export interface Route {
   status: 'pending' | 'in_progress' | 'completed';
   created_at: string;
   stops?: RouteStop[];
+  estimated_service_time?: number;
+  lunch_break_duration?: number;
+  lunch_break_start_time?: string;
+  start_time?: string;
 }
 
 export interface RouteStop {

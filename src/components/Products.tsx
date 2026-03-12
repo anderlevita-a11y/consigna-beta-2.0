@@ -1311,7 +1311,7 @@ export function Products() {
 
   const filteredProducts = products.filter(p => {
     const matchesSearch = p.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                          p.ean?.toLowerCase().includes(searchTerm.toLowerCase());
+                          String(p.ean || '').includes(searchTerm);
     const matchesCategory = selectedCategory === 'Todos' || p.category === selectedCategory;
     return matchesSearch && matchesCategory;
   });

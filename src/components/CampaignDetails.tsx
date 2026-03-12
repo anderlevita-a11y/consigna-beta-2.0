@@ -411,7 +411,7 @@ export function CampaignDetails({ campaign, onBack, onAddBag }: CampaignDetailsP
   };
 
   const filteredCustomers = customerSearch
-    ? customers.filter(c => c.nome.toLowerCase().includes(customerSearch.toLowerCase()) || c.cpf?.includes(customerSearch)).slice(0, 10)
+    ? customers.filter(c => c.nome.toLowerCase().includes(customerSearch.toLowerCase()) || String(c.cpf || '').includes(customerSearch)).slice(0, 10)
     : [];
 
   return (

@@ -77,9 +77,15 @@ export function VirtualStore({ slug }: { slug?: string }) {
     const savedFavorites = localStorage.getItem('beauty_favorites');
     if (savedFavorites) {
       try {
-        setFavorites(JSON.parse(savedFavorites));
+        const parsed = JSON.parse(savedFavorites);
+        if (Array.isArray(parsed)) {
+          setFavorites(parsed);
+        } else {
+          setFavorites([]);
+        }
       } catch (e) {
         console.error('Error parsing favorites:', e);
+        setFavorites([]);
       }
     }
   }, []);
