@@ -170,6 +170,7 @@ export interface RouteStop {
   customer_id: string;
   order_index: number;
   status: 'pending' | 'visited' | 'skipped';
+  user_id?: string;
   customer?: Customer;
 }
 
@@ -225,6 +226,59 @@ export interface StoreSettings {
   updated_at?: string;
 }
 
+export interface Raffle {
+  id: string;
+  user_id: string;
+  title: string;
+  description?: string;
+  rules?: string;
+  ticket_price: number;
+  total_tickets: number;
+  prizes: string[];
+  status: 'draft' | 'active' | 'finished';
+  payment_info?: string;
+  created_at: string;
+}
+
+export interface RaffleTicket {
+  id: string;
+  raffle_id: string;
+  number: number;
+  status: 'reserved' | 'paid';
+  buyer_name: string;
+  buyer_cpf: string;
+  buyer_phone: string;
+  receipt_url?: string;
+  reserved_at: string;
+  paid_at?: string;
+}
+
+export interface MysteryBagCampaign {
+  id: string;
+  user_id: string;
+  title: string;
+  description?: string;
+  bag_price: number;
+  status: 'active' | 'finished';
+  payment_info?: string;
+  rules?: string;
+  created_at: string;
+}
+
+export interface MysteryBag {
+  id: string;
+  campaign_id: string;
+  display_number: number;
+  prize_description: string;
+  status: 'available' | 'reserved' | 'paid';
+  buyer_name?: string;
+  buyer_cpf?: string;
+  buyer_phone?: string;
+  receipt_url?: string;
+  reserved_at?: string;
+  paid_at?: string;
+}
+
 export interface ProductReview {
   id: string;
   product_id: string;
@@ -234,5 +288,58 @@ export interface ProductReview {
   rating: number;
   comment: string;
   status: 'pending' | 'approved' | 'rejected';
+  created_at: string;
+}
+
+export interface LabelElementConfig {
+  enabled: boolean;
+  x: number;
+  y: number;
+  fontSize?: number;
+  width?: number;
+  height?: number;
+}
+
+export interface LabelModel {
+  id: string;
+  user_id: string;
+  name: string;
+  description?: string;
+  width: number;
+  height: number;
+  labels_per_row: number;
+  rows_per_sheet?: number;
+  margin_top: number;
+  margin_right: number;
+  margin_bottom: number;
+  margin_left: number;
+  gap_horizontal: number;
+  gap_vertical: number;
+  product_name_config: LabelElementConfig;
+  barcode_drawing_config: LabelElementConfig;
+  barcode_number_config: LabelElementConfig;
+  product_size_config: LabelElementConfig;
+  product_price_config: LabelElementConfig;
+  created_at?: string;
+}
+
+export interface GoalCampaign {
+  id: string;
+  user_id: string;
+  title: string;
+  description?: string;
+  goal_value: number;
+  current_value: number;
+  reward_description: string;
+  status: 'active' | 'finished';
+  created_at: string;
+}
+
+export interface GoalParticipant {
+  id: string;
+  campaign_id: string;
+  name: string;
+  city: string;
+  message?: string;
   created_at: string;
 }

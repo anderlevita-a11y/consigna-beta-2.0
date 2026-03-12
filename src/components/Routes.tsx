@@ -220,9 +220,9 @@ export function Routes() {
       setRoutes(routes.map(r => r.id === activeRoute.id ? { ...r, stops: updatedStops } : r));
       
       alert('Rota otimizada com a melhor sequência de atendimento!');
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error optimizing active route:', err);
-      alert('Erro ao otimizar rota');
+      alert('Erro ao otimizar rota: ' + (err.message || JSON.stringify(err)));
     } finally {
       setLoading(false);
     }
@@ -237,6 +237,80 @@ export function Routes() {
     newItems[index] = newItems[targetIndex];
     newItems[targetIndex] = temp;
     setSelectedCustomers(newItems);
+  };
+
+  const moveActiveRouteItem = async (index: number, direction: 'up' | 'down') => {
+    if (!activeRoute || !activeRoute.stops) return;
+    
+    const newStops = [...activeRoute.stops].sort((a, b) => a.order_index - b.order_index);
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    
+    if (targetIndex < 0 || targetIndex >= newStops.length) return;
+    
+    // Swap order_index
+    const tempOrder = newStops[index].order_index;
+    newStops[index].order_index = newStops[targetIndex].order_index;
+    newStops[targetIndex].order_index = tempOrder;
+    
+    // Re-sort array
+    newStops.sort((a, b) => a.order_index - b.order_index);
+    
+    setActiveRoute({ ...activeRoute, stops: newStops });
+    
+    try {
+      // Update in database
+      await Promise.all([
+        supabase.from('route_stops').update({ order_index: newStops[index].order_index }).eq('id', newStops[index].id),
+        supabase.from('route_stops').update({ order_index: newStops[targetIndex].order_index }).eq('id', newStops[targetIndex].id)
+      ]);
+      
+      // Update routes list
+      setRoutes(routes.map(r => r.id === activeRoute.id ? { ...r, stops: newStops } : r));
+    } catch (err: any) {
+      console.error('Error updating order:', err);
+      alert('Erro ao atualizar ordem: ' + (err.message || JSON.stringify(err)));
+    }
+  };
+
+  const getNavigateToStopUrl = (stop: RouteStop, app: 'maps' | 'waze') => {
+    if (!stop.customer?.latitude || !stop.customer?.longitude) return null;
+    
+    const lat = stop.customer.latitude;
+    const lng = stop.customer.longitude;
+    
+    if (app === 'maps') {
+      return `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+    } else {
+      return `https://waze.com/ul?ll=${lat},${lng}&navigate=yes`;
+    }
+  };
+
+  const getNavigateFullRouteUrl = () => {
+    if (!activeRoute || !activeRoute.stops) return null;
+    
+    const pendingStops = activeRoute.stops
+      .filter(s => s.status === 'pending' && s.customer?.latitude && s.customer?.longitude)
+      .sort((a, b) => a.order_index - b.order_index);
+      
+    if (pendingStops.length === 0) return null;
+    
+    if (pendingStops.length === 1) {
+      return getNavigateToStopUrl(pendingStops[0], 'maps');
+    }
+    
+    const stopsToNavigate = pendingStops.slice(0, 10);
+    const destination = stopsToNavigate[stopsToNavigate.length - 1];
+    const waypoints = stopsToNavigate.slice(0, -1);
+    
+    const waypointsStr = waypoints.map(s => `${s.customer!.latitude},${s.customer!.longitude}`).join('|');
+    const destStr = `${destination.customer!.latitude},${destination.customer!.longitude}`;
+    
+    let url = `https://www.google.com/maps/dir/?api=1&destination=${destStr}`;
+    if (waypoints.length > 0) {
+      url += `&waypoints=${waypointsStr}`;
+    }
+    
+    return url;
   };
 
   const handleSaveRoute = async () => {
@@ -272,20 +346,24 @@ export function Routes() {
         route_id: route.id,
         customer_id: cust.id,
         order_index: idx,
-        status: 'pending'
+        status: 'pending',
+        user_id: user.id
       }));
 
       const { error: stopsError } = await supabase
         .from('route_stops')
         .insert(stops);
 
-      if (stopsError) throw stopsError;
+      if (stopsError) {
+        await supabase.from('routes').delete().eq('id', route.id);
+        throw stopsError;
+      }
 
       setView('list');
       fetchRoutes();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error saving route:', err);
-      alert('Erro ao salvar rota');
+      alert('Erro ao salvar rota: ' + (err.message || JSON.stringify(err)));
     } finally {
       setLoading(false);
     }
@@ -322,9 +400,9 @@ export function Routes() {
         }
         return r;
       }));
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error updating stop status:', err);
-      alert('Erro ao atualizar status da parada');
+      alert('Erro ao atualizar status da parada: ' + (err.message || JSON.stringify(err)));
     }
   };
 
@@ -547,6 +625,23 @@ export function Routes() {
           </div>
           
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full sm:w-auto">
+            {activeRoute.status !== 'completed' && (
+              <a 
+                href={getNavigateFullRouteUrl() || '#'}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => {
+                  if (!getNavigateFullRouteUrl()) {
+                    e.preventDefault();
+                    alert('Nenhuma parada pendente com GPS para navegar.');
+                  }
+                }}
+                className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-3 sm:py-2.5 rounded-xl font-bold text-xs transition-all shadow-lg shadow-blue-500/20 w-full sm:w-auto"
+              >
+                <Navigation className="w-4 h-4" />
+                Iniciar Navegação
+              </a>
+            )}
             <button 
               onClick={optimizeActiveRoute}
               disabled={loading}
@@ -582,80 +677,145 @@ export function Routes() {
           </div>
 
           <div className="space-y-4">
-            {activeRoute.stops?.sort((a, b) => a.order_index - b.order_index).map((stop, idx) => (
+            {activeRoute.stops?.filter(s => s.status === 'pending').sort((a, b) => a.order_index - b.order_index).map((stop, idx, arr) => (
               <div 
                 key={stop.id} 
-                className={cn(
-                  "flex items-center gap-4 p-4 rounded-2xl border transition-all",
-                  stop.status === 'visited' 
-                    ? "bg-emerald-50/50 border-emerald-100" 
-                    : "bg-white border-zinc-100 hover:border-zinc-200"
-                )}
+                className="flex items-center gap-4 p-4 rounded-2xl border transition-all bg-white border-zinc-100 hover:border-zinc-200 group"
               >
                 <div className="flex flex-col items-center gap-1">
-                  <div className={cn(
-                    "w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-colors",
-                    stop.status === 'visited'
-                      ? "bg-emerald-500 text-white"
-                      : "bg-zinc-100 text-zinc-500"
-                  )}>
-                    {stop.status === 'visited' ? <Check className="w-4 h-4" /> : idx + 1}
+                  <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-colors bg-zinc-100 text-zinc-500">
+                    {idx + 1}
                   </div>
                 </div>
                 
                 <div className="flex-1 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div className="flex items-center gap-4">
-                    <div className={cn(
-                      "w-10 h-10 rounded-xl flex items-center justify-center transition-colors",
-                      stop.status === 'visited' ? "bg-emerald-100" : "bg-zinc-50"
-                    )}>
-                      <User className={cn(
-                        "w-5 h-5",
-                        stop.status === 'visited' ? "text-emerald-600" : "text-zinc-400"
-                      )} />
+                    <div className="w-10 h-10 rounded-xl flex items-center justify-center transition-colors bg-zinc-50">
+                      <User className="w-5 h-5 text-zinc-400" />
                     </div>
                     <div>
                       <div className="flex items-center gap-2">
-                        <p className={cn(
-                          "font-bold text-sm",
-                          stop.status === 'visited' ? "text-emerald-900" : "text-zinc-800"
-                        )}>{stop.customer?.nome}</p>
+                        <p className="font-bold text-sm text-zinc-800">{stop.customer?.nome}</p>
                         {(!stop.customer?.latitude || !stop.customer?.longitude) && (
                           <span className="px-2 py-0.5 rounded-md bg-red-50 text-red-600 text-[9px] font-bold uppercase tracking-wider border border-red-100">
                             Sem GPS
                           </span>
                         )}
                       </div>
-                      <p className={cn(
-                        "text-[10px] mt-0.5",
-                        stop.status === 'visited' ? "text-emerald-600/70" : "text-zinc-400"
-                      )}>
+                      <p className="text-[10px] mt-0.5 text-zinc-400">
                         {[stop.customer?.logradouro, stop.customer?.address_number, stop.customer?.bairro, stop.customer?.cidade].filter(Boolean).join(', ') || 'Sem endereço cadastrado'}
                       </p>
                     </div>
                   </div>
                   
-                  <button 
-                    onClick={() => handleMarkVisited(stop.id, stop.status)}
-                    className={cn(
-                      "px-4 py-2 rounded-xl text-xs font-bold transition-all w-full sm:w-auto flex items-center justify-center gap-2",
-                      stop.status === 'visited'
-                        ? "bg-white text-emerald-600 border border-emerald-200 hover:bg-emerald-50"
-                        : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
-                    )}
-                  >
-                    {stop.status === 'visited' ? (
-                      <>
-                        <Check className="w-3.5 h-3.5" />
-                        Visitado
-                      </>
-                    ) : (
-                      'Marcar como Visitado'
-                    )}
-                  </button>
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity mr-2">
+                      <button 
+                        onClick={() => moveActiveRouteItem(idx, 'up')}
+                        disabled={idx === 0}
+                        className="p-2 hover:bg-zinc-50 text-zinc-400 rounded-lg disabled:opacity-20"
+                        title="Mover para cima"
+                      >
+                        <ArrowUp className="w-4 h-4" />
+                      </button>
+                      <button 
+                        onClick={() => moveActiveRouteItem(idx, 'down')}
+                        disabled={idx === arr.length - 1}
+                        className="p-2 hover:bg-zinc-50 text-zinc-400 rounded-lg disabled:opacity-20"
+                        title="Mover para baixo"
+                      >
+                        <ArrowDown className="w-4 h-4" />
+                      </button>
+                    </div>
+                    
+                    <div className="flex gap-2 w-full sm:w-auto">
+                      <a
+                        href={getNavigateToStopUrl(stop, 'maps') || '#'}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => {
+                          if (!getNavigateToStopUrl(stop, 'maps')) {
+                            e.preventDefault();
+                            alert('Cliente sem coordenadas GPS cadastradas.');
+                          }
+                        }}
+                        className="flex-1 sm:flex-none p-2 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-100 transition-colors flex items-center justify-center"
+                        title="Navegar com Google Maps"
+                      >
+                        <MapPin className="w-4 h-4" />
+                      </a>
+                      <a
+                        href={getNavigateToStopUrl(stop, 'waze') || '#'}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => {
+                          if (!getNavigateToStopUrl(stop, 'waze')) {
+                            e.preventDefault();
+                            alert('Cliente sem coordenadas GPS cadastradas.');
+                          }
+                        }}
+                        className="flex-1 sm:flex-none p-2 bg-cyan-50 text-cyan-600 rounded-xl hover:bg-cyan-100 transition-colors flex items-center justify-center"
+                        title="Navegar com Waze"
+                      >
+                        <Navigation className="w-4 h-4" />
+                      </a>
+                    </div>
+                    <button 
+                      onClick={() => handleMarkVisited(stop.id, stop.status)}
+                      className="px-4 py-2 rounded-xl text-xs font-bold transition-all w-full sm:w-auto flex items-center justify-center gap-2 bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
+                    >
+                      Marcar como Visitado
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}
+            
+            {activeRoute.stops?.filter(s => s.status === 'visited').length ? (
+              <div className="pt-6 mt-6 border-t border-zinc-100">
+                <h4 className="text-sm font-bold text-zinc-400 uppercase tracking-widest mb-4">Atendimentos Concluídos</h4>
+                <div className="space-y-4 opacity-75">
+                  {activeRoute.stops?.filter(s => s.status === 'visited').sort((a, b) => a.order_index - b.order_index).map((stop) => (
+                    <div 
+                      key={stop.id} 
+                      className="flex items-center gap-4 p-4 rounded-2xl border transition-all bg-emerald-50/50 border-emerald-100"
+                    >
+                      <div className="flex flex-col items-center gap-1">
+                        <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-colors bg-emerald-500 text-white">
+                          <Check className="w-4 h-4" />
+                        </div>
+                      </div>
+                      
+                      <div className="flex-1 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                        <div className="flex items-center gap-4">
+                          <div className="w-10 h-10 rounded-xl flex items-center justify-center transition-colors bg-emerald-100">
+                            <User className="w-5 h-5 text-emerald-600" />
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <p className="font-bold text-sm text-emerald-900">{stop.customer?.nome}</p>
+                            </div>
+                            <p className="text-[10px] mt-0.5 text-emerald-600/70">
+                              {[stop.customer?.logradouro, stop.customer?.address_number, stop.customer?.bairro, stop.customer?.cidade].filter(Boolean).join(', ') || 'Sem endereço cadastrado'}
+                            </p>
+                          </div>
+                        </div>
+                        
+                        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
+                          <button 
+                            onClick={() => handleMarkVisited(stop.id, stop.status)}
+                            className="px-4 py-2 rounded-xl text-xs font-bold transition-all w-full sm:w-auto flex items-center justify-center gap-2 bg-white text-emerald-600 border border-emerald-200 hover:bg-emerald-50"
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                            Visitado
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </div>
         </div>
       </div>

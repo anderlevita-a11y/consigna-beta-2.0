@@ -22,7 +22,8 @@ import {
   RefreshCcw,
   Loader2,
   X,
-  CheckCircle2
+  CheckCircle2,
+  FileText
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabase';
@@ -43,6 +44,7 @@ const menuItems = [
   { id: 'profile', label: 'Meu Cadastro', icon: UserCircle, public: true },
   { id: 'notepad', label: 'Bloco de Notas', icon: StickyNote, public: true },
   { id: 'financial', label: 'Financeiro', icon: DollarSign, public: true },
+  { id: 'billing', label: 'Gestão de Cobrança', icon: FileText, public: true },
   { id: 'campaigns', label: 'Campanhas', icon: Megaphone },
   { id: 'routes', label: 'Rotas', icon: Map, restrictedForStarter: true },
   { id: 'customers', label: 'Clientes', icon: Users },

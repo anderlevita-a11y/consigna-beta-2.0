@@ -20,8 +20,12 @@ import { VirtualStore } from './components/VirtualStore';
 import { StoreSettings } from './components/StoreSettings';
 import { SmartNotepad } from './components/SmartNotepad';
 import { FinancialControl } from './components/FinancialControl';
+import { BillingManagement } from './components/BillingManagement';
 import { LegalConfirmationModal } from './components/LegalConfirmationModal';
 import { ResetPasswordModal } from './components/ResetPasswordModal';
+import { PublicRaffle } from './components/PublicRaffle';
+import { PublicMysteryBag } from './components/PublicMysteryBag';
+import { PublicGoals } from './components/PublicGoals';
 import { Settings, Loader2, Megaphone, BarChart3, Ticket, Calculator, ShieldAlert, Menu, StickyNote, DollarSign } from 'lucide-react';
 import { supabase } from './lib/supabase';
 import { Session } from '@supabase/supabase-js';
@@ -31,6 +35,10 @@ import { NotificationProvider, NotificationCenter, SystemAlert, useNotifications
 
 export default function App() {
   const [storeSlug, setStoreSlug] = useState<string | null>(null);
+  const [raffleId, setRaffleId] = useState<string | null>(null);
+  const [mysteryBagId, setMysteryBagId] = useState<string | null>(null);
+  const [goalId, setGoalId] = useState<string | null>(null);
+  const [showAllGoals, setShowAllGoals] = useState(false);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -38,7 +46,51 @@ export default function App() {
     if (s) {
       setStoreSlug(s);
     }
+
+    const path = window.location.pathname;
+    if (path.startsWith('/rifa/')) {
+      const id = path.split('/rifa/')[1];
+      if (id) {
+        setRaffleId(id);
+      }
+    } else if (path.startsWith('/sacola/')) {
+      const id = path.split('/sacola/')[1];
+      if (id) {
+        setMysteryBagId(id);
+      }
+    } else if (path.startsWith('/metas/')) {
+      const id = path.split('/metas/')[1];
+      if (id) {
+        setGoalId(id);
+      }
+    } else if (path === '/metas-e-brindes') {
+      setShowAllGoals(true);
+    }
   }, []);
+
+  if (raffleId) {
+    return (
+      <NotificationProvider>
+        <PublicRaffle />
+      </NotificationProvider>
+    );
+  }
+
+  if (mysteryBagId) {
+    return (
+      <NotificationProvider>
+        <PublicMysteryBag />
+      </NotificationProvider>
+    );
+  }
+
+  if (goalId || showAllGoals) {
+    return (
+      <NotificationProvider>
+        <PublicGoals />
+      </NotificationProvider>
+    );
+  }
 
   if (storeSlug) {
     return (
@@ -77,8 +129,18 @@ function AppContent() {
     supabase.auth.getSession().then(({ data: { session }, error }) => {
       if (error) {
         console.error('Session error:', error.message);
-        if (error.message.includes('Refresh Token Not Found') || error.message.includes('Invalid Refresh Token')) {
-          supabase.auth.signOut();
+        if (
+          error.message.includes('Refresh Token Not Found') || 
+          error.message.includes('Invalid Refresh Token') ||
+          error.message.includes('refresh_token_not_found')
+        ) {
+          // Force clear session if token is invalid
+          supabase.auth.signOut().then(() => {
+            localStorage.removeItem('supabase.auth.token'); // Fallback for older versions
+            setSession(null);
+            setLoading(false);
+          });
+          return;
         }
       }
       setSession(session);
@@ -105,7 +167,21 @@ function AppContent() {
       }
     });
 
-    return () => subscription.unsubscribe();
+    // Handle global auth refresh errors
+    const handleError = (event: PromiseRejectionEvent) => {
+      if (event.reason?.message?.includes('Refresh Token Not Found') || 
+          event.reason?.message?.includes('Invalid Refresh Token')) {
+        console.warn('Auth refresh failed, signing out...');
+        supabase.auth.signOut();
+      }
+    };
+
+    window.addEventListener('unhandledrejection', handleError);
+
+    return () => {
+      subscription.unsubscribe();
+      window.removeEventListener('unhandledrejection', handleError);
+    };
   }, []);
 
   const { addNotification } = useNotifications();
@@ -369,6 +445,8 @@ function AppContent() {
         return <SmartNotepad />;
       case 'financial':
         return <FinancialControl />;
+      case 'billing':
+        return <BillingManagement profile={profile} />;
       case 'admin':
         return isAdmin ? <AdminPanel currentProfile={profile} /> : <Campaigns />;
       default:

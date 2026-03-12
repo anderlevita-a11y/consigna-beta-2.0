@@ -11,12 +11,14 @@ export function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [resetSent, setResetSent] = useState(false);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
+    setSuccessMsg(null);
 
     try {
       const { error } = await supabase.auth.signInWithPassword({
@@ -39,6 +41,7 @@ export function Login() {
     }
     setLoading(true);
     setError(null);
+    setSuccessMsg(null);
     try {
       const { data, error } = await supabase.auth.signUp({
         email,
@@ -46,17 +49,8 @@ export function Login() {
       });
       if (error) throw error;
       
-      alert('Cadastro realizado com sucesso!');
+      setSuccessMsg('Cadastro realizado com sucesso! Verifique seu email se necessário.');
       
-      // if (data?.user) {
-      //   const paymentLink = 'https://buy.stripe.com/00w9AL9hc7yb5cvcta1sQ00';
-      //   const url = new URL(paymentLink);
-      //   url.searchParams.append('client_reference_id', data.user.id);
-      //   if (data.user.email) {
-      //     url.searchParams.append('prefilled_email', data.user.email);
-      //   }
-      //   window.location.href = url.toString();
-      // }
     } catch (err: any) {
       setError(err.message || 'Erro ao cadastrar.');
     } finally {
@@ -71,13 +65,14 @@ export function Login() {
     }
     setLoading(true);
     setError(null);
+    setSuccessMsg(null);
     try {
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
         redirectTo: window.location.origin,
       });
       if (error) throw error;
       setResetSent(true);
-      alert('Instruções de recuperação enviadas para o seu email!');
+      setSuccessMsg('Instruções de recuperação enviadas para o seu email!');
     } catch (err: any) {
       setError(err.message || 'Erro ao tentar recuperar a senha.');
     } finally {
@@ -123,6 +118,16 @@ export function Login() {
               className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-xl text-sm text-center"
             >
               {error}
+            </motion.div>
+          )}
+
+          {successMsg && (
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="bg-emerald-50 border border-emerald-200 text-emerald-600 px-4 py-3 rounded-xl text-sm text-center font-medium"
+            >
+              {successMsg}
             </motion.div>
           )}
 
@@ -184,8 +189,10 @@ export function Login() {
           <p className="text-[#6b4e5d] text-sm font-medium">
             Primeiro acesso?{' '}
             <button
+              type="button"
+              disabled={loading}
               onClick={handleSignUp}
-              className="text-[#4a1d33] font-bold hover:underline underline-offset-2"
+              className="text-[#4a1d33] font-bold hover:underline underline-offset-2 disabled:opacity-50"
             >
               Cadastre-se aqui
             </button>

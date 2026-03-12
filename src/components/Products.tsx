@@ -24,6 +24,7 @@ import { supabase } from '../lib/supabase';
 import { Product, PriceSuggestion } from '../types';
 import { ConfirmationModal } from './ConfirmationModal';
 import { PrintPreview } from './PrintPreview';
+import { LabelCenter } from './LabelCenter';
 import { cn, printFallback } from '../lib/utils';
 import { useNotifications } from './NotificationCenter';
 
@@ -31,7 +32,7 @@ export function Products() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [view, setView] = useState<'list' | 'form' | 'import'>('list');
+  const [view, setView] = useState<'list' | 'form' | 'import' | 'labels'>('list');
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -70,6 +71,7 @@ export function Products() {
     sale_price: 0
   });
   const [priceHistory, setPriceHistory] = useState<PriceSuggestion[]>([]);
+  const [selectedProductForLabels, setSelectedProductForLabels] = useState<Product | null>(null);
 
   const { addNotification } = useNotifications();
 
@@ -98,6 +100,9 @@ export function Products() {
     is_visible_in_store: true
   });
   const [storeSettings, setStoreSettings] = useState<any>(null);
+  const [isAddingCategory, setIsAddingCategory] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState<string>('Todos');
 
   useEffect(() => {
     fetchProfile();
@@ -371,7 +376,7 @@ export function Products() {
       current_stock: '',
       photo_url: '',
       has_grid: false,
-      category: '',
+      category: selectedCategory !== 'Todos' ? selectedCategory : '',
       is_visible_in_store: true
     });
     setView('form');
@@ -416,6 +421,45 @@ export function Products() {
         }
       }
     });
+  };
+
+  const handleAddCategory = async () => {
+    if (!newCategoryName.trim()) return;
+    
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user;
+      if (!user) return;
+
+      const currentCategories = storeSettings?.categories || [];
+      if (currentCategories.includes(newCategoryName.trim())) {
+        alert('Esta categoria já existe.');
+        return;
+      }
+
+      const updatedCategories = [...currentCategories, newCategoryName.trim()];
+      
+      const { error } = await supabase
+        .from('store_settings')
+        .update({ categories: updatedCategories })
+        .eq('user_id', user.id);
+
+      if (error) throw error;
+
+      setStoreSettings({ ...storeSettings, categories: updatedCategories });
+      setFormData({ ...formData, category: newCategoryName.trim() });
+      setNewCategoryName('');
+      setIsAddingCategory(false);
+      
+      addNotification({
+        type: 'success',
+        title: 'Sucesso',
+        message: 'Categoria adicionada com sucesso!'
+      });
+    } catch (err) {
+      console.error('Error adding category:', err);
+      alert('Erro ao adicionar categoria');
+    }
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -595,47 +639,9 @@ export function Products() {
     }
   };
 
-  const handlePrintLabel = async (product: any) => {
-    setLoading(true);
-    try {
-      const payload = {
-        tipo_documento: 'etiqueta',
-        dados_cliente: { nome: 'Consigna Beauty', cpf: '---' },
-        itens: [{
-          nome: product.name,
-          preco: product.sale_price,
-          qtd: 1,
-          total: product.sale_price
-        }]
-      };
-
-      const { data, error } = await supabase.functions.invoke('generate-pdf', {
-        body: payload
-      });
-
-      if (error) throw error;
-      
-      setPdfUrl(data.url);
-      setPreviewType('etiqueta');
-      setShowPreview(true);
-    } catch (err: any) {
-      console.warn('Edge Function (generate-pdf) not available, using fallback print:', err.message);
-      
-      // Fallback to simple print if Edge Function is not reachable or any error occurs
-      const payload = {
-        tipo_documento: 'etiqueta',
-        dados_cliente: { nome: 'Consigna Beauty', cpf: '---' },
-        itens: [{
-          nome: product.name,
-          preco: product.sale_price,
-          qtd: 1,
-          total: product.sale_price
-        }]
-      };
-      printFallback(payload);
-    } finally {
-      setLoading(false);
-    }
+  const handlePrintLabel = (product: Product) => {
+    setSelectedProductForLabels(product);
+    setView('labels');
   };
 
 
@@ -774,17 +780,53 @@ export function Products() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
               <div className="space-y-2">
-                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Categoria</label>
-                <select 
-                  value={formData.category}
-                  onChange={e => setFormData({...formData, category: e.target.value})}
-                  className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm focus:border-emerald-500 outline-none transition-all appearance-none"
-                >
-                  <option value="">Sem Categoria</option>
-                  {storeSettings?.categories?.map((cat: string) => (
-                    <option key={cat} value={cat}>{cat}</option>
-                  ))}
-                </select>
+                <div className="flex items-center justify-between">
+                  <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Categoria</label>
+                  <button
+                    type="button"
+                    onClick={() => setIsAddingCategory(!isAddingCategory)}
+                    className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest hover:text-emerald-700"
+                  >
+                    {isAddingCategory ? 'Cancelar' : '+ Nova Categoria'}
+                  </button>
+                </div>
+                
+                {isAddingCategory ? (
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={newCategoryName}
+                      onChange={e => setNewCategoryName(e.target.value)}
+                      placeholder="Nome da categoria"
+                      className="flex-1 bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm focus:border-emerald-500 outline-none transition-all"
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleAddCategory();
+                        }
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAddCategory}
+                      disabled={!newCategoryName.trim()}
+                      className="bg-emerald-600 text-white px-6 rounded-2xl font-bold text-sm hover:bg-emerald-700 transition-colors disabled:opacity-50"
+                    >
+                      Adicionar
+                    </button>
+                  </div>
+                ) : (
+                  <select 
+                    value={formData.category}
+                    onChange={e => setFormData({...formData, category: e.target.value})}
+                    className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm focus:border-emerald-500 outline-none transition-all appearance-none"
+                  >
+                    <option value="">Sem Categoria</option>
+                    {storeSettings?.categories?.map((cat: string) => (
+                      <option key={cat} value={cat}>{cat}</option>
+                    ))}
+                  </select>
+                )}
               </div>
 
               <div className="bg-zinc-50/50 border border-zinc-100 rounded-2xl p-6 flex items-center justify-between">
@@ -886,6 +928,18 @@ export function Products() {
           </form>
         </div>
       </div>
+    );
+  }
+
+  if (view === 'labels') {
+    return (
+      <LabelCenter 
+        onClose={() => {
+          setView('list');
+          setSelectedProductForLabels(null);
+        }} 
+        initialProduct={selectedProductForLabels || undefined}
+      />
     );
   }
 
@@ -1255,10 +1309,12 @@ export function Products() {
     );
   }
 
-  const filteredProducts = products.filter(p => 
-    p.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    p.ean?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredProducts = products.filter(p => {
+    const matchesSearch = p.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                          p.ean?.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesCategory = selectedCategory === 'Todos' || p.category === selectedCategory;
+    return matchesSearch && matchesCategory;
+  });
 
   const displayedProducts = filteredProducts.slice(0, 100);
 
@@ -1275,6 +1331,13 @@ export function Products() {
           </div>
         </div>
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full sm:w-auto">
+          <button 
+            onClick={() => setView('labels')}
+            className="flex items-center justify-center gap-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 px-4 py-3 sm:py-2.5 rounded-xl font-bold transition-all shadow-sm w-full sm:w-auto"
+          >
+            <Tag className="w-5 h-5" />
+            Central de Etiquetas
+          </button>
           <button 
             onClick={() => setView('import')}
             disabled={isRestrictedPlan}
@@ -1307,6 +1370,19 @@ export function Products() {
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
+        </div>
+        <div className="relative w-full sm:w-64">
+          <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-400" />
+          <select
+            value={selectedCategory}
+            onChange={(e) => setSelectedCategory(e.target.value)}
+            className="w-full bg-white border border-zinc-200 rounded-xl pl-10 pr-4 py-3 text-zinc-800 focus:outline-none focus:border-emerald-500 transition-colors shadow-sm appearance-none"
+          >
+            <option value="Todos">Todas as Categorias</option>
+            {storeSettings?.categories?.map((cat: string) => (
+              <option key={cat} value={cat}>{cat}</option>
+            ))}
+          </select>
         </div>
       </div>
 

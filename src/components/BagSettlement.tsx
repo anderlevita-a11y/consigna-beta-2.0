@@ -11,7 +11,8 @@ import {
   Copy,
   ExternalLink,
   Plus,
-  MinusCircle
+  MinusCircle,
+  RefreshCcw
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { generatePixPayload } from '../lib/pix';
@@ -157,6 +158,55 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
     setExpenses(expenses.filter((_, i) => i !== index));
   };
 
+  const handleReopen = async () => {
+    if (!window.confirm('Deseja reabrir esta sacola? Os itens devolvidos serão removidos do estoque novamente.')) return;
+    
+    setSaving(true);
+    try {
+      // 1. Revert stock and reset returned_quantity
+      for (const item of items) {
+        if (item.returned_quantity > 0) {
+          const { data: product } = await supabase
+            .from('products')
+            .select('current_stock')
+            .eq('id', item.product.id)
+            .single();
+          
+          if (product) {
+            await supabase
+              .from('products')
+              .update({ current_stock: Math.max(0, (product.current_stock || 0) - item.returned_quantity) })
+              .eq('id', item.product.id);
+          }
+          
+          await supabase
+            .from('bag_items')
+            .update({ returned_quantity: 0 })
+            .eq('id', item.id);
+        }
+      }
+
+      // 2. Update bag status
+      const { error: bagError } = await supabase
+        .from('bags')
+        .update({ 
+          status: 'open',
+          payment_status: 'pending',
+          total_value: totalGross
+        })
+        .eq('id', bag.id);
+
+      if (bagError) throw bagError;
+      
+      onSave();
+    } catch (err) {
+      console.error('Error reopening bag:', err);
+      alert('Erro ao reabrir sacola. Verifique sua conexão.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleFinalize = async () => {
     setSaving(true);
     try {
@@ -216,6 +266,9 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
     const item = items.find(i => i.product.ean === code || i.product.name.toLowerCase().includes(code.toLowerCase()));
     if (item) {
       updateReturnedQuantity(item.id, item.returned_quantity + 1);
+      setSearchProduct('');
+    } else {
+      alert('Erro de leitura: Produto não encontrado na sacola.');
       setSearchProduct('');
     }
   };
@@ -325,14 +378,25 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
       <div className="max-w-6xl mx-auto">
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 mb-8">
           <h2 className="text-2xl font-bold text-zinc-800 text-center sm:text-left">Sacolas</h2>
-          <button 
-            onClick={handleFinalize}
-            disabled={saving}
-            className="flex items-center justify-center gap-2 bg-[#00a86b] hover:bg-[#008f5b] text-white px-6 py-3 sm:py-2.5 rounded-xl font-bold transition-all shadow-lg shadow-emerald-500/20 disabled:opacity-50 w-full sm:w-auto"
-          >
-            {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
-            Salvar Sacola
-          </button>
+          {bag.status === 'closed' ? (
+            <button 
+              onClick={handleReopen}
+              disabled={saving}
+              className="flex items-center justify-center gap-2 bg-amber-500 hover:bg-amber-600 text-white px-6 py-3 sm:py-2.5 rounded-xl font-bold transition-all shadow-lg shadow-amber-500/20 disabled:opacity-50 w-full sm:w-auto"
+            >
+              {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <RefreshCcw className="w-5 h-5" />}
+              Reabrir Sacola
+            </button>
+          ) : (
+            <button 
+              onClick={handleFinalize}
+              disabled={saving}
+              className="flex items-center justify-center gap-2 bg-[#00a86b] hover:bg-[#008f5b] text-white px-6 py-3 sm:py-2.5 rounded-xl font-bold transition-all shadow-lg shadow-emerald-500/20 disabled:opacity-50 w-full sm:w-auto"
+            >
+              {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
+              Salvar Sacola
+            </button>
+          )}
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -352,8 +416,9 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
                     <input 
                       type="text" 
                       placeholder="Nome ou Código..."
-                      className="bg-zinc-50 border border-zinc-100 rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-emerald-500 w-64"
+                      className="bg-zinc-50 border border-zinc-100 rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-emerald-500 w-64 disabled:opacity-50"
                       value={searchProduct}
+                      disabled={bag.status === 'closed'}
                       onChange={(e) => setSearchProduct(e.target.value)}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') {
@@ -392,8 +457,9 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
                             <input 
                               type="text" 
                               inputMode="numeric"
-                              className="w-16 bg-zinc-50 border border-zinc-200 rounded-lg px-2 py-1 text-center text-sm focus:outline-none focus:border-emerald-500"
+                              className="w-16 bg-zinc-50 border border-zinc-200 rounded-lg px-2 py-1 text-center text-sm focus:outline-none focus:border-emerald-500 disabled:opacity-50 disabled:bg-zinc-100"
                               value={item.returned_quantity === 0 ? '' : item.returned_quantity}
+                              disabled={bag.status === 'closed'}
                               onChange={(e) => {
                                 const val = parseInt(e.target.value) || 0;
                                 updateReturnedQuantity(item.id, val);
@@ -451,22 +517,25 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
                     type="text" 
                     placeholder="Descrição"
                     value={expenseDesc}
+                    disabled={bag.status === 'closed'}
                     onChange={e => setExpenseDesc(e.target.value)}
                     onKeyDown={e => e.key === 'Enter' && handleAddExpense()}
-                    className="flex-[2] bg-zinc-50 border border-zinc-100 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-emerald-500"
+                    className="flex-[2] bg-zinc-50 border border-zinc-100 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-emerald-500 disabled:opacity-50"
                   />
                   <input 
                     type="number" 
                     placeholder="R$"
                     value={expenseValue || ''}
+                    disabled={bag.status === 'closed'}
                     onChange={e => setExpenseValue(Number(e.target.value))}
                     onKeyDown={e => e.key === 'Enter' && handleAddExpense()}
-                    className="flex-1 bg-zinc-50 border border-zinc-100 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-emerald-500"
+                    className="flex-1 bg-zinc-50 border border-zinc-100 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-emerald-500 disabled:opacity-50"
                   />
                   <button 
                     type="button"
                     onClick={handleAddExpense}
-                    className="bg-zinc-100 hover:bg-zinc-200 text-zinc-600 p-2 rounded-xl transition-all"
+                    disabled={bag.status === 'closed'}
+                    className="bg-zinc-100 hover:bg-zinc-200 text-zinc-600 p-2 rounded-xl transition-all disabled:opacity-50"
                   >
                     <Plus className="w-4 h-4" />
                   </button>
@@ -479,13 +548,15 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
                         <span className="text-[10px] font-medium text-rose-700">{exp.description}</span>
                         <div className="flex items-center gap-2">
                           <span className="text-[10px] font-bold text-rose-700">- R$ {exp.value.toFixed(2)}</span>
-                          <button 
-                            type="button"
-                            onClick={() => handleRemoveExpense(idx)} 
-                            className="text-rose-400 hover:text-rose-600"
-                          >
-                            <MinusCircle className="w-3 h-3" />
-                          </button>
+                          {bag.status !== 'closed' && (
+                            <button 
+                              type="button"
+                              onClick={() => handleRemoveExpense(idx)} 
+                              className="text-rose-400 hover:text-rose-600"
+                            >
+                              <MinusCircle className="w-3 h-3" />
+                            </button>
+                          )}
                         </div>
                       </div>
                     ))}
@@ -500,8 +571,9 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
                   <input 
                     type="text" 
                     inputMode="decimal"
-                    className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl pl-12 pr-4 py-4 text-2xl font-black text-zinc-800 focus:outline-none focus:border-emerald-500"
+                    className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl pl-12 pr-4 py-4 text-2xl font-black text-zinc-800 focus:outline-none focus:border-emerald-500 disabled:opacity-50"
                     value={receivedAmount}
+                    disabled={bag.status === 'closed'}
                     onChange={(e) => {
                       const val = e.target.value.replace(',', '.');
                       if (val === '' || /^\d*\.?\d*$/.test(val)) {
@@ -517,7 +589,8 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
                   <div className="absolute right-4 top-1/2 -translate-y-1/2">
                     <button 
                       onClick={() => setReceivedAmount(amountToPay.toString())}
-                      className="bg-emerald-50 text-emerald-600 hover:bg-emerald-100 px-2 py-1 rounded-lg text-[10px] font-bold uppercase transition-colors"
+                      disabled={bag.status === 'closed'}
+                      className="bg-emerald-50 text-emerald-600 hover:bg-emerald-100 px-2 py-1 rounded-lg text-[10px] font-bold uppercase transition-colors disabled:opacity-50"
                     >
                       Pago Integral
                     </button>
@@ -532,8 +605,9 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
                     <button
                       key={method}
                       onClick={() => setPaymentMethod(method)}
+                      disabled={bag.status === 'closed'}
                       className={cn(
-                        "py-3 rounded-xl text-[10px] font-bold uppercase transition-all",
+                        "py-3 rounded-xl text-[10px] font-bold uppercase transition-all disabled:opacity-50",
                         paymentMethod === method 
                           ? "bg-emerald-500 text-white shadow-lg shadow-emerald-500/20" 
                           : "bg-zinc-100 text-zinc-500 hover:bg-zinc-200"
@@ -617,14 +691,25 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
                 >
                   {saving ? <Loader2 className="w-6 h-6 animate-spin" /> : <Printer className="w-6 h-6" />}
                 </button>
-                <button 
-                  onClick={handleFinalize}
-                  disabled={saving}
-                  className="flex-[2] bg-[#00a86b] hover:bg-[#008f5b] text-white p-4 rounded-2xl font-bold transition-all active:scale-[0.98] shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2 disabled:opacity-50"
-                >
-                  {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Check className="w-5 h-5" />}
-                  Finalizar Acerto
-                </button>
+                {bag.status === 'closed' ? (
+                  <button 
+                    onClick={handleReopen}
+                    disabled={saving}
+                    className="flex-[2] bg-amber-500 hover:bg-amber-600 text-white p-4 rounded-2xl font-bold transition-all active:scale-[0.98] shadow-lg shadow-amber-500/20 flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <RefreshCcw className="w-5 h-5" />}
+                    Reabrir Sacola
+                  </button>
+                ) : (
+                  <button 
+                    onClick={handleFinalize}
+                    disabled={saving}
+                    className="flex-[2] bg-[#00a86b] hover:bg-[#008f5b] text-white p-4 rounded-2xl font-bold transition-all active:scale-[0.98] shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Check className="w-5 h-5" />}
+                    Finalizar Acerto
+                  </button>
+                )}
               </div>
             </div>
           </div>

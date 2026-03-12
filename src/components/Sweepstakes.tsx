@@ -24,8 +24,12 @@ import { cn } from '../lib/utils';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { ConfirmationModal } from './ConfirmationModal';
+import { RafflesManager } from './Raffles';
+import { MysteryBagsManager } from './MysteryBags';
+import { GoalsManager } from './Goals';
 
 export function SweepstakesManager() {
+  const [activeTab, setActiveTab] = useState<'sweepstakes' | 'raffles' | 'mystery_bags' | 'goals'>('sweepstakes');
   const [sweepstakes, setSweepstakes] = useState<Sweepstakes[]>([]);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<'list' | 'create' | 'details' | 'draw'>('list');
@@ -156,111 +160,165 @@ export function SweepstakesManager() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h2 className="text-2xl font-bold text-zinc-800 tracking-tight">
-            {showArchived ? 'Sorteios Arquivados' : 'Beauty Sorteios'}
+            Sorteios e Rifas
           </h2>
-          <p className="text-sm text-zinc-500">Gestão de sorteios e engajamento de clientes.</p>
+          <p className="text-sm text-zinc-500">Gestão de sorteios, rifas e engajamento de clientes.</p>
         </div>
-        <div className="flex items-center gap-3">
-          <button 
-            onClick={() => setShowArchived(!showArchived)}
+        <div className="flex items-center gap-2 bg-zinc-100 p-1 rounded-xl">
+          <button
+            onClick={() => setActiveTab('sweepstakes')}
             className={cn(
-              "flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm transition-all",
-              showArchived 
-                ? "bg-emerald-50 text-emerald-600 border border-emerald-100" 
-                : "bg-zinc-100 hover:bg-zinc-200 text-zinc-600"
+              "px-6 py-2.5 rounded-lg font-bold text-sm transition-all",
+              activeTab === 'sweepstakes' ? "bg-white text-zinc-800 shadow-sm" : "text-zinc-500 hover:text-zinc-700"
             )}
           >
-            <Archive className="w-5 h-5" />
-            {showArchived ? 'Ver Ativos' : 'Arquivados'}
+            Sorteios
           </button>
-          <button 
-            onClick={() => setView('create')}
-            className="flex items-center gap-2 bg-[#00a86b] hover:bg-[#008f5b] text-white px-6 py-2.5 rounded-xl font-bold text-sm transition-all shadow-lg shadow-emerald-500/20"
+          <button
+            onClick={() => setActiveTab('raffles')}
+            className={cn(
+              "px-6 py-2.5 rounded-lg font-bold text-sm transition-all",
+              activeTab === 'raffles' ? "bg-white text-zinc-800 shadow-sm" : "text-zinc-500 hover:text-zinc-700"
+            )}
           >
-            <Plus className="w-5 h-5" />
-            Novo Sorteio
+            Rifas
+          </button>
+          <button
+            onClick={() => setActiveTab('mystery_bags')}
+            className={cn(
+              "px-6 py-2.5 rounded-lg font-bold text-sm transition-all",
+              activeTab === 'mystery_bags' ? "bg-white text-zinc-800 shadow-sm" : "text-zinc-500 hover:text-zinc-700"
+            )}
+          >
+            Sacola Premiada
+          </button>
+          <button
+            onClick={() => setActiveTab('goals')}
+            className={cn(
+              "px-6 py-2.5 rounded-lg font-bold text-sm transition-all",
+              activeTab === 'goals' ? "bg-white text-zinc-800 shadow-sm" : "text-zinc-500 hover:text-zinc-700"
+            )}
+          >
+            Metas e Brindes
           </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {loading ? (
-          <div className="col-span-full py-12 text-center">
-            <Loader2 className="w-8 h-8 animate-spin text-emerald-500 mx-auto" />
-          </div>
-        ) : sweepstakes.length === 0 ? (
-          <div className="col-span-full py-20 text-center bg-white border border-dashed border-zinc-200 rounded-[32px] space-y-4">
-            <div className="w-16 h-16 bg-zinc-50 rounded-full flex items-center justify-center mx-auto">
-              <Ticket className="w-8 h-8 text-zinc-200" />
+      {activeTab === 'sweepstakes' ? (
+        <div className="space-y-6">
+          <div className="flex justify-between items-center">
+            <h3 className="text-lg font-bold text-zinc-800">
+              {showArchived ? 'Sorteios Arquivados' : 'Sorteios Ativos'}
+            </h3>
+            <div className="flex items-center gap-3">
+              <button 
+                onClick={() => setShowArchived(!showArchived)}
+                className={cn(
+                  "flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm transition-all",
+                  showArchived 
+                    ? "bg-emerald-50 text-emerald-600 border border-emerald-100" 
+                    : "bg-zinc-100 hover:bg-zinc-200 text-zinc-600"
+                )}
+              >
+                <Archive className="w-5 h-5" />
+                {showArchived ? 'Ver Ativos' : 'Arquivados'}
+              </button>
+              <button 
+                onClick={() => setView('create')}
+                className="flex items-center gap-2 bg-[#00a86b] hover:bg-[#008f5b] text-white px-6 py-2.5 rounded-xl font-bold text-sm transition-all shadow-lg shadow-emerald-500/20"
+              >
+                <Plus className="w-5 h-5" />
+                Novo Sorteio
+              </button>
             </div>
-            <p className="text-zinc-400 font-medium">
-              {showArchived ? 'Nenhum sorteio arquivado.' : 'Nenhum sorteio criado. Comece agora!'}
-            </p>
           </div>
-        ) : (
-          sweepstakes.map(sweep => (
-            <div key={sweep.id} className={cn(
-              "bg-white border border-zinc-100 rounded-[32px] p-8 shadow-sm hover:shadow-md transition-all group relative",
-              showArchived && "opacity-75 grayscale-[0.5]"
-            )}>
-              <div className="flex items-start justify-between mb-6">
-                <div className="w-12 h-12 rounded-2xl bg-emerald-50 flex items-center justify-center group-hover:scale-110 transition-transform">
-                  <Trophy className="w-6 h-6 text-emerald-500" />
-                </div>
-                <button 
-                  onClick={() => showArchived ? handleUnarchive(sweep.id) : handleArchive(sweep.id)}
-                  className={cn(
-                    "p-2 rounded-xl transition-all",
-                    showArchived 
-                      ? "text-zinc-400 hover:text-emerald-500 hover:bg-emerald-50" 
-                      : "text-zinc-400 hover:text-red-500 hover:bg-red-50"
-                  )}
-                  title={showArchived ? "Desarquivar" : "Arquivar"}
-                >
-                  {showArchived ? <RefreshCcw className="w-4 h-4" /> : <Archive className="w-4 h-4" />}
-                </button>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {loading ? (
+              <div className="col-span-full py-12 text-center">
+                <Loader2 className="w-8 h-8 animate-spin text-emerald-500 mx-auto" />
               </div>
-              <div className="space-y-1 mb-6">
-                <h4 className="text-xl font-bold text-zinc-800">{sweep.name}</h4>
-                <p className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold flex items-center gap-1.5">
-                  <Users className="w-3 h-3" />
-                  {sweep.objective}
+            ) : sweepstakes.length === 0 ? (
+              <div className="col-span-full py-20 text-center bg-white border border-dashed border-zinc-200 rounded-[32px] space-y-4">
+                <div className="w-16 h-16 bg-zinc-50 rounded-full flex items-center justify-center mx-auto">
+                  <Ticket className="w-8 h-8 text-zinc-200" />
+                </div>
+                <p className="text-zinc-400 font-medium">
+                  {showArchived ? 'Nenhum sorteio arquivado.' : 'Nenhum sorteio criado. Comece agora!'}
                 </p>
               </div>
+            ) : (
+              sweepstakes.map(sweep => (
+                <div key={sweep.id} className={cn(
+                  "bg-white border border-zinc-100 rounded-[32px] p-8 shadow-sm hover:shadow-md transition-all group relative",
+                  showArchived && "opacity-75 grayscale-[0.5]"
+                )}>
+                  <div className="flex items-start justify-between mb-6">
+                    <div className="w-12 h-12 rounded-2xl bg-emerald-50 flex items-center justify-center group-hover:scale-110 transition-transform">
+                      <Trophy className="w-6 h-6 text-emerald-500" />
+                    </div>
+                    <button 
+                      onClick={() => showArchived ? handleUnarchive(sweep.id) : handleArchive(sweep.id)}
+                      className={cn(
+                        "p-2 rounded-xl transition-all",
+                        showArchived 
+                          ? "text-zinc-400 hover:text-emerald-500 hover:bg-emerald-50" 
+                          : "text-zinc-400 hover:text-red-500 hover:bg-red-50"
+                      )}
+                      title={showArchived ? "Desarquivar" : "Arquivar"}
+                    >
+                      {showArchived ? <RefreshCcw className="w-4 h-4" /> : <Archive className="w-4 h-4" />}
+                    </button>
+                  </div>
+                  <div className="space-y-1 mb-6">
+                    <h4 className="text-xl font-bold text-zinc-800">{sweep.name}</h4>
+                    <p className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold flex items-center gap-1.5">
+                      <Users className="w-3 h-3" />
+                      {sweep.objective}
+                    </p>
+                  </div>
 
-              <div className="space-y-3 mb-8">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-zinc-400 uppercase font-bold tracking-widest">Data do Sorteio</span>
-                  <span className="text-zinc-800 font-bold">{format(new Date(sweep.draw_date), "dd/MM/yyyy")}</span>
-                </div>
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-zinc-400 uppercase font-bold tracking-widest">Voucher</span>
-                  <span className="text-zinc-800 font-bold">R$ {sweep.voucher_value.toFixed(2)}</span>
-                </div>
-              </div>
+                  <div className="space-y-3 mb-8">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-zinc-400 uppercase font-bold tracking-widest">Data do Sorteio</span>
+                      <span className="text-zinc-800 font-bold">{format(new Date(sweep.draw_date), "dd/MM/yyyy")}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-zinc-400 uppercase font-bold tracking-widest">Voucher</span>
+                      <span className="text-zinc-800 font-bold">R$ {sweep.voucher_value.toFixed(2)}</span>
+                    </div>
+                  </div>
 
-              {!showArchived && (
-                <div className="grid grid-cols-2 gap-3">
-                  <button 
-                    onClick={() => handleOpenSweep(sweep)}
-                    className="flex items-center justify-center gap-2 bg-zinc-50 hover:bg-zinc-100 text-zinc-600 px-4 py-2.5 rounded-xl text-xs font-bold transition-all"
-                  >
-                    <Users className="w-4 h-4" />
-                    Participantes
-                  </button>
-                  <button 
-                    onClick={() => handleDraw(sweep)}
-                    className="flex items-center justify-center gap-2 bg-[#00a86b] hover:bg-[#008f5b] text-white px-4 py-2.5 rounded-xl text-xs font-bold transition-all"
-                  >
-                    <Ticket className="w-4 h-4" />
-                    Sortear
-                  </button>
+                  {!showArchived && (
+                    <div className="grid grid-cols-2 gap-3">
+                      <button 
+                        onClick={() => handleOpenSweep(sweep)}
+                        className="flex items-center justify-center gap-2 bg-zinc-50 hover:bg-zinc-100 text-zinc-600 px-4 py-2.5 rounded-xl text-xs font-bold transition-all"
+                      >
+                        <Users className="w-4 h-4" />
+                        Participantes
+                      </button>
+                      <button 
+                        onClick={() => handleDraw(sweep)}
+                        className="flex items-center justify-center gap-2 bg-[#00a86b] hover:bg-[#008f5b] text-white px-4 py-2.5 rounded-xl text-xs font-bold transition-all"
+                      >
+                        <Ticket className="w-4 h-4" />
+                        Sortear
+                      </button>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-          ))
-        )}
-      </div>
+              ))
+            )}
+          </div>
+        </div>
+      ) : activeTab === 'raffles' ? (
+        <RafflesManager />
+      ) : activeTab === 'mystery_bags' ? (
+        <MysteryBagsManager />
+      ) : (
+        <GoalsManager />
+      )}
 
       <ConfirmationModal
         isOpen={confirmModal.isOpen}

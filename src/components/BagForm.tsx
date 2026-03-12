@@ -3,6 +3,7 @@ import { Save, X, Search, ShoppingBag, User, Package, Trash2, CheckCircle2, Aler
 import { supabase } from '../lib/supabase';
 import { Product, Customer } from '../types';
 import { cn } from '../lib/utils';
+import { ConfirmationModal } from './ConfirmationModal';
 
 interface BagFormProps {
   onClose: () => void;
@@ -24,6 +25,7 @@ export function BagForm({ onClose, onSave, campaignId }: BagFormProps) {
   const [noStock, setNoStock] = useState(false);
   const [items, setItems] = useState<BagItem[]>([]);
   const [productSearch, setProductSearch] = useState('');
+  const [itemToDelete, setItemToDelete] = useState<string | null>(null);
 
   const [customerSearch, setCustomerSearch] = useState('');
 
@@ -92,15 +94,23 @@ export function BagForm({ onClose, onSave, campaignId }: BagFormProps) {
   const addItem = (product: Product) => {
     const existing = items.find(i => i.product.id === product.id);
     if (existing) {
-      setItems(items.map(i => i.product.id === product.id ? { ...i, quantity: i.quantity + 1 } : i));
+      const filtered = items.filter(i => i.product.id !== product.id);
+      setItems([{ ...existing, quantity: existing.quantity + 1 }, ...filtered]);
     } else {
-      setItems([...items, { product, quantity: 1 }]);
+      setItems([{ product, quantity: 1 }, ...items]);
     }
     setProductSearch('');
   };
 
-  const removeItem = (productId: string) => {
-    setItems(items.filter(i => i.product.id !== productId));
+  const confirmRemoveItem = (productId: string) => {
+    setItemToDelete(productId);
+  };
+
+  const removeItem = () => {
+    if (itemToDelete) {
+      setItems(items.filter(i => i.product.id !== itemToDelete));
+      setItemToDelete(null);
+    }
   };
 
   const updateQuantity = (productId: string, delta: number) => {
@@ -299,6 +309,26 @@ export function BagForm({ onClose, onSave, campaignId }: BagFormProps) {
                       placeholder="Digite ou bipe o código"
                       value={productSearch}
                       onChange={(e) => setProductSearch(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          if (!productSearch.trim()) return;
+                          
+                          const searchLower = productSearch.toLowerCase().trim();
+                          const match = products.find(p => 
+                            p.ean === searchLower || 
+                            p.name.toLowerCase() === searchLower ||
+                            p.label_name?.toLowerCase() === searchLower
+                          );
+
+                          if (match) {
+                            addItem(match);
+                          } else {
+                            alert('Erro de leitura: Produto não encontrado no catálogo.');
+                            setProductSearch('');
+                          }
+                        }
+                      }}
                       className="w-full bg-white border border-zinc-200 rounded-xl px-4 py-3 text-sm text-zinc-800 focus:border-emerald-500 outline-none transition-all"
                     />
                     <Search className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-300" />
@@ -394,7 +424,7 @@ export function BagForm({ onClose, onSave, campaignId }: BagFormProps) {
                         </td>
                         <td className="py-4 text-right">
                           <button 
-                            onClick={() => removeItem(item.product.id)}
+                            onClick={() => confirmRemoveItem(item.product.id)}
                             className="p-2 text-zinc-300 hover:text-red-500 transition-colors"
                           >
                             <Trash2 className="w-4 h-4" />
@@ -441,6 +471,16 @@ export function BagForm({ onClose, onSave, campaignId }: BagFormProps) {
           </div>
         </div>
       </div>
+
+      <ConfirmationModal
+        isOpen={!!itemToDelete}
+        title="Remover Item"
+        message="Tem certeza que deseja remover este item da sacola?"
+        onConfirm={removeItem}
+        onCancel={() => setItemToDelete(null)}
+        variant="danger"
+        confirmText="Remover"
+      />
     </div>
   );
 }

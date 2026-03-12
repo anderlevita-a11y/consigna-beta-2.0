@@ -11,7 +11,8 @@ import {
   Loader2,
   Save,
   UserPlus,
-  Search
+  Search,
+  RefreshCcw
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { Campaign, Bag, Customer } from '../types';
@@ -328,6 +329,74 @@ export function CampaignDetails({ campaign, onBack, onAddBag }: CampaignDetailsP
     });
   };
 
+  const handleReopenBag = (bag: Bag) => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Reabrir Sacola',
+      message: 'Deseja reabrir esta sacola? Os itens devolvidos serão removidos do estoque novamente.',
+      variant: 'warning',
+      onConfirm: async () => {
+        try {
+          // 1. Fetch bag items
+          const { data: items, error: itemsError } = await supabase
+            .from('bag_items')
+            .select('*')
+            .eq('bag_id', bag.id);
+            
+          if (itemsError) throw itemsError;
+
+          // 2. Revert stock and reset returned_quantity
+          let totalGross = 0;
+          for (const item of items || []) {
+            totalGross += item.quantity * item.unit_price;
+            
+            if (item.returned_quantity > 0) {
+              // Get current stock
+              const { data: product } = await supabase
+                .from('products')
+                .select('current_stock')
+                .eq('id', item.product_id)
+                .single();
+                
+              if (product) {
+                // Decrement stock by returned_quantity
+                await supabase
+                  .from('products')
+                  .update({ current_stock: Math.max(0, (product.current_stock || 0) - item.returned_quantity) })
+                  .eq('id', item.product_id);
+              }
+              
+              // Reset returned_quantity
+              await supabase
+                .from('bag_items')
+                .update({ returned_quantity: 0 })
+                .eq('id', item.id);
+            }
+          }
+
+          // 3. Update bag status
+          const { error: bagError } = await supabase
+            .from('bags')
+            .update({ 
+              status: 'open',
+              payment_status: 'pending',
+              total_value: totalGross
+            })
+            .eq('id', bag.id);
+
+          if (bagError) throw bagError;
+          
+          fetchBags();
+        } catch (err) {
+          console.error('Error reopening bag:', err);
+          alert('Erro ao reabrir sacola');
+        } finally {
+          setConfirmModal(prev => ({ ...prev, isOpen: false }));
+        }
+      }
+    });
+  };
+
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'closed':
@@ -424,13 +493,24 @@ export function CampaignDetails({ campaign, onBack, onAddBag }: CampaignDetailsP
                       </td>
                       <td className="px-8 py-6">
                         <div className="flex items-center justify-end gap-2">
-                          <button 
-                            onClick={() => setSettlingBag(bag)}
-                            className="p-2.5 text-emerald-600 hover:bg-emerald-50 rounded-xl transition-all active:scale-95"
-                            title="Acertar"
-                          >
-                            <Save className="w-4.5 h-4.5" />
-                          </button>
+                          {bag.status === 'open' && (
+                            <button 
+                              onClick={() => setSettlingBag(bag)}
+                              className="p-2.5 text-emerald-600 hover:bg-emerald-50 rounded-xl transition-all active:scale-95"
+                              title="Acertar"
+                            >
+                              <Save className="w-4.5 h-4.5" />
+                            </button>
+                          )}
+                          {bag.status === 'closed' && (
+                            <button 
+                              onClick={() => handleReopenBag(bag)}
+                              className="p-2.5 text-amber-500 hover:bg-amber-50 rounded-xl transition-all active:scale-95"
+                              title="Reabrir Sacola"
+                            >
+                              <RefreshCcw className="w-4.5 h-4.5" />
+                            </button>
+                          )}
                           <button 
                             className="p-2.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 rounded-xl transition-all active:scale-95 disabled:opacity-50"
                             title="Imprimir Nota"
