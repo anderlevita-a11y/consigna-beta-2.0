@@ -1380,6 +1380,41 @@ export function Products() {
         </div>
       </div>
 
+      {/* Legenda de Ações */}
+      <div className="bg-white border border-zinc-100 rounded-2xl p-4 flex flex-wrap gap-6 items-center shadow-sm">
+        <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Legenda de Ações:</span>
+        <div className="flex items-center gap-2 text-xs text-zinc-500">
+          <div className="p-1.5 bg-zinc-50 rounded-lg text-zinc-600">
+            <Edit2 className="w-3.5 h-3.5" />
+          </div>
+          <span>Editar Produto</span>
+        </div>
+        <div className="flex items-center gap-2 text-xs text-zinc-500">
+          <div className="p-1.5 bg-zinc-50 rounded-lg text-zinc-600">
+            <Printer className="w-3.5 h-3.5" />
+          </div>
+          <span>Imprimir Etiqueta</span>
+        </div>
+        <div className="flex items-center gap-2 text-xs text-zinc-500">
+          <div className="p-1.5 bg-zinc-50 rounded-lg text-zinc-600">
+            <History className="w-3.5 h-3.5" />
+          </div>
+          <span>Histórico de Preços</span>
+        </div>
+        <div className="flex items-center gap-2 text-xs text-zinc-500">
+          <div className="p-1.5 bg-zinc-50 rounded-lg text-zinc-600">
+            <Eye className="w-3.5 h-3.5" />
+          </div>
+          <span>Ver na Loja</span>
+        </div>
+        <div className="flex items-center gap-2 text-xs text-zinc-500">
+          <div className="p-1.5 bg-red-50 rounded-lg text-red-600">
+            <Trash2 className="w-3.5 h-3.5" />
+          </div>
+          <span>Excluir Produto</span>
+        </div>
+      </div>
+
       <div className="flex flex-col sm:flex-row gap-4">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-400" />

@@ -47,7 +47,7 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
   const [previewType, setPreviewType] = useState<'termica' | 'a4' | 'etiqueta'>('termica');
   const [expenses, setExpenses] = useState<{ description: string; value: number }[]>([]);
   const [expenseDesc, setExpenseDesc] = useState('');
-  const [expenseValue, setExpenseValue] = useState<number>(0);
+  const [expenseValue, setExpenseValue] = useState<string>('0');
 
   useEffect(() => {
     fetchData();
@@ -148,10 +148,11 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
   const amountToPay = totalSold - commission - totalExpenses;
 
   const handleAddExpense = () => {
-    if (!expenseDesc || expenseValue <= 0) return;
-    setExpenses([...expenses, { description: expenseDesc, value: expenseValue }]);
+    const numericValue = Number(expenseValue.replace(',', '.')) || 0;
+    if (!expenseDesc || numericValue <= 0) return;
+    setExpenses([...expenses, { description: expenseDesc, value: numericValue }]);
     setExpenseDesc('');
-    setExpenseValue(0);
+    setExpenseValue('0');
   };
 
   const handleRemoveExpense = (index: number) => {
@@ -238,7 +239,7 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
       }
 
       // 2. Update bag status and payment
-      const numericReceivedAmount = parseFloat(receivedAmount) || 0;
+      const numericReceivedAmount = parseFloat(receivedAmount.replace(',', '.')) || 0;
       const { error: bagError } = await supabase
         .from('bags')
         .update({ 
@@ -275,7 +276,7 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
 
   const handleWhatsAppShare = async () => {
     try {
-      const numericReceivedAmount = parseFloat(receivedAmount) || 0;
+      const numericReceivedAmount = parseFloat(receivedAmount.replace(',', '.')) || 0;
       const customerName = bag.customer?.nome || 'Cliente';
       let message = `*Resumo da Sacola #${bag.bag_number.replace(/\D/g, '')}*\n`;
       message += `Cliente: ${customerName}\n\n`;
@@ -523,11 +524,17 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
                     className="flex-[2] bg-zinc-50 border border-zinc-100 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-emerald-500 disabled:opacity-50"
                   />
                   <input 
-                    type="number" 
+                    type="text" 
+                    inputMode="decimal"
                     placeholder="R$"
-                    value={expenseValue || ''}
+                    value={expenseValue === '0' ? '' : expenseValue}
                     disabled={bag.status === 'closed'}
-                    onChange={e => setExpenseValue(Number(e.target.value))}
+                    onChange={e => {
+                      const val = e.target.value;
+                      if (val === '' || /^\d*([.,]\d*)?$/.test(val)) {
+                        setExpenseValue(val);
+                      }
+                    }}
                     onKeyDown={e => e.key === 'Enter' && handleAddExpense()}
                     className="flex-1 bg-zinc-50 border border-zinc-100 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-emerald-500 disabled:opacity-50"
                   />
@@ -575,8 +582,8 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
                     value={receivedAmount}
                     disabled={bag.status === 'closed'}
                     onChange={(e) => {
-                      const val = e.target.value.replace(',', '.');
-                      if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                      const val = e.target.value;
+                      if (val === '' || /^\d*([.,]\d*)?$/.test(val)) {
                         setReceivedAmount(val);
                       }
                     }}

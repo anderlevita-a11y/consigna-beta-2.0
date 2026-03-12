@@ -464,7 +464,7 @@ export function VirtualStore({ slug }: { slug?: string }) {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             {settings?.logo_url ? (
-              <img src={settings.logo_url} alt="Logo" className="h-10 w-auto object-contain" referrerPolicy="no-referrer" />
+              <img src={settings.logo_url} alt="Logo" className="h-16 w-auto object-contain" referrerPolicy="no-referrer" />
             ) : (
               <h2 className="text-3xl font-serif italic text-zinc-900 tracking-tight">
                 {settings?.store_name?.split(' ')[0] || 'Consigna'} <span className="text-[#FF007F]" style={{ color: settings?.primary_color }}>{settings?.store_name?.split(' ').slice(1).join(' ') || 'Beauty'}</span>
@@ -545,7 +545,7 @@ export function VirtualStore({ slug }: { slug?: string }) {
 
       {/* Hero Banner Section */}
       <section className="px-6 my-8">
-        <div className="relative h-56 rounded-[32px] overflow-hidden group">
+        <div className="relative aspect-[3/1] md:aspect-[4/1] w-full rounded-[32px] overflow-hidden group shadow-lg">
           <img 
             src={settings?.banner_url || "https://images.unsplash.com/photo-1518310383802-640c2de311b2?q=80&w=1200&auto=format&fit=crop"} 
             alt="Hero"

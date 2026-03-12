@@ -24,13 +24,16 @@ import { ConfirmationModal } from './ConfirmationModal';
 
 export function Simulation() {
   const [description, setDescription] = useState('');
-  const [value, setValue] = useState<number>(0);
+  const [inputValue, setInputValue] = useState('');
   const [expenses, setExpenses] = useState<{ description: string; value: number }[]>([]);
   const [expenseDesc, setExpenseDesc] = useState('');
-  const [expenseValue, setExpenseValue] = useState<number>(0);
+  const [inputExpenseValue, setInputExpenseValue] = useState('');
   const [simulations, setSimulations] = useState<CommissionSimulation[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+
+  const value = Number(inputValue.replace(',', '.')) || 0;
+  const expenseValue = Number(inputExpenseValue.replace(',', '.')) || 0;
 
   // Confirmation Modal State
   const [confirmModal, setConfirmModal] = useState<{
@@ -95,7 +98,7 @@ export function Simulation() {
     if (!expenseDesc || expenseValue <= 0) return;
     setExpenses([...expenses, { description: expenseDesc, value: expenseValue }]);
     setExpenseDesc('');
-    setExpenseValue(0);
+    setInputExpenseValue('');
   };
 
   const handleRemoveExpense = (index: number) => {
@@ -129,7 +132,7 @@ export function Simulation() {
       if (error) throw error;
       
       setDescription('');
-      setValue(0);
+      setInputValue('');
       setExpenses([]);
       fetchData();
     } catch (err) {
@@ -224,11 +227,11 @@ export function Simulation() {
                   type="text" 
                   inputMode="decimal"
                   placeholder="0,00"
-                  value={value === 0 ? '' : value}
+                  value={inputValue}
                   onChange={e => {
-                    const val = e.target.value.replace(',', '.');
-                    if (val === '' || /^\d*\.?\d*$/.test(val)) {
-                      setValue(val === '' ? 0 : Number(val));
+                    const val = e.target.value;
+                    if (val === '' || /^\d*([.,]\d*)?$/.test(val)) {
+                      setInputValue(val);
                     }
                   }}
                   className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl pl-14 pr-6 py-4 text-2xl font-bold text-zinc-700 focus:border-indigo-500 outline-none transition-all"
@@ -251,11 +254,11 @@ export function Simulation() {
                   type="text" 
                   inputMode="decimal"
                   placeholder="R$ 0,00"
-                  value={expenseValue === 0 ? '' : expenseValue}
+                  value={inputExpenseValue}
                   onChange={e => {
-                    const val = e.target.value.replace(',', '.');
-                    if (val === '' || /^\d*\.?\d*$/.test(val)) {
-                      setExpenseValue(val === '' ? 0 : Number(val));
+                    const val = e.target.value;
+                    if (val === '' || /^\d*([.,]\d*)?$/.test(val)) {
+                      setInputExpenseValue(val);
                     }
                   }}
                   onKeyDown={e => e.key === 'Enter' && handleAddExpense()}
@@ -324,7 +327,7 @@ export function Simulation() {
               <div className="flex items-center gap-4">
                 <span className="text-3xl sm:text-4xl font-black text-emerald-600">R$ {liquidValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
                 <button 
-                  onClick={() => { setDescription(''); setValue(0); setExpenses([]); }}
+                  onClick={() => { setDescription(''); setInputValue(''); setExpenses([]); }}
                   className="p-2 hover:bg-rose-50 text-rose-400 rounded-lg transition-colors"
                 >
                   <Trash2 className="w-5 h-5" />

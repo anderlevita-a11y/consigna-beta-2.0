@@ -114,6 +114,35 @@ export function GoalsManager() {
         </div>
       </div>
 
+      {/* Legenda de Ações */}
+      <div className="bg-white border border-zinc-100 rounded-2xl p-4 flex flex-wrap gap-6 items-center shadow-sm">
+        <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Legenda de Ações:</span>
+        <div className="flex items-center gap-2 text-xs text-zinc-500">
+          <div className="p-1.5 bg-zinc-50 rounded-lg text-zinc-600">
+            <Eye className="w-3.5 h-3.5" />
+          </div>
+          <span>Gerenciar Campanha</span>
+        </div>
+        <div className="flex items-center gap-2 text-xs text-zinc-500">
+          <div className="p-1.5 bg-emerald-50 rounded-lg text-emerald-600">
+            <LinkIcon className="w-3.5 h-3.5" />
+          </div>
+          <span>Compartilhar Link</span>
+        </div>
+        <div className="flex items-center gap-2 text-xs text-zinc-500">
+          <div className="p-1.5 bg-zinc-100 rounded-lg text-zinc-600">
+            <Share2 className="w-3.5 h-3.5" />
+          </div>
+          <span>Compartilhar Geral</span>
+        </div>
+        <div className="flex items-center gap-2 text-xs text-zinc-500">
+          <div className="p-1.5 bg-[#00a86b] rounded-lg text-white">
+            <Plus className="w-3.5 h-3.5" />
+          </div>
+          <span>Criar Nova Campanha</span>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {loading ? (
           <div className="col-span-full py-12 text-center">
@@ -370,6 +399,17 @@ function GoalDetails({ campaign, onBack }: { campaign: GoalCampaign; onBack: () 
             <h2 className="text-2xl font-bold text-zinc-800 tracking-tight">{campaign.title}</h2>
             <p className="text-sm text-zinc-500">Gestão de Participantes e Recados</p>
           </div>
+        </div>
+      </div>
+
+      {/* Legenda de Ações */}
+      <div className="bg-white border border-zinc-100 rounded-2xl p-4 flex flex-wrap gap-6 items-center shadow-sm">
+        <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Legenda de Ações:</span>
+        <div className="flex items-center gap-2 text-xs text-zinc-500">
+          <div className="p-1.5 bg-red-50 rounded-lg text-red-400">
+            <Trash2 className="w-3.5 h-3.5" />
+          </div>
+          <span>Excluir Participante</span>
         </div>
       </div>
 

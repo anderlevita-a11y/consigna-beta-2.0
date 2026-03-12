@@ -200,6 +200,23 @@ export function Campaigns() {
         </div>
       </div>
 
+      {/* Legenda de Ações */}
+      <div className="bg-white border border-zinc-100 rounded-2xl p-4 flex flex-wrap gap-6 items-center shadow-sm">
+        <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Legenda de Ações:</span>
+        <div className="flex items-center gap-2 text-xs text-zinc-500">
+          <div className="p-1.5 bg-zinc-50 rounded-lg text-zinc-600">
+            <Plus className="w-3.5 h-3.5" />
+          </div>
+          <span>Nova Sacola</span>
+        </div>
+        <div className="flex items-center gap-2 text-xs text-zinc-500">
+          <div className="p-1.5 bg-zinc-50 rounded-lg text-zinc-600">
+            {showArchived ? <RefreshCcw className="w-3.5 h-3.5" /> : <Trash2 className="w-3.5 h-3.5" />}
+          </div>
+          <span>{showArchived ? 'Desarquivar' : 'Arquivar'}</span>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {loading ? (
           <div className="col-span-full py-12 text-center text-zinc-400 flex flex-col items-center gap-2">

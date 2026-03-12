@@ -119,13 +119,13 @@ export function PublicMysteryBag() {
       const filePath = `${id}/${fileName}`;
 
       const { error: uploadError } = await supabase.storage
-        .from('raffle-receipts')
+        .from('products')
         .upload(filePath, file);
 
       if (uploadError) throw uploadError;
 
       const { data } = supabase.storage
-        .from('raffle-receipts')
+        .from('products')
         .getPublicUrl(filePath);
 
       setReceiptUrl(data.publicUrl);
@@ -353,7 +353,7 @@ export function PublicMysteryBag() {
                   type="text" 
                   value={formData.name}
                   onChange={e => setFormData({...formData, name: e.target.value})}
-                  className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm focus:border-emerald-500 outline-none transition-all"
+                  className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm text-zinc-900 focus:border-emerald-500 outline-none transition-all"
                   style={{ '--tw-ring-color': storeSettings?.primary_color } as any}
                 />
               </div>
@@ -364,7 +364,7 @@ export function PublicMysteryBag() {
                   type="text" 
                   value={formData.cpf}
                   onChange={e => setFormData({...formData, cpf: e.target.value})}
-                  className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm focus:border-emerald-500 outline-none transition-all"
+                  className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm text-zinc-900 focus:border-emerald-500 outline-none transition-all"
                   style={{ '--tw-ring-color': storeSettings?.primary_color } as any}
                 />
               </div>
@@ -375,7 +375,7 @@ export function PublicMysteryBag() {
                   type="text" 
                   value={formData.phone}
                   onChange={e => setFormData({...formData, phone: e.target.value})}
-                  className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm focus:border-emerald-500 outline-none transition-all"
+                  className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm text-zinc-900 focus:border-emerald-500 outline-none transition-all"
                   style={{ '--tw-ring-color': storeSettings?.primary_color } as any}
                 />
               </div>

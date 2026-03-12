@@ -233,6 +233,35 @@ export function SweepstakesManager() {
             </div>
           </div>
 
+          {/* Legenda de Ações */}
+          <div className="bg-white border border-zinc-100 rounded-2xl p-4 flex flex-wrap gap-6 items-center shadow-sm">
+            <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Legenda de Ações:</span>
+            <div className="flex items-center gap-2 text-xs text-zinc-500">
+              <div className="p-1.5 bg-zinc-50 rounded-lg text-zinc-600">
+                <Users className="w-3.5 h-3.5" />
+              </div>
+              <span>Ver Participantes</span>
+            </div>
+            <div className="flex items-center gap-2 text-xs text-zinc-500">
+              <div className="p-1.5 bg-[#00a86b] rounded-lg text-white">
+                <Ticket className="w-3.5 h-3.5" />
+              </div>
+              <span>Realizar Sorteio</span>
+            </div>
+            <div className="flex items-center gap-2 text-xs text-zinc-500">
+              <div className="p-1.5 bg-zinc-50 rounded-lg text-zinc-400">
+                <Archive className="w-3.5 h-3.5" />
+              </div>
+              <span>Arquivar Sorteio</span>
+            </div>
+            <div className="flex items-center gap-2 text-xs text-zinc-500">
+              <div className="p-1.5 bg-emerald-50 rounded-lg text-emerald-600">
+                <RefreshCcw className="w-3.5 h-3.5" />
+              </div>
+              <span>Desarquivar Sorteio</span>
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {loading ? (
               <div className="col-span-full py-12 text-center">
@@ -337,12 +366,12 @@ function SweepstakesForm({ onClose, onSave }: { onClose: () => void; onSave: () 
   const [formData, setFormData] = useState({
     name: '',
     draw_date: '',
-    voucher_value: 50,
-    prizes_count: 1,
     objective: 'Engajamento e Arrecadação',
     prizes_list: '',
     rules: '1. O sorteio será realizado na data prevista.\n2. Cada R$ 50,00 em compras gera 1 cupom.\n3. O prêmio é pessoal e intransferível.'
   });
+  const [voucherValueInput, setVoucherValueInput] = useState('50');
+  const [prizesCountInput, setPrizesCountInput] = useState('1');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -352,10 +381,15 @@ function SweepstakesForm({ onClose, onSave }: { onClose: () => void; onSave: () 
     const user = session?.user;
       if (!user) return;
 
+      const voucher_value = Number(voucherValueInput.replace(',', '.')) || 0;
+      const prizes_count = Number(prizesCountInput) || 0;
+
       const { error } = await supabase
         .from('sweepstakes')
         .insert([{
           ...formData,
+          voucher_value,
+          prizes_count,
           user_id: user.id,
           status: 'pending'
         }]);
@@ -408,11 +442,12 @@ function SweepstakesForm({ onClose, onSave }: { onClose: () => void; onSave: () 
               required
               type="text" 
               inputMode="decimal"
-              value={formData.voucher_value === 0 ? '' : formData.voucher_value}
+              placeholder="0,00"
+              value={voucherValueInput}
               onChange={e => {
-                const val = e.target.value.replace(',', '.');
-                if (val === '' || /^\d*\.?\d*$/.test(val)) {
-                  setFormData({...formData, voucher_value: val === '' ? 0 : Number(val)});
+                const val = e.target.value;
+                if (val === '' || /^\d*([.,]\d*)?$/.test(val)) {
+                  setVoucherValueInput(val);
                 }
               }}
               className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm focus:border-emerald-500 outline-none transition-all"
@@ -424,10 +459,10 @@ function SweepstakesForm({ onClose, onSave }: { onClose: () => void; onSave: () 
               required
               type="text" 
               inputMode="numeric"
-              value={formData.prizes_count === 0 ? '' : formData.prizes_count}
+              value={prizesCountInput}
               onChange={e => {
                 const val = e.target.value.replace(/\D/g, '');
-                setFormData({...formData, prizes_count: val === '' ? 0 : Number(val)});
+                setPrizesCountInput(val);
               }}
               className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm focus:border-emerald-500 outline-none transition-all"
             />
@@ -540,6 +575,29 @@ function SweepstakesDetails({ sweep, onBack, onDraw }: { sweep: Sweepstakes; onB
         </div>
       </div>
 
+      {/* Legenda de Ações */}
+      <div className="bg-white border border-zinc-100 rounded-2xl p-4 flex flex-wrap gap-6 items-center shadow-sm">
+        <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Legenda de Ações:</span>
+        <div className="flex items-center gap-2 text-xs text-zinc-500">
+          <div className="p-1.5 bg-zinc-100 rounded-lg text-zinc-600">
+            <Download className="w-3.5 h-3.5" />
+          </div>
+          <span>Importar das Vendas</span>
+        </div>
+        <div className="flex items-center gap-2 text-xs text-zinc-500">
+          <div className="p-1.5 bg-[#00a86b] rounded-lg text-white">
+            <Plus className="w-3.5 h-3.5" />
+          </div>
+          <span>Adicionar Manual</span>
+        </div>
+        <div className="flex items-center gap-2 text-xs text-zinc-500">
+          <div className="p-1.5 bg-red-50 rounded-lg text-red-400">
+            <Trash2 className="w-3.5 h-3.5" />
+          </div>
+          <span>Excluir Participante</span>
+        </div>
+      </div>
+
       <div className="bg-white border border-zinc-200 rounded-[32px] overflow-hidden shadow-sm">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
@@ -610,21 +668,22 @@ function ParticipantModal({ sweepstakesId, onClose, onSave }: { sweepstakesId: s
   const [formData, setFormData] = useState({
     name: '',
     contact: '',
-    paid_amount: 100
   });
+  const [paidAmountInput, setPaidAmountInput] = useState('100');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     try {
-      const coupons = Math.floor(formData.paid_amount / 50);
+      const paid_amount = Number(paidAmountInput.replace(',', '.')) || 0;
+      const coupons = Math.floor(paid_amount / 50);
       const { error } = await supabase
         .from('sweepstakes_participants')
         .insert([{
           sweepstakes_id: sweepstakesId,
           name: formData.name,
           contact: formData.contact,
-          paid_amount: formData.paid_amount,
+          paid_amount,
           coupons_count: coupons,
           status: 'active'
         }]);
@@ -676,16 +735,17 @@ function ParticipantModal({ sweepstakesId, onClose, onSave }: { sweepstakesId: s
               required
               type="text" 
               inputMode="decimal"
-              value={formData.paid_amount === 0 ? '' : formData.paid_amount}
+              placeholder="0,00"
+              value={paidAmountInput}
               onChange={e => {
-                const val = e.target.value.replace(',', '.');
-                if (val === '' || /^\d*\.?\d*$/.test(val)) {
-                  setFormData({...formData, paid_amount: val === '' ? 0 : Number(val)});
+                const val = e.target.value;
+                if (val === '' || /^\d*([.,]\d*)?$/.test(val)) {
+                  setPaidAmountInput(val);
                 }
               }}
               className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm focus:border-emerald-500 outline-none transition-all"
             />
-            <p className="text-[10px] text-zinc-400 italic">Serão gerados {Math.floor(formData.paid_amount / 50)} cupons.</p>
+            <p className="text-[10px] text-zinc-400 italic">Serão gerados {Math.floor((Number(paidAmountInput.replace(',', '.')) || 0) / 50)} cupons.</p>
           </div>
 
           <div className="flex gap-4 pt-4">

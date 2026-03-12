@@ -100,6 +100,29 @@ export function MysteryBagsManager() {
         </button>
       </div>
 
+      {/* Legenda de Ações */}
+      <div className="bg-white border border-zinc-100 rounded-2xl p-4 flex flex-wrap gap-6 items-center shadow-sm">
+        <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Legenda de Ações:</span>
+        <div className="flex items-center gap-2 text-xs text-zinc-500">
+          <div className="p-1.5 bg-zinc-50 rounded-lg text-zinc-600">
+            <Eye className="w-3.5 h-3.5" />
+          </div>
+          <span>Gerenciar Campanha</span>
+        </div>
+        <div className="flex items-center gap-2 text-xs text-zinc-500">
+          <div className="p-1.5 bg-emerald-50 rounded-lg text-emerald-600">
+            <LinkIcon className="w-3.5 h-3.5" />
+          </div>
+          <span>Compartilhar Link</span>
+        </div>
+        <div className="flex items-center gap-2 text-xs text-zinc-500">
+          <div className="p-1.5 bg-[#00a86b] rounded-lg text-white">
+            <Plus className="w-3.5 h-3.5" />
+          </div>
+          <span>Criar Nova Campanha</span>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {loading ? (
           <div className="col-span-full py-12 text-center">
@@ -177,10 +200,10 @@ function MysteryBagForm({ onClose, onSave }: { onClose: () => void; onSave: () =
     title: '',
     description: '',
     rules: '1. O conteúdo da sacola é surpresa e só será revelado após a finalização da campanha.\n2. O pagamento deve ser confirmado enviando o comprovante.\n3. Sacolas reservadas sem pagamento serão liberadas após 24h.',
-    bag_price: 50,
     prizes: [''],
     payment_info: ''
   });
+  const [bagPriceInput, setBagPriceInput] = useState('50');
 
   const handleAddPrize = () => {
     setFormData({ ...formData, prizes: [...formData.prizes, ''] });
@@ -205,6 +228,7 @@ function MysteryBagForm({ onClose, onSave }: { onClose: () => void; onSave: () =
       const user = session?.user;
       if (!user) return;
 
+      const bag_price = Number(bagPriceInput.replace(',', '.')) || 0;
       const validPrizes = formData.prizes.filter(p => p.trim() !== '');
       if (validPrizes.length === 0) {
         alert('Adicione pelo menos um prêmio/sacola.');
@@ -220,7 +244,7 @@ function MysteryBagForm({ onClose, onSave }: { onClose: () => void; onSave: () =
           title: formData.title,
           description: formData.description,
           rules: formData.rules,
-          bag_price: formData.bag_price,
+          bag_price,
           payment_info: formData.payment_info,
           status: 'active'
         }])
@@ -288,11 +312,12 @@ function MysteryBagForm({ onClose, onSave }: { onClose: () => void; onSave: () =
             required
             type="text" 
             inputMode="decimal"
-            value={formData.bag_price === 0 ? '' : formData.bag_price}
+            placeholder="0,00"
+            value={bagPriceInput}
             onChange={e => {
-              const val = e.target.value.replace(',', '.');
-              if (val === '' || /^\d*\.?\d*$/.test(val)) {
-                setFormData({...formData, bag_price: val === '' ? 0 : Number(val)});
+              const val = e.target.value;
+              if (val === '' || /^\d*([.,]\d*)?$/.test(val)) {
+                setBagPriceInput(val);
               }
             }}
             className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm focus:border-emerald-500 outline-none transition-all"
@@ -496,6 +521,35 @@ function MysteryBagDetails({ campaign, onBack }: { campaign: MysteryBagCampaign;
             Finalizar e Revelar Prêmios
           </button>
         )}
+      </div>
+
+      {/* Legenda de Ações */}
+      <div className="bg-white border border-zinc-100 rounded-2xl p-4 flex flex-wrap gap-6 items-center shadow-sm">
+        <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Legenda de Ações:</span>
+        <div className="flex items-center gap-2 text-xs text-zinc-500">
+          <div className="p-1.5 bg-emerald-50 rounded-lg text-emerald-600">
+            <Eye className="w-3.5 h-3.5" />
+          </div>
+          <span>Ver Comprovante</span>
+        </div>
+        <div className="flex items-center gap-2 text-xs text-zinc-500">
+          <div className="p-1.5 bg-emerald-50 rounded-lg text-emerald-600">
+            <Check className="w-3.5 h-3.5" />
+          </div>
+          <span>Aprovar Pagamento</span>
+        </div>
+        <div className="flex items-center gap-2 text-xs text-zinc-500">
+          <div className="p-1.5 bg-red-50 rounded-lg text-red-600">
+            <Trash2 className="w-3.5 h-3.5" />
+          </div>
+          <span>Rejeitar e Liberar</span>
+        </div>
+        <div className="flex items-center gap-2 text-xs text-zinc-500">
+          <div className="p-1.5 bg-amber-500 rounded-lg text-white">
+            <Trophy className="w-3.5 h-3.5" />
+          </div>
+          <span>Finalizar Campanha</span>
+        </div>
       </div>
 
       <div className="bg-white border border-zinc-200 rounded-[32px] overflow-hidden shadow-sm">

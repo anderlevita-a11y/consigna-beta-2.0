@@ -109,6 +109,29 @@ export function RafflesManager() {
         </button>
       </div>
 
+      {/* Legenda de Ações */}
+      <div className="bg-white border border-zinc-100 rounded-2xl p-4 flex flex-wrap gap-6 items-center shadow-sm">
+        <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Legenda de Ações:</span>
+        <div className="flex items-center gap-2 text-xs text-zinc-500">
+          <div className="p-1.5 bg-zinc-50 rounded-lg text-zinc-600">
+            <Eye className="w-3.5 h-3.5" />
+          </div>
+          <span>Gerenciar Rifa</span>
+        </div>
+        <div className="flex items-center gap-2 text-xs text-zinc-500">
+          <div className="p-1.5 bg-emerald-50 rounded-lg text-emerald-600">
+            <LinkIcon className="w-3.5 h-3.5" />
+          </div>
+          <span>Compartilhar Link</span>
+        </div>
+        <div className="flex items-center gap-2 text-xs text-zinc-500">
+          <div className="p-1.5 bg-[#00a86b] rounded-lg text-white">
+            <Plus className="w-3.5 h-3.5" />
+          </div>
+          <span>Criar Nova Rifa</span>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {loading ? (
           <div className="col-span-full py-12 text-center">
@@ -188,11 +211,11 @@ function RaffleForm({ onClose, onSave }: { onClose: () => void; onSave: () => vo
     title: '',
     description: '',
     rules: '1. O sorteio será realizado após a venda de todos os números.\n2. O pagamento deve ser confirmado enviando o comprovante.\n3. Números reservados sem pagamento serão liberados após 24h.',
-    ticket_price: 10,
     total_tickets: 100,
     prizes: [''],
     payment_info: ''
   });
+  const [ticketPriceInput, setTicketPriceInput] = useState('10');
 
   const handleAddPrize = () => {
     setFormData({ ...formData, prizes: [...formData.prizes, ''] });
@@ -217,6 +240,7 @@ function RaffleForm({ onClose, onSave }: { onClose: () => void; onSave: () => vo
       const user = session?.user;
       if (!user) return;
 
+      const ticket_price = Number(ticketPriceInput.replace(',', '.')) || 0;
       const validPrizes = formData.prizes.filter(p => p.trim() !== '');
 
       const { error } = await supabase
@@ -226,7 +250,7 @@ function RaffleForm({ onClose, onSave }: { onClose: () => void; onSave: () => vo
           title: formData.title,
           description: formData.description,
           rules: formData.rules,
-          ticket_price: formData.ticket_price,
+          ticket_price,
           total_tickets: formData.total_tickets,
           prizes: validPrizes,
           payment_info: formData.payment_info,
@@ -272,11 +296,12 @@ function RaffleForm({ onClose, onSave }: { onClose: () => void; onSave: () => vo
               required
               type="text" 
               inputMode="decimal"
-              value={formData.ticket_price === 0 ? '' : formData.ticket_price}
+              placeholder="0,00"
+              value={ticketPriceInput}
               onChange={e => {
-                const val = e.target.value.replace(',', '.');
-                if (val === '' || /^\d*\.?\d*$/.test(val)) {
-                  setFormData({...formData, ticket_price: val === '' ? 0 : Number(val)});
+                const val = e.target.value;
+                if (val === '' || /^\d*([.,]\d*)?$/.test(val)) {
+                  setTicketPriceInput(val);
                 }
               }}
               className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm focus:border-emerald-500 outline-none transition-all"
@@ -451,6 +476,29 @@ function RaffleDetails({ raffle, onBack }: { raffle: Raffle; onBack: () => void 
             <h2 className="text-2xl font-bold text-zinc-800 tracking-tight">{raffle.title}</h2>
             <p className="text-sm text-zinc-500">Gestão de Números e Pagamentos</p>
           </div>
+        </div>
+      </div>
+
+      {/* Legenda de Ações */}
+      <div className="bg-white border border-zinc-100 rounded-2xl p-4 flex flex-wrap gap-6 items-center shadow-sm">
+        <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Legenda de Ações:</span>
+        <div className="flex items-center gap-2 text-xs text-zinc-500">
+          <div className="p-1.5 bg-emerald-50 rounded-lg text-emerald-600">
+            <Eye className="w-3.5 h-3.5" />
+          </div>
+          <span>Ver Comprovante</span>
+        </div>
+        <div className="flex items-center gap-2 text-xs text-zinc-500">
+          <div className="p-1.5 bg-emerald-50 rounded-lg text-emerald-600">
+            <Check className="w-3.5 h-3.5" />
+          </div>
+          <span>Aprovar Pagamento</span>
+        </div>
+        <div className="flex items-center gap-2 text-xs text-zinc-500">
+          <div className="p-1.5 bg-red-50 rounded-lg text-red-600">
+            <Trash2 className="w-3.5 h-3.5" />
+          </div>
+          <span>Rejeitar e Liberar</span>
         </div>
       </div>
 

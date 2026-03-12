@@ -11,9 +11,9 @@ interface CampaignFormProps {
 
 export function CampaignForm({ onClose, onSave, initialData }: CampaignFormProps) {
   const [loading, setLoading] = useState(false);
+  const [discountPctInput, setDiscountPctInput] = useState(initialData?.discount_pct?.toString() || '30');
   const [formData, setFormData] = useState({
     name: initialData?.name || '',
-    discount_pct: initialData?.discount_pct || 30,
     return_date: initialData?.return_date ? new Date(initialData.return_date).toISOString().split('T')[0] : '2026-04-15',
   });
 
@@ -25,8 +25,10 @@ export function CampaignForm({ onClose, onSave, initialData }: CampaignFormProps
     const user = session?.user;
       if (!user) return;
 
+      const discount_pct = Number(discountPctInput.replace(',', '.')) || 0;
       const payload: any = {
         ...formData,
+        discount_pct,
         user_id: user.id,
         status: 'active',
       };
@@ -114,11 +116,11 @@ export function CampaignForm({ onClose, onSave, initialData }: CampaignFormProps
                   <input 
                     type="text" 
                     inputMode="decimal"
-                    value={formData.discount_pct === 0 ? '' : formData.discount_pct}
+                    value={discountPctInput}
                     onChange={(e) => {
-                      const val = e.target.value.replace(',', '.');
-                      if (val === '' || /^\d*\.?\d*$/.test(val)) {
-                        setFormData({ ...formData, discount_pct: val === '' ? 0 : Number(val) });
+                      const val = e.target.value;
+                      if (val === '' || /^\d*([.,]\d*)?$/.test(val)) {
+                        setDiscountPctInput(val);
                       }
                     }}
                     className="w-full bg-white border border-zinc-200 rounded-xl px-4 py-4 text-zinc-800 focus:border-emerald-500 outline-none transition-all"

@@ -139,11 +139,34 @@ export function Bags() {
         </div>
         <button 
           onClick={() => setShowForm(true)}
-          className="flex items-center gap-2 bg-[#00a86b] hover:bg-[#008f5b] text-white px-4 py-2 rounded-lg font-medium transition-colors shadow-sm"
+          className="flex items-center gap-2 bg-[#00a86b] hover:bg-[#008f5b] text-white px-4 py-2.5 rounded-xl font-bold text-sm transition-all shadow-lg shadow-emerald-500/20"
         >
           <Plus className="w-5 h-5" />
           Nova Mala
         </button>
+      </div>
+
+      {/* Legenda de Ações */}
+      <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-4 flex flex-wrap gap-6 items-center">
+        <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Legenda de Ações:</span>
+        <div className="flex items-center gap-2 text-xs text-zinc-400">
+          <div className="p-1.5 bg-zinc-800 rounded-lg text-emerald-400">
+            <UserPlus className="w-3.5 h-3.5" />
+          </div>
+          <span>Atribuir Cliente</span>
+        </div>
+        <div className="flex items-center gap-2 text-xs text-zinc-400">
+          <div className="p-1.5 bg-zinc-800 rounded-lg text-emerald-400">
+            <ChevronRight className="w-3.5 h-3.5" />
+          </div>
+          <span>Ver Detalhes / Acerto</span>
+        </div>
+        <div className="flex items-center gap-2 text-xs text-zinc-400">
+          <div className="p-1.5 bg-[#00a86b] rounded-lg text-white">
+            <Plus className="w-3.5 h-3.5" />
+          </div>
+          <span>Criar Nova Mala</span>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">

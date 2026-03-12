@@ -26,6 +26,7 @@ export function CustomerForm({ customer, onClose, onSave }: CustomerFormProps) {
   const docInputRef = useRef<HTMLInputElement>(null);
   const proofInputRef = useRef<HTMLInputElement>(null);
 
+  const [creditLimitInput, setCreditLimitInput] = useState(customer?.credit_limit?.toString() || '0');
   const [formData, setFormData] = useState<Partial<Customer>>(customer || {
     nome: '',
     cpf: '',
@@ -43,7 +44,6 @@ export function CustomerForm({ customer, onClose, onSave }: CustomerFormProps) {
     estado: '',
     document_photo_url: '',
     residence_proof_url: '',
-    credit_limit: 0,
     status: 'active'
   });
 
@@ -104,6 +104,7 @@ export function CustomerForm({ customer, onClose, onSave }: CustomerFormProps) {
 
       // Remove immutable fields from formData
       const { id, created_at, ...saveData } = formData as any;
+      saveData.credit_limit = Number(creditLimitInput.replace(',', '.')) || 0;
 
       // Ensure empty strings are sent as null to avoid Supabase errors (especially for dates and numbers)
       Object.keys(saveData).forEach(key => {
@@ -317,11 +318,11 @@ export function CustomerForm({ customer, onClose, onSave }: CustomerFormProps) {
                       inputMode="decimal"
                       name="credit_limit"
                       placeholder="0,00"
-                      value={formData.credit_limit === 0 ? '' : formData.credit_limit}
+                      value={creditLimitInput === '0' ? '' : creditLimitInput}
                       onChange={e => {
-                        const val = e.target.value.replace(',', '.');
-                        if (val === '' || /^\d*\.?\d*$/.test(val)) {
-                          setFormData(prev => ({ ...prev, credit_limit: val === '' ? 0 : Number(val) }));
+                        const val = e.target.value;
+                        if (val === '' || /^\d*([.,]\d*)?$/.test(val)) {
+                          setCreditLimitInput(val);
                         }
                       }}
                       className="w-full bg-white border border-zinc-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 transition-all"

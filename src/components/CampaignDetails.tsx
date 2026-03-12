@@ -433,6 +433,53 @@ export function CampaignDetails({ campaign, onBack, onAddBag }: CampaignDetailsP
         </button>
       </div>
 
+      {/* Legenda de Ações */}
+      <div className="bg-white border border-zinc-100 rounded-2xl p-4 flex flex-wrap gap-6 items-center shadow-sm">
+        <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Legenda de Ações:</span>
+        <div className="flex items-center gap-2 text-xs text-zinc-500">
+          <div className="p-1.5 bg-zinc-50 rounded-lg text-emerald-600">
+            <UserPlus className="w-3.5 h-3.5" />
+          </div>
+          <span>Atribuir Cliente</span>
+        </div>
+        <div className="flex items-center gap-2 text-xs text-zinc-500">
+          <div className="p-1.5 bg-zinc-50 rounded-lg text-emerald-600">
+            <Save className="w-3.5 h-3.5" />
+          </div>
+          <span>Acertar Sacola</span>
+        </div>
+        <div className="flex items-center gap-2 text-xs text-zinc-500">
+          <div className="p-1.5 bg-zinc-50 rounded-lg text-amber-500">
+            <RefreshCcw className="w-3.5 h-3.5" />
+          </div>
+          <span>Reabrir Sacola</span>
+        </div>
+        <div className="flex items-center gap-2 text-xs text-zinc-500">
+          <div className="p-1.5 bg-zinc-50 rounded-lg text-zinc-600">
+            <Printer className="w-3.5 h-3.5" />
+          </div>
+          <span>Imprimir Nota</span>
+        </div>
+        <div className="flex items-center gap-2 text-xs text-zinc-500">
+          <div className="p-1.5 bg-zinc-50 rounded-lg text-zinc-600">
+            <Megaphone className="w-3.5 h-3.5" />
+          </div>
+          <span>Compartilhar WhatsApp</span>
+        </div>
+        <div className="flex items-center gap-2 text-xs text-zinc-500">
+          <div className="p-1.5 bg-zinc-50 rounded-lg text-zinc-600">
+            <Undo2 className="w-3.5 h-3.5" />
+          </div>
+          <span>Mover Campanha</span>
+        </div>
+        <div className="flex items-center gap-2 text-xs text-zinc-500">
+          <div className="p-1.5 bg-red-50 rounded-lg text-red-600">
+            <Trash2 className="w-3.5 h-3.5" />
+          </div>
+          <span>Arquivar Sacola</span>
+        </div>
+      </div>
+
       <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse min-w-[800px]">
