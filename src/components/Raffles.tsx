@@ -19,7 +19,9 @@ import {
   RefreshCcw,
   Link as LinkIcon,
   Eye,
-  Check
+  Check,
+  Share2,
+  Upload
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { Raffle, RaffleTicket } from '../types';
@@ -449,6 +451,69 @@ function RaffleDetails({ raffle, onBack }: { raffle: Raffle; onBack: () => void 
     }
   };
 
+  const [uploadingId, setUploadingId] = useState<string | null>(null);
+
+  const handleUploadReceipt = async (ticketId: string, file: File) => {
+    setUploadingId(ticketId);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user;
+      if (!user) throw new Error('Usuário não autenticado');
+
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${user.id}/raffle_${ticketId}_${Date.now()}.${fileExt}`;
+      const bucket = 'payment_proofs';
+
+      const { error: uploadError } = await supabase.storage
+        .from(bucket)
+        .upload(fileName, file, {
+          cacheControl: '3600',
+          upsert: false
+        });
+
+      if (uploadError) {
+        // Fallback to 'products' bucket
+        const { error: fallbackError } = await supabase.storage
+          .from('products')
+          .upload(`receipts/${fileName}`, file, {
+            cacheControl: '3600',
+            upsert: false
+          });
+        
+        if (fallbackError) throw uploadError;
+
+        const { data: { publicUrl } } = supabase.storage
+          .from('products')
+          .getPublicUrl(`receipts/${fileName}`);
+        
+        const { error: updateError } = await supabase
+          .from('raffle_tickets')
+          .update({ receipt_url: publicUrl })
+          .eq('id', ticketId);
+        
+        if (updateError) throw updateError;
+      } else {
+        const { data: { publicUrl } } = supabase.storage
+          .from(bucket)
+          .getPublicUrl(fileName);
+        
+        const { error: updateError } = await supabase
+          .from('raffle_tickets')
+          .update({ receipt_url: publicUrl })
+          .eq('id', ticketId);
+        
+        if (updateError) throw updateError;
+      }
+      
+      fetchTickets();
+    } catch (err) {
+      console.error('Error uploading receipt:', err);
+      alert('Erro ao carregar comprovante');
+    } finally {
+      setUploadingId(null);
+    }
+  };
+
   const handleRejectPayment = async (ticketId: string) => {
     if (!window.confirm('Tem certeza que deseja rejeitar este pagamento e liberar o número?')) return;
     try {
@@ -543,7 +608,25 @@ function RaffleDetails({ raffle, onBack }: { raffle: Raffle; onBack: () => void 
                           <Eye className="w-4 h-4" /> Ver Comprovante
                         </a>
                       ) : (
-                        <span className="text-zinc-400 text-xs italic">Aguardando envio</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-zinc-400 text-xs italic">Aguardando envio</span>
+                          <label className="p-1.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-600 rounded-lg cursor-pointer transition-colors">
+                            {uploadingId === t.id ? (
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <Upload className="w-3 h-3" />
+                            )}
+                            <input 
+                              type="file" 
+                              accept="image/jpeg,image/png,image/webp,application/pdf,image/*"
+                              className="hidden"
+                              onChange={e => {
+                                const file = e.target.files?.[0];
+                                if (file) handleUploadReceipt(t.id, file);
+                              }}
+                            />
+                          </label>
+                        </div>
                       )}
                     </td>
                     <td className="px-8 py-4">
@@ -555,24 +638,36 @@ function RaffleDetails({ raffle, onBack }: { raffle: Raffle; onBack: () => void 
                       </span>
                     </td>
                     <td className="px-8 py-4 text-right">
-                      {t.status === 'reserved' && (
-                        <div className="flex items-center justify-end gap-2">
-                          <button 
-                            onClick={() => handleApprovePayment(t.id)}
-                            className="p-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-600 rounded-lg transition-colors"
-                            title="Aprovar Pagamento"
-                          >
-                            <Check className="w-4 h-4" />
-                          </button>
-                          <button 
-                            onClick={() => handleRejectPayment(t.id)}
-                            className="p-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg transition-colors"
-                            title="Rejeitar e Liberar Número"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      )}
+                      <div className="flex items-center justify-end gap-2">
+                        <button 
+                          onClick={() => {
+                            const message = `Olá ${t.buyer_name}! Confirmamos sua reserva do número ${String(t.number).padStart(3, '0')} na rifa "${raffle.title}".\n\nStatus: ${t.status === 'paid' ? 'PAGO' : 'AGUARDANDO PAGAMENTO'}${t.receipt_url ? `\nComprovante: ${t.receipt_url}` : ''}\n\nBoa sorte!`;
+                            window.open(`https://wa.me/55${t.buyer_phone.replace(/\D/g, '')}?text=${encodeURIComponent(message)}`, '_blank');
+                          }}
+                          className="p-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-600 rounded-lg transition-colors"
+                          title="Enviar WhatsApp"
+                        >
+                          <Share2 className="w-4 h-4" />
+                        </button>
+                        {t.status === 'reserved' && (
+                          <>
+                            <button 
+                              onClick={() => handleApprovePayment(t.id)}
+                              className="p-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-600 rounded-lg transition-colors"
+                              title="Aprovar Pagamento"
+                            >
+                              <Check className="w-4 h-4" />
+                            </button>
+                            <button 
+                              onClick={() => handleRejectPayment(t.id)}
+                              className="p-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg transition-colors"
+                              title="Rejeitar e Liberar Número"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))

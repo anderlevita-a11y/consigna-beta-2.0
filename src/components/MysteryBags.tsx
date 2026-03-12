@@ -12,7 +12,9 @@ import {
   Link as LinkIcon,
   Eye,
   Check,
-  Gift
+  Gift,
+  Share2,
+  Upload
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { MysteryBagCampaign, MysteryBag } from '../types';
@@ -456,6 +458,69 @@ function MysteryBagDetails({ campaign, onBack }: { campaign: MysteryBagCampaign;
     }
   };
 
+  const [uploadingId, setUploadingId] = useState<string | null>(null);
+
+  const handleUploadReceipt = async (bagId: string, file: File) => {
+    setUploadingId(bagId);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user;
+      if (!user) throw new Error('Usuário não autenticado');
+
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${user.id}/mystery_bag_${bagId}_${Date.now()}.${fileExt}`;
+      const bucket = 'payment_proofs';
+
+      const { error: uploadError } = await supabase.storage
+        .from(bucket)
+        .upload(fileName, file, {
+          cacheControl: '3600',
+          upsert: false
+        });
+
+      if (uploadError) {
+        // Fallback to 'products' bucket
+        const { error: fallbackError } = await supabase.storage
+          .from('products')
+          .upload(`receipts/${fileName}`, file, {
+            cacheControl: '3600',
+            upsert: false
+          });
+        
+        if (fallbackError) throw uploadError;
+
+        const { data: { publicUrl } } = supabase.storage
+          .from('products')
+          .getPublicUrl(`receipts/${fileName}`);
+        
+        const { error: updateError } = await supabase
+          .from('mystery_bags')
+          .update({ receipt_url: publicUrl })
+          .eq('id', bagId);
+        
+        if (updateError) throw updateError;
+      } else {
+        const { data: { publicUrl } } = supabase.storage
+          .from(bucket)
+          .getPublicUrl(fileName);
+        
+        const { error: updateError } = await supabase
+          .from('mystery_bags')
+          .update({ receipt_url: publicUrl })
+          .eq('id', bagId);
+        
+        if (updateError) throw updateError;
+      }
+      
+      fetchBags();
+    } catch (err) {
+      console.error('Error uploading receipt:', err);
+      alert('Erro ao carregar comprovante');
+    } finally {
+      setUploadingId(null);
+    }
+  };
+
   const handleRejectPayment = async (bagId: string) => {
     if (!window.confirm('Tem certeza que deseja rejeitar este pagamento e liberar a sacola?')) return;
     try {
@@ -609,7 +674,27 @@ function MysteryBagDetails({ campaign, onBack }: { campaign: MysteryBagCampaign;
                           <Eye className="w-4 h-4" /> Ver
                         </a>
                       ) : (
-                        <span className="text-zinc-400 text-xs italic">-</span>
+                        bag.status === 'reserved' && (
+                          <div className="flex items-center gap-2">
+                            <span className="text-zinc-400 text-xs italic">-</span>
+                            <label className="p-1.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-600 rounded-lg cursor-pointer transition-colors">
+                              {uploadingId === bag.id ? (
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                              ) : (
+                                <Upload className="w-3 h-3" />
+                              )}
+                              <input 
+                                type="file" 
+                                accept="image/jpeg,image/png,image/webp,application/pdf,image/*"
+                                className="hidden"
+                                onChange={e => {
+                                  const file = e.target.files?.[0];
+                                  if (file) handleUploadReceipt(bag.id, file);
+                                }}
+                              />
+                            </label>
+                          </div>
+                        )
                       )}
                     </td>
                     <td className="px-8 py-4">
@@ -623,24 +708,38 @@ function MysteryBagDetails({ campaign, onBack }: { campaign: MysteryBagCampaign;
                       </span>
                     </td>
                     <td className="px-8 py-4 text-right">
-                      {bag.status === 'reserved' && campaign.status === 'active' && (
-                        <div className="flex items-center justify-end gap-2">
+                      <div className="flex items-center justify-end gap-2">
+                        {bag.buyer_phone && (
                           <button 
-                            onClick={() => handleApprovePayment(bag.id)}
+                            onClick={() => {
+                              const message = `Olá ${bag.buyer_name}! Confirmamos sua reserva da sacola #${String(bag.display_number).padStart(2, '0')} na campanha "${campaign.title}".\n\nStatus: ${bag.status === 'paid' ? 'PAGO' : 'AGUARDANDO PAGAMENTO'}${bag.receipt_url ? `\nComprovante: ${bag.receipt_url}` : ''}\n\nO conteúdo será revelado em breve!`;
+                              window.open(`https://wa.me/55${bag.buyer_phone.replace(/\D/g, '')}?text=${encodeURIComponent(message)}`, '_blank');
+                            }}
                             className="p-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-600 rounded-lg transition-colors"
-                            title="Aprovar Pagamento"
+                            title="Enviar WhatsApp"
                           >
-                            <Check className="w-4 h-4" />
+                            <Share2 className="w-4 h-4" />
                           </button>
-                          <button 
-                            onClick={() => handleRejectPayment(bag.id)}
-                            className="p-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg transition-colors"
-                            title="Rejeitar e Liberar Sacola"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      )}
+                        )}
+                        {bag.status === 'reserved' && campaign.status === 'active' && (
+                          <>
+                            <button 
+                              onClick={() => handleApprovePayment(bag.id)}
+                              className="p-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-600 rounded-lg transition-colors"
+                              title="Aprovar Pagamento"
+                            >
+                              <Check className="w-4 h-4" />
+                            </button>
+                            <button 
+                              onClick={() => handleRejectPayment(bag.id)}
+                              className="p-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg transition-colors"
+                              title="Rejeitar e Liberar Sacola"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))

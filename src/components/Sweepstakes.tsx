@@ -16,7 +16,11 @@ import {
   Search,
   UserPlus,
   Archive,
-  RefreshCcw
+  RefreshCcw,
+  Share2,
+  Upload,
+  Eye,
+  Check
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { Sweepstakes, SweepstakesParticipant } from '../types';
@@ -607,6 +611,7 @@ function SweepstakesDetails({ sweep, onBack, onDraw }: { sweep: Sweepstakes; onB
                 <th className="px-8 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Participante</th>
                 <th className="px-8 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Contato</th>
                 <th className="px-8 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Valor</th>
+                <th className="px-8 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Comprovante</th>
                 <th className="px-8 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Status</th>
                 <th className="px-8 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest text-right">Ações</th>
               </tr>
@@ -632,6 +637,15 @@ function SweepstakesDetails({ sweep, onBack, onDraw }: { sweep: Sweepstakes; onB
                     <td className="px-8 py-4 text-zinc-500 text-sm">{p.contact}</td>
                     <td className="px-8 py-4 font-bold text-zinc-800 text-sm">R$ {p.paid_amount.toFixed(2)}</td>
                     <td className="px-8 py-4">
+                      {p.receipt_url ? (
+                        <a href={p.receipt_url} target="_blank" rel="noopener noreferrer" className="text-emerald-600 hover:text-emerald-700 text-xs font-bold flex items-center gap-1">
+                          <Eye className="w-4 h-4" /> Ver
+                        </a>
+                      ) : (
+                        <span className="text-zinc-400 text-xs italic">-</span>
+                      )}
+                    </td>
+                    <td className="px-8 py-4">
                       <span className={cn(
                         "px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider",
                         p.status === 'winner' ? "bg-amber-50 text-amber-600" : "bg-zinc-50 text-zinc-400"
@@ -640,9 +654,21 @@ function SweepstakesDetails({ sweep, onBack, onDraw }: { sweep: Sweepstakes; onB
                       </span>
                     </td>
                     <td className="px-8 py-4 text-right">
-                      <button className="p-2 hover:bg-red-50 text-red-400 rounded-lg transition-colors">
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      <div className="flex items-center justify-end gap-2">
+                        <button 
+                          onClick={() => {
+                            const message = `Olá ${p.name}! Confirmamos sua participação no sorteio "${sweep.name}".\n\nValor Pago: R$ ${p.paid_amount.toFixed(2)}\nCupons Gerados: ${p.coupons_count}${p.receipt_url ? `\nComprovante: ${p.receipt_url}` : ''}\n\nBoa sorte!`;
+                            window.open(`https://wa.me/55${p.contact.replace(/\D/g, '')}?text=${encodeURIComponent(message)}`, '_blank');
+                          }}
+                          className="p-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-600 rounded-lg transition-colors"
+                          title="Enviar WhatsApp"
+                        >
+                          <Share2 className="w-4 h-4" />
+                        </button>
+                        <button className="p-2 hover:bg-red-50 text-red-400 rounded-lg transition-colors">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -665,14 +691,69 @@ function SweepstakesDetails({ sweep, onBack, onDraw }: { sweep: Sweepstakes; onB
 
 function ParticipantModal({ sweepstakesId, onClose, onSave }: { sweepstakesId: string; onClose: () => void; onSave: () => void }) {
   const [loading, setLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
     contact: '',
+    receipt_url: '',
   });
   const [paidAmountInput, setPaidAmountInput] = useState('100');
 
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploading(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user;
+      if (!user) throw new Error('Usuário não autenticado');
+
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${user.id}/${Date.now()}.${fileExt}`;
+      const bucket = 'payment_proofs';
+
+      const { error: uploadError } = await supabase.storage
+        .from(bucket)
+        .upload(fileName, file, {
+          cacheControl: '3600',
+          upsert: false
+        });
+
+      if (uploadError) {
+        // Fallback to 'products' bucket if 'payment_proofs' doesn't exist or fails
+        const { error: fallbackError } = await supabase.storage
+          .from('products')
+          .upload(`receipts/${fileName}`, file, {
+            cacheControl: '3600',
+            upsert: false
+          });
+        
+        if (fallbackError) throw uploadError;
+
+        const { data: { publicUrl } } = supabase.storage
+          .from('products')
+          .getPublicUrl(`receipts/${fileName}`);
+        
+        setFormData(prev => ({ ...prev, receipt_url: publicUrl }));
+      } else {
+        const { data: { publicUrl } } = supabase.storage
+          .from(bucket)
+          .getPublicUrl(fileName);
+        
+        setFormData(prev => ({ ...prev, receipt_url: publicUrl }));
+      }
+    } catch (err) {
+      console.error('Error uploading receipt:', err);
+      alert('Erro ao carregar comprovante. Verifique se o bucket "payment_proofs" existe.');
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (uploading) return;
     setLoading(true);
     try {
       const paid_amount = Number(paidAmountInput.replace(',', '.')) || 0;
@@ -685,6 +766,7 @@ function ParticipantModal({ sweepstakesId, onClose, onSave }: { sweepstakesId: s
           contact: formData.contact,
           paid_amount,
           coupons_count: coupons,
+          receipt_url: formData.receipt_url,
           status: 'active'
         }]);
       if (error) throw error;
@@ -746,6 +828,39 @@ function ParticipantModal({ sweepstakesId, onClose, onSave }: { sweepstakesId: s
               className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm focus:border-emerald-500 outline-none transition-all"
             />
             <p className="text-[10px] text-zinc-400 italic">Serão gerados {Math.floor((Number(paidAmountInput.replace(',', '.')) || 0) / 50)} cupons.</p>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Comprovante de Pagamento</label>
+            <div className="flex items-center gap-4">
+              <label className="flex-1 flex items-center justify-center gap-2 bg-zinc-50 border border-dashed border-zinc-200 rounded-2xl px-6 py-4 cursor-pointer hover:bg-zinc-100 transition-all group">
+                {uploading ? (
+                  <Loader2 className="w-5 h-5 animate-spin text-emerald-500" />
+                ) : formData.receipt_url ? (
+                  <Check className="w-5 h-5 text-emerald-500" />
+                ) : (
+                  <Upload className="w-5 h-5 text-zinc-400 group-hover:text-emerald-500 transition-colors" />
+                )}
+                <span className="text-sm text-zinc-500">
+                  {uploading ? 'Enviando...' : formData.receipt_url ? 'Comprovante Enviado' : 'Carregar Comprovante'}
+                </span>
+                <input 
+                  type="file" 
+                  accept="image/jpeg,image/png,image/webp,application/pdf,image/*"
+                  onChange={handleFileUpload}
+                  className="hidden"
+                />
+              </label>
+              {formData.receipt_url && (
+                <button 
+                  type="button"
+                  onClick={() => setFormData(prev => ({ ...prev, receipt_url: '' }))}
+                  className="p-4 text-red-500 hover:bg-red-50 rounded-2xl transition-colors"
+                >
+                  <Trash2 className="w-5 h-5" />
+                </button>
+              )}
+            </div>
           </div>
 
           <div className="flex gap-4 pt-4">

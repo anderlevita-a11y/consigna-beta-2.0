@@ -138,6 +138,7 @@ export interface SweepstakesParticipant {
   paid_amount: number;
   coupons_count: number;
   status: 'active' | 'winner';
+  receipt_url?: string;
   created_at: string;
 }
 

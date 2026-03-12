@@ -101,18 +101,38 @@ export function PublicRaffle() {
       const fileExt = file.name.split('.').pop();
       const fileName = `${Math.random()}.${fileExt}`;
       const filePath = `${id}/${fileName}`;
+      const bucket = 'payment_proofs';
 
       const { error: uploadError } = await supabase.storage
-        .from('products')
-        .upload(filePath, file);
+        .from(bucket)
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: false
+        });
 
-      if (uploadError) throw uploadError;
+      if (uploadError) {
+        // Fallback to 'products' bucket
+        const { error: fallbackError } = await supabase.storage
+          .from('products')
+          .upload(filePath, file, {
+            cacheControl: '3600',
+            upsert: false
+          });
+        
+        if (fallbackError) throw uploadError;
 
-      const { data } = supabase.storage
-        .from('products')
-        .getPublicUrl(filePath);
+        const { data } = supabase.storage
+          .from('products')
+          .getPublicUrl(filePath);
 
-      setReceiptUrl(data.publicUrl);
+        setReceiptUrl(data.publicUrl);
+      } else {
+        const { data } = supabase.storage
+          .from(bucket)
+          .getPublicUrl(filePath);
+
+        setReceiptUrl(data.publicUrl);
+      }
     } catch (err) {
       console.error('Error uploading receipt:', err);
       alert('Erro ao fazer upload do comprovante.');
@@ -394,7 +414,7 @@ export function PublicRaffle() {
                 <div className="relative">
                   <input 
                     type="file"
-                    accept="image/*,.pdf"
+                    accept="image/jpeg,image/png,image/webp,application/pdf,image/*"
                     onChange={handleFileUpload}
                     className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
                     disabled={uploading}
