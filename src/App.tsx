@@ -48,22 +48,35 @@ export default function App() {
     }
 
     const path = window.location.pathname;
-    if (path.startsWith('/rifa/')) {
+    
+    // Check query parameters first (better for static hosting)
+    const rifaParam = params.get('rifa');
+    const sacolaParam = params.get('sacola');
+    const metasParam = params.get('metas');
+    const metasEBrindesParam = params.get('metas-e-brindes');
+
+    if (rifaParam) {
+      setRaffleId(rifaParam);
+    } else if (path.startsWith('/rifa/')) {
       const id = path.split('/rifa/')[1];
       if (id) {
         setRaffleId(id);
       }
+    } else if (sacolaParam) {
+      setMysteryBagId(sacolaParam);
     } else if (path.startsWith('/sacola/')) {
       const id = path.split('/sacola/')[1];
       if (id) {
         setMysteryBagId(id);
       }
+    } else if (metasParam) {
+      setGoalId(metasParam);
     } else if (path.startsWith('/metas/')) {
       const id = path.split('/metas/')[1];
       if (id) {
         setGoalId(id);
       }
-    } else if (path === '/metas-e-brindes') {
+    } else if (metasEBrindesParam === 'true' || path === '/metas-e-brindes') {
       setShowAllGoals(true);
     }
   }, []);

@@ -57,7 +57,7 @@ export function MysteryBagsManager() {
   };
 
   const shareLink = async (campaign: MysteryBagCampaign) => {
-    const url = `${window.location.origin}/sacola/${campaign.id}`;
+    const url = `${window.location.origin}/?sacola=${campaign.id}`;
     
     if (navigator.share) {
       try {

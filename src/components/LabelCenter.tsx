@@ -247,6 +247,7 @@ export function LabelCenter({ onClose, initialProduct }: LabelCenterProps) {
                 display: flex;
                 flex-wrap: wrap;
                 align-content: flex-start;
+                page-break-after: always;
               `}
             }
             .label {
@@ -254,7 +255,7 @@ export function LabelCenter({ onClose, initialProduct }: LabelCenterProps) {
               height: ${model.height}mm;
               box-sizing: border-box;
               margin-right: ${model.gap?.horizontal || 0}mm;
-              margin-bottom: ${model.gap?.vertical || 0}mm;
+              margin-bottom: ${model.rowsPerSheet ? (model.gap?.vertical || 0) : 0}mm;
               display: flex;
               flex-direction: column;
               ${isCustom ? 'position: relative;' : 'justify-content: center; align-items: center;'}
@@ -262,11 +263,9 @@ export function LabelCenter({ onClose, initialProduct }: LabelCenterProps) {
               page-break-inside: avoid;
               ${!model.rowsPerSheet ? 'border: 1px dashed #ccc;' : ''} /* Helper border for continuous rolls */
             }
-            ${model.rowsPerSheet ? `
-              .label:nth-child(${model.labelsPerRow}n) {
-                margin-right: 0;
-              }
-            ` : ''}
+            .label:nth-child(${model.labelsPerRow}n) {
+              margin-right: 0;
+            }
             
             /* Barcode specific styles */
             .barcode-label {
@@ -388,7 +387,7 @@ export function LabelCenter({ onClose, initialProduct }: LabelCenterProps) {
                 const items = ${JSON.stringify(selectedProducts.flatMap(p => Array(p.quantity).fill(p.product)))};
                 let currentLabel = 0;
                 let currentPage = 0;
-                const labelsPerPage = ${model.rowsPerSheet ? model.labelsPerRow * model.rowsPerSheet : 1};
+                const labelsPerPage = ${model.rowsPerSheet ? model.labelsPerRow * model.rowsPerSheet : model.labelsPerRow || 1};
                 
                 items.forEach((item, index) => {
                   if (index % labelsPerPage === 0) {

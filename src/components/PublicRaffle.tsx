@@ -22,8 +22,13 @@ export function PublicRaffle() {
   const [receiptUrl, setReceiptUrl] = useState('');
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const rifaParam = params.get('rifa');
     const path = window.location.pathname;
-    if (path.startsWith('/rifa/')) {
+    
+    if (rifaParam) {
+      setId(rifaParam);
+    } else if (path.startsWith('/rifa/')) {
       const raffleId = path.split('/rifa/')[1];
       if (raffleId) {
         setId(raffleId);

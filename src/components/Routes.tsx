@@ -41,10 +41,10 @@ export function Routes() {
   const [serviceTime, setServiceTime] = useState(25);
   const [lunchStart, setLunchStart] = useState('12:00');
   const [lunchDuration, setLunchDuration] = useState(60);
-  const [showNavModal, setShowNavModal] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [routeToDelete, setRouteToDelete] = useState<string | null>(null);
+  const [customerSearch, setCustomerSearch] = useState('');
 
   useEffect(() => {
     fetchRoutes();
@@ -492,6 +492,51 @@ export function Routes() {
     }
   };
 
+  const handleAddCustomerToRoute = async (customer: Customer) => {
+    if (!activeRoute) return;
+    
+    // Check if customer is already in the route
+    if (activeRoute.stops?.some(s => s.customer_id === customer.id)) {
+      alert('Este cliente já está na rota.');
+      return;
+    }
+    
+    try {
+      setLoading(true);
+      const newOrderIndex = activeRoute.stops ? activeRoute.stops.length : 0;
+      
+      const { data: newStop, error } = await supabase
+        .from('route_stops')
+        .insert([{
+          route_id: activeRoute.id,
+          customer_id: customer.id,
+          order_index: newOrderIndex,
+          status: 'pending',
+          user_id: activeRoute.user_id
+        }])
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      const stopWithCustomer = { ...newStop, customer };
+      
+      const updatedStops = [...(activeRoute.stops || []), stopWithCustomer];
+      const updatedRoute = { ...activeRoute, stops: updatedStops };
+      
+      setActiveRoute(updatedRoute);
+      setRoutes(routes.map(r => r.id === activeRoute.id ? updatedRoute : r));
+      
+      alert('Cliente adicionado à rota com sucesso!');
+      setCustomerSearch('');
+    } catch (err: any) {
+      console.error('Error adding customer to route:', err);
+      alert('Erro ao adicionar cliente: ' + (err.message || JSON.stringify(err)));
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleMarkVisited = async (stopId: string, currentStatus: string) => {
     const newStatus = currentStatus === 'visited' ? 'pending' : 'visited';
     
@@ -701,8 +746,22 @@ export function Routes() {
 
               <div className="pt-4 border-t border-zinc-100">
                 <h4 className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-4">Adicionar Clientes Manualmente</h4>
+                
+                <div className="relative mb-4">
+                  <Search className="w-4 h-4 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    placeholder="Buscar cliente..."
+                    value={customerSearch}
+                    onChange={(e) => setCustomerSearch(e.target.value)}
+                    className="w-full bg-zinc-50 border border-zinc-200 rounded-xl pl-10 pr-4 py-2.5 text-sm text-zinc-800 focus:border-emerald-500 outline-none transition-all"
+                  />
+                </div>
+
                 <div className="space-y-2 max-h-60 overflow-y-auto pr-2">
-                  {customers.map(cust => (
+                  {customers
+                    .filter(cust => cust.nome.toLowerCase().includes(customerSearch.toLowerCase()))
+                    .map(cust => (
                     <button 
                       key={cust.id}
                       onClick={() => toggleCustomer(cust)}
@@ -717,6 +776,9 @@ export function Routes() {
                       {selectedCustomers.find(c => c.id === cust.id) ? <Check className="w-3 h-3" /> : <Plus className="w-3 h-3" />}
                     </button>
                   ))}
+                  {customers.filter(cust => cust.nome.toLowerCase().includes(customerSearch.toLowerCase())).length === 0 && (
+                    <p className="text-xs text-zinc-400 text-center py-4">Nenhum cliente encontrado.</p>
+                  )}
                 </div>
               </div>
             </div>
@@ -844,15 +906,6 @@ export function Routes() {
           </div>
           
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full sm:w-auto">
-            {activeRoute.status !== 'completed' && (
-              <button 
-                onClick={() => setShowNavModal(true)}
-                className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-3 sm:py-2.5 rounded-xl font-bold text-xs transition-all shadow-lg shadow-blue-500/20 w-full sm:w-auto"
-              >
-                <Navigation className="w-4 h-4" />
-                Iniciar Navegação
-              </button>
-            )}
             <button 
               onClick={optimizeActiveRoute}
               disabled={loading}
@@ -1037,6 +1090,44 @@ export function Routes() {
                 </div>
               </div>
             ) : null}
+
+            {activeRoute.status !== 'completed' && (
+              <div className="pt-6 mt-6 border-t border-zinc-100">
+                <h4 className="text-sm font-bold text-zinc-400 uppercase tracking-widest mb-4">Adicionar Cliente Manualmente</h4>
+                <div className="relative mb-4">
+                  <Search className="w-4 h-4 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    placeholder="Buscar cliente para adicionar à rota..."
+                    value={customerSearch}
+                    onChange={(e) => setCustomerSearch(e.target.value)}
+                    className="w-full bg-zinc-50 border border-zinc-200 rounded-xl pl-10 pr-4 py-2.5 text-sm text-zinc-800 focus:border-emerald-500 outline-none transition-all"
+                  />
+                </div>
+                
+                {customerSearch.length > 0 && (
+                  <div className="space-y-2 max-h-60 overflow-y-auto pr-2">
+                    {customers
+                      .filter(cust => cust.nome.toLowerCase().includes(customerSearch.toLowerCase()))
+                      .filter(cust => !activeRoute.stops?.some(s => s.customer_id === cust.id))
+                      .map(cust => (
+                      <button 
+                        key={cust.id}
+                        onClick={() => handleAddCustomerToRoute(cust)}
+                        disabled={loading}
+                        className="w-full flex items-center justify-between p-3 rounded-xl border transition-all text-left bg-white border-zinc-100 text-zinc-600 hover:border-emerald-200 hover:bg-emerald-50"
+                      >
+                        <span className="text-xs font-bold truncate">{cust.nome}</span>
+                        <Plus className="w-4 h-4 text-emerald-600" />
+                      </button>
+                    ))}
+                    {customers.filter(cust => cust.nome.toLowerCase().includes(customerSearch.toLowerCase()) && !activeRoute.stops?.some(s => s.customer_id === cust.id)).length === 0 && (
+                      <p className="text-xs text-zinc-400 text-center py-4">Nenhum cliente disponível encontrado.</p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -1137,57 +1228,6 @@ export function Routes() {
           ))
         )}
       </div>
-      {showNavModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
-          <div className="bg-white w-full max-w-sm rounded-[32px] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300">
-            <div className="p-6 border-b border-zinc-100 flex items-center justify-between">
-              <h3 className="font-bold text-zinc-800">Escolha o Aplicativo</h3>
-              <button onClick={() => setShowNavModal(false)} className="p-2 hover:bg-zinc-100 rounded-xl transition-colors">
-                <X className="w-5 h-5 text-zinc-400" />
-              </button>
-            </div>
-            <div className="p-6 space-y-3">
-              <a 
-                href={getNavigateFullRouteUrl() || '#'}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={() => setShowNavModal(false)}
-                className="flex items-center justify-between p-4 bg-zinc-50 hover:bg-zinc-100 rounded-2xl border border-zinc-100 transition-all group"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-white border border-zinc-200 flex items-center justify-center shadow-sm">
-                    <Map className="w-5 h-5 text-blue-500" />
-                  </div>
-                  <div>
-                    <p className="font-bold text-zinc-800 text-sm">Google Maps</p>
-                    <p className="text-[10px] text-zinc-400 uppercase tracking-widest">Suporta múltiplos pontos</p>
-                  </div>
-                </div>
-                <ExternalLink className="w-4 h-4 text-zinc-300 group-hover:text-zinc-500 transition-colors" />
-              </a>
-
-              <a 
-                href={activeRoute?.stops?.find(s => s.status === 'pending' && s.customer?.latitude)?.customer ? getNavigateToStopUrl(activeRoute.stops.find(s => s.status === 'pending' && s.customer?.latitude)!, 'waze') || '#' : '#'}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={() => setShowNavModal(false)}
-                className="flex items-center justify-between p-4 bg-zinc-50 hover:bg-zinc-100 rounded-2xl border border-zinc-100 transition-all group"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-white border border-zinc-200 flex items-center justify-center shadow-sm">
-                    <Navigation className="w-5 h-5 text-cyan-500" />
-                  </div>
-                  <div>
-                    <p className="font-bold text-zinc-800 text-sm">Waze</p>
-                    <p className="text-[10px] text-zinc-400 uppercase tracking-widest">Apenas próximo ponto</p>
-                  </div>
-                </div>
-                <ExternalLink className="w-4 h-4 text-zinc-300 group-hover:text-zinc-500 transition-colors" />
-              </a>
-            </div>
-          </div>
-        </div>
-      )}
 
       <ConfirmationModal
         isOpen={deleteModalOpen}

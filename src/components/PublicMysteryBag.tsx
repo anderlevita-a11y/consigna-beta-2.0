@@ -22,8 +22,13 @@ export function PublicMysteryBag() {
   const [receiptUrl, setReceiptUrl] = useState('');
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const sacolaParam = params.get('sacola');
     const path = window.location.pathname;
-    if (path.startsWith('/sacola/')) {
+    
+    if (sacolaParam) {
+      setId(sacolaParam);
+    } else if (path.startsWith('/sacola/')) {
       const campaignId = path.split('/sacola/')[1];
       if (campaignId) {
         setId(campaignId);

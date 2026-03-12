@@ -22,14 +22,21 @@ export function PublicGoals() {
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const metasParam = params.get('metas');
+    const metasEBrindesParam = params.get('metas-e-brindes');
     const path = window.location.pathname;
-    if (path.startsWith('/metas/')) {
+    
+    if (metasParam) {
+      setId(metasParam);
+      setStep('details');
+    } else if (path.startsWith('/metas/')) {
       const campaignId = path.split('/metas/')[1];
       if (campaignId) {
         setId(campaignId);
         setStep('details');
       }
-    } else if (path === '/metas-e-brindes') {
+    } else if (metasEBrindesParam === 'true' || path === '/metas-e-brindes') {
       setStep('list');
     }
   }, []);

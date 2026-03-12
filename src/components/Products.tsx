@@ -59,6 +59,7 @@ export function Products() {
   const [importing, setImporting] = useState(false);
   const [excelData, setExcelData] = useState('');
   const [centralProducts, setCentralProducts] = useState<any[]>([]);
+  const [centralSearchTerm, setCentralSearchTerm] = useState('');
   const [loadingCentral, setLoadingCentral] = useState(false);
   const [priceSuggestions, setPriceSuggestions] = useState<PriceSuggestion[]>([]);
   const [isPriceModalOpen, setIsPriceModalOpen] = useState(false);
@@ -680,6 +681,23 @@ export function Products() {
 
   const isRestrictedPlan = profile?.status_pagamento === 'STARTER' || profile?.status_pagamento === 'TRIAL';
 
+  const filteredProducts = products.filter(p => {
+    const matchesSearch = p.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                          String(p.ean || '').includes(searchTerm);
+    const matchesCategory = selectedCategory === 'Todos' || p.category === selectedCategory;
+    return matchesSearch && matchesCategory;
+  });
+
+  const filteredCentralProducts = centralProducts.filter(product => {
+    const searchLower = centralSearchTerm.toLowerCase();
+    return (
+      product.name?.toLowerCase().includes(searchLower) ||
+      String(product.ean || '').toLowerCase().includes(searchLower)
+    );
+  });
+
+  const displayedProducts = filteredProducts.slice(0, 100);
+
   if (view === 'form') {
     return (
       <div className="space-y-8 animate-in fade-in duration-500">
@@ -1076,6 +1094,17 @@ export function Products() {
                   </button>
                 )}
               </div>
+
+              <div className="relative flex-1 max-w-md">
+                <input
+                  type="text"
+                  placeholder="Buscar na central..."
+                  value={centralSearchTerm}
+                  onChange={(e) => setCentralSearchTerm(e.target.value)}
+                  className="w-full bg-white border border-zinc-200 rounded-xl pl-10 pr-4 py-2 text-sm focus:border-emerald-500 outline-none transition-all shadow-sm"
+                />
+                <Search className="w-4 h-4 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              </div>
             </div>
             <div className="overflow-x-auto max-h-[400px] overflow-y-auto">
               <table className="w-full text-left border-collapse min-w-[600px]">
@@ -1096,14 +1125,14 @@ export function Products() {
                         <Loader2 className="w-6 h-6 animate-spin text-emerald-500 mx-auto" />
                       </td>
                     </tr>
-                  ) : centralProducts.length === 0 ? (
+                  ) : filteredCentralProducts.length === 0 ? (
                     <tr>
                       <td colSpan={6} className="px-4 py-8 text-center text-zinc-400 text-sm">
-                        Nenhum produto na central.
+                        {centralSearchTerm ? 'Nenhum produto encontrado na busca.' : 'Nenhum produto na central.'}
                       </td>
                     </tr>
                   ) : (
-                    centralProducts.map((product) => {
+                    filteredCentralProducts.map((product) => {
                       const key = (product.ean && product.ean !== '0' && product.ean !== '') 
                         ? product.ean 
                         : product.name.toLowerCase().trim();
@@ -1308,15 +1337,6 @@ export function Products() {
       </div>
     );
   }
-
-  const filteredProducts = products.filter(p => {
-    const matchesSearch = p.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                          String(p.ean || '').includes(searchTerm);
-    const matchesCategory = selectedCategory === 'Todos' || p.category === selectedCategory;
-    return matchesSearch && matchesCategory;
-  });
-
-  const displayedProducts = filteredProducts.slice(0, 100);
 
   return (
     <div className="space-y-6">

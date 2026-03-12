@@ -65,7 +65,7 @@ export function RafflesManager() {
   };
 
   const shareLink = async (raffle: Raffle) => {
-    const url = `${window.location.origin}/rifa/${raffle.id}`;
+    const url = `${window.location.origin}/?rifa=${raffle.id}`;
     
     if (navigator.share) {
       try {

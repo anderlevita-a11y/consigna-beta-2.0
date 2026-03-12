@@ -294,6 +294,12 @@ export function StoreSettings() {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    // Check file size (max 2MB)
+    if (file.size > 2 * 1024 * 1024) {
+      setMessage({ type: 'error', text: 'O arquivo é muito grande. O tamanho máximo permitido é 2MB.' });
+      return;
+    }
+
     try {
       setSaving(true);
 
@@ -324,6 +330,35 @@ export function StoreSettings() {
     } catch (err: any) {
       console.error(`Error uploading ${type}:`, err);
       setMessage({ type: 'error', text: `Erro ao carregar ${type}: ` + err.message });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function removeStoreAsset(type: 'logo' | 'banner') {
+    try {
+      setSaving(true);
+      const currentUrl = type === 'logo' ? settings.logo_url : settings.banner_url;
+      
+      if (currentUrl && currentUrl.includes('supabase.co')) {
+        // Attempt to extract path from URL to delete from storage
+        const urlParts = currentUrl.split('/public/products/');
+        if (urlParts.length > 1) {
+          const filePath = urlParts[1];
+          // We don't await here to avoid blocking the UI if delete fails
+          supabase.storage.from('products').remove([filePath]).catch(console.error);
+        }
+      }
+
+      setSettings(prev => ({
+        ...prev,
+        [type === 'logo' ? 'logo_url' : 'banner_url']: ''
+      }));
+      
+      setMessage({ type: 'success', text: `${type === 'logo' ? 'Logo' : 'Banner'} removido com sucesso!` });
+    } catch (err: any) {
+      console.error(`Error removing ${type}:`, err);
+      setMessage({ type: 'error', text: `Erro ao remover ${type}: ` + err.message });
     } finally {
       setSaving(false);
     }
@@ -619,11 +654,21 @@ export function StoreSettings() {
             </div>
 
             <div>
-              <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Logo da Loja</label>
+              <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-1">Logo da Loja</label>
+              <p className="text-[10px] text-zinc-400 mb-3 italic">Recomendado: 512x512px (1:1), PNG ou JPG. Máx 2MB.</p>
               <div className="flex items-center gap-4">
-                <div className="w-16 h-16 rounded-2xl bg-zinc-50 border border-zinc-100 flex items-center justify-center overflow-hidden flex-shrink-0">
+                <div className="w-16 h-16 rounded-2xl bg-zinc-50 border border-zinc-100 flex items-center justify-center overflow-hidden flex-shrink-0 relative group">
                   {settings.logo_url ? (
-                    <img src={settings.logo_url} alt="Logo" className="w-full h-full object-contain" referrerPolicy="no-referrer" />
+                    <>
+                      <img src={settings.logo_url} alt="Logo" className="w-full h-full object-contain" referrerPolicy="no-referrer" />
+                      <button 
+                        onClick={() => removeStoreAsset('logo')}
+                        className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                        title="Remover Logo"
+                      >
+                        <Trash2 className="w-5 h-5 text-white" />
+                      </button>
+                    </>
                   ) : (
                     <ImageIcon className="w-6 h-6 text-zinc-300" />
                   )}
@@ -634,7 +679,7 @@ export function StoreSettings() {
                     className="w-full bg-zinc-50 border border-zinc-100 hover:bg-zinc-100 text-zinc-600 py-2 px-4 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2"
                   >
                     <ImageIcon className="w-4 h-4" />
-                    Carregar Logo
+                    {settings.logo_url ? 'Trocar Logo' : 'Carregar Logo'}
                   </button>
                   <input 
                     type="text"
@@ -655,11 +700,21 @@ export function StoreSettings() {
             </div>
 
             <div>
-              <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Banner da Loja</label>
+              <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-1">Banner da Loja</label>
+              <p className="text-[10px] text-zinc-400 mb-3 italic">Recomendado: 1200x400px (3:1), PNG ou JPG. Máx 2MB.</p>
               <div className="flex items-center gap-4">
-                <div className="w-16 h-16 rounded-2xl bg-zinc-50 border border-zinc-100 flex items-center justify-center overflow-hidden flex-shrink-0">
+                <div className="w-16 h-16 rounded-2xl bg-zinc-50 border border-zinc-100 flex items-center justify-center overflow-hidden flex-shrink-0 relative group">
                   {settings.banner_url ? (
-                    <img src={settings.banner_url} alt="Banner" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                    <>
+                      <img src={settings.banner_url} alt="Banner" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                      <button 
+                        onClick={() => removeStoreAsset('banner')}
+                        className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                        title="Remover Banner"
+                      >
+                        <Trash2 className="w-5 h-5 text-white" />
+                      </button>
+                    </>
                   ) : (
                     <ImageIcon className="w-6 h-6 text-zinc-300" />
                   )}
@@ -670,7 +725,7 @@ export function StoreSettings() {
                     className="w-full bg-zinc-50 border border-zinc-100 hover:bg-zinc-100 text-zinc-600 py-2 px-4 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2"
                   >
                     <ImageIcon className="w-4 h-4" />
-                    Carregar Banner
+                    {settings.banner_url ? 'Trocar Banner' : 'Carregar Banner'}
                   </button>
                   <input 
                     type="text"

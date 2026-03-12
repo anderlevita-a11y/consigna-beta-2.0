@@ -62,8 +62,8 @@ export function GoalsManager() {
 
   const shareLink = async (campaign?: GoalCampaign) => {
     const url = campaign 
-      ? `${window.location.origin}/metas/${campaign.id}`
-      : `${window.location.origin}/metas-e-brindes`;
+      ? `${window.location.origin}/?metas=${campaign.id}`
+      : `${window.location.origin}/?metas-e-brindes=true`;
     
     if (navigator.share) {
       try {
