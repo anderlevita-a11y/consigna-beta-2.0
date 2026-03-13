@@ -26,6 +26,7 @@ import { ResetPasswordModal } from './components/ResetPasswordModal';
 import { PublicRaffle } from './components/PublicRaffle';
 import { PublicMysteryBag } from './components/PublicMysteryBag';
 import { PublicGoals } from './components/PublicGoals';
+import { PublicSweepstakes } from './components/PublicSweepstakes';
 import { Settings, Loader2, Megaphone, BarChart3, Ticket, Calculator, ShieldAlert, Menu, StickyNote, DollarSign } from 'lucide-react';
 import { supabase } from './lib/supabase';
 import { Session } from '@supabase/supabase-js';
@@ -38,6 +39,7 @@ export default function App() {
   const [raffleId, setRaffleId] = useState<string | null>(null);
   const [mysteryBagId, setMysteryBagId] = useState<string | null>(null);
   const [goalId, setGoalId] = useState<string | null>(null);
+  const [sweepstakesId, setSweepstakesId] = useState<string | null>(null);
   const [showAllGoals, setShowAllGoals] = useState(false);
 
   useEffect(() => {
@@ -53,6 +55,7 @@ export default function App() {
     const rifaParam = params.get('rifa');
     const sacolaParam = params.get('sacola');
     const metasParam = params.get('metas');
+    const sorteioParam = params.get('sorteio');
     const metasEBrindesParam = params.get('metas-e-brindes');
 
     if (rifaParam) {
@@ -75,6 +78,13 @@ export default function App() {
       const id = path.split('/metas/')[1];
       if (id) {
         setGoalId(id);
+      }
+    } else if (sorteioParam) {
+      setSweepstakesId(sorteioParam);
+    } else if (path.startsWith('/sorteio/')) {
+      const id = path.split('/sorteio/')[1];
+      if (id) {
+        setSweepstakesId(id);
       }
     } else if (metasEBrindesParam === 'true' || path === '/metas-e-brindes') {
       setShowAllGoals(true);
@@ -101,6 +111,14 @@ export default function App() {
     return (
       <NotificationProvider>
         <PublicGoals />
+      </NotificationProvider>
+    );
+  }
+
+  if (sweepstakesId) {
+    return (
+      <NotificationProvider>
+        <PublicSweepstakes />
       </NotificationProvider>
     );
   }

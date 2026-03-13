@@ -32,7 +32,7 @@ import { ConfirmationModal } from './ConfirmationModal';
 export function RafflesManager() {
   const [raffles, setRaffles] = useState<Raffle[]>([]);
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState<'list' | 'create' | 'details'>('list');
+  const [view, setView] = useState<'list' | 'create' | 'details' | 'draw'>('list');
   const [selectedRaffle, setSelectedRaffle] = useState<Raffle | null>(null);
 
   useEffect(() => {
@@ -95,7 +95,11 @@ export function RafflesManager() {
   }
 
   if (view === 'details' && selectedRaffle) {
-    return <RaffleDetails raffle={selectedRaffle} onBack={() => setView('list')} />;
+    return <RaffleDetails raffle={selectedRaffle} onBack={() => setView('list')} onDraw={() => setView('draw')} />;
+  }
+
+  if (view === 'draw' && selectedRaffle) {
+    return <RaffleDraw raffle={selectedRaffle} onBack={() => setView('details')} />;
   }
 
   return (
@@ -411,9 +415,12 @@ function RaffleForm({ onClose, onSave }: { onClose: () => void; onSave: () => vo
   );
 }
 
-function RaffleDetails({ raffle, onBack }: { raffle: Raffle; onBack: () => void }) {
+function RaffleDetails({ raffle, onBack, onDraw }: { raffle: Raffle; onBack: () => void; onDraw: () => void }) {
   const [tickets, setTickets] = useState<RaffleTicket[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const paidTicketsCount = tickets.filter(t => t.status === 'paid').length;
+  const isFullyPaid = paidTicketsCount === raffle.total_tickets;
 
   useEffect(() => {
     fetchTickets();
@@ -542,6 +549,15 @@ function RaffleDetails({ raffle, onBack }: { raffle: Raffle; onBack: () => void 
             <p className="text-sm text-zinc-500">Gestão de Números e Pagamentos</p>
           </div>
         </div>
+        {isFullyPaid && raffle.status !== 'finished' && (
+          <button 
+            onClick={onDraw}
+            className="flex items-center justify-center gap-2 bg-[#00a86b] hover:bg-[#008f5b] text-white px-6 py-3 rounded-xl text-sm font-bold transition-all shadow-lg shadow-emerald-500/20"
+          >
+            <Trophy className="w-4 h-4" />
+            Realizar Sorteio
+          </button>
+        )}
       </div>
 
       {/* Legenda de Ações */}
@@ -674,6 +690,144 @@ function RaffleDetails({ raffle, onBack }: { raffle: Raffle; onBack: () => void 
               )}
             </tbody>
           </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RaffleDraw({ raffle, onBack }: { raffle: Raffle; onBack: () => void }) {
+  const [tickets, setTickets] = useState<RaffleTicket[]>([]);
+  const [winners, setWinners] = useState<any[]>([]);
+  const [drawing, setDrawing] = useState(false);
+
+  useEffect(() => {
+    fetchTickets();
+  }, [raffle.id]);
+
+  async function fetchTickets() {
+    const { data } = await supabase
+      .from('raffle_tickets')
+      .select('*')
+      .eq('raffle_id', raffle.id)
+      .eq('status', 'paid');
+    if (data) {
+      setTickets(data);
+    }
+  }
+
+  const handleStartDraw = async () => {
+    if (tickets.length === 0) return;
+    setDrawing(true);
+    
+    // Simulate drawing animation
+    await new Promise(resolve => setTimeout(resolve, 3000));
+
+    const winner = tickets[Math.floor(Math.random() * tickets.length)];
+    
+    try {
+      const { error } = await supabase
+        .from('raffles')
+        .update({ status: 'finished' })
+        .eq('id', raffle.id);
+      
+      if (error) throw error;
+      
+      setWinners([...winners, winner]);
+    } catch (err) {
+      console.error('Error recording winner:', err);
+    } finally {
+      setDrawing(false);
+    }
+  };
+
+  return (
+    <div className="space-y-8 animate-in fade-in duration-500">
+      <div className="flex items-center gap-4">
+        <button onClick={onBack} className="p-2 hover:bg-zinc-100 rounded-lg text-zinc-400 transition-colors">
+          <ChevronRight className="w-5 h-5 rotate-180" />
+        </button>
+        <div>
+          <h2 className="text-2xl font-bold text-zinc-800 tracking-tight">Realizar Sorteio da Rifa</h2>
+          <p className="text-sm text-zinc-500">{raffle.title}</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div className="bg-white border border-zinc-200 rounded-[40px] p-10 shadow-sm space-y-8">
+          <div className="bg-amber-50 border border-amber-100 rounded-3xl p-6">
+            <p className="text-xs font-bold text-amber-800 leading-relaxed">
+              <span className="text-amber-600">Atenção:</span> O sorteio é aleatório e irrevogável. Certifique-se de que todos os números foram pagos antes de iniciar.
+            </p>
+          </div>
+
+          <div className="space-y-6">
+            <h3 className="text-sm font-bold text-zinc-800 uppercase tracking-widest">Resumo da Rifa</h3>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="bg-zinc-50 rounded-3xl p-6">
+                <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Total Números</p>
+                <p className="text-3xl font-bold text-zinc-800">{raffle.total_tickets}</p>
+              </div>
+              <div className="bg-zinc-50 rounded-3xl p-6">
+                <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Números Pagos</p>
+                <p className="text-3xl font-bold text-zinc-800">{tickets.length}</p>
+              </div>
+            </div>
+          </div>
+
+          <button 
+            onClick={handleStartDraw}
+            disabled={drawing || winners.length >= raffle.prizes.length}
+            className={cn(
+              "w-full py-6 rounded-3xl font-bold text-lg flex items-center justify-center gap-4 transition-all shadow-xl",
+              drawing 
+                ? "bg-emerald-100 text-emerald-600" 
+                : winners.length >= raffle.prizes.length
+                  ? "bg-zinc-100 text-zinc-400 cursor-not-allowed"
+                  : "bg-[#00a86b] hover:bg-[#008f5b] text-white shadow-emerald-500/20"
+            )}
+          >
+            {drawing ? (
+              <>
+                <Loader2 className="w-6 h-6 animate-spin" />
+                Sorteando...
+              </>
+            ) : (
+              <>
+                <Trophy className="w-6 h-6" />
+                Sortear Ganhador
+              </>
+            )}
+          </button>
+        </div>
+
+        <div className="bg-white border border-zinc-200 rounded-[40px] p-10 shadow-sm space-y-8">
+          <div className="flex items-center gap-3">
+            <Trophy className="w-6 h-6 text-emerald-500" />
+            <h3 className="font-bold text-zinc-800">Ganhadores da Rifa</h3>
+          </div>
+
+          <div className="space-y-4">
+            {winners.length === 0 ? (
+              <div className="py-20 text-center space-y-4">
+                <Ticket className="w-12 h-12 text-zinc-100 mx-auto" />
+                <p className="text-zinc-400 text-sm italic">Nenhum ganhador ainda.</p>
+              </div>
+            ) : (
+              winners.map((winner, idx) => (
+                <div key={winner.id} className="flex items-center gap-4 bg-emerald-50 border border-emerald-100 rounded-3xl p-6 animate-in zoom-in-95 duration-500">
+                  <div className="w-12 h-12 rounded-2xl bg-white flex items-center justify-center shadow-sm">
+                    <Trophy className="w-6 h-6 text-emerald-500" />
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest mb-1">Prêmio: {raffle.prizes[idx]}</p>
+                    <p className="text-xl font-bold text-zinc-800">{winner.buyer_name}</p>
+                    <p className="text-xs text-zinc-500">Número: {String(winner.number).padStart(3, '0')}</p>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
         </div>
       </div>
     </div>

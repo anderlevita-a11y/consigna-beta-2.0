@@ -14,6 +14,8 @@ interface BagFormProps {
 interface BagItem {
   product: Product;
   quantity: number;
+  color?: string;
+  size?: string;
 }
 
 export function BagForm({ onClose, onSave, campaignId }: BagFormProps) {
@@ -26,6 +28,9 @@ export function BagForm({ onClose, onSave, campaignId }: BagFormProps) {
   const [items, setItems] = useState<BagItem[]>([]);
   const [productSearch, setProductSearch] = useState('');
   const [itemToDelete, setItemToDelete] = useState<string | null>(null);
+  const [isGridModalOpen, setIsGridModalOpen] = useState(false);
+  const [selectedProductForGrid, setSelectedProductForGrid] = useState<Product | null>(null);
+  const [gridForm, setGridForm] = useState({ color: '', size: '' });
 
   const [customerSearch, setCustomerSearch] = useState('');
 
@@ -71,7 +76,7 @@ export function BagForm({ onClose, onSave, campaignId }: BagFormProps) {
       while (pHasMore) {
         const { data, error } = await supabase
           .from('products')
-          .select('id, name, ean, sale_price, current_stock, label_name')
+          .select('id, name, ean, sale_price, current_stock, label_name, has_grid, grid_data')
           .eq('user_id', user.id)
           .order('name')
           .range(pFrom, pTo);
@@ -91,15 +96,36 @@ export function BagForm({ onClose, onSave, campaignId }: BagFormProps) {
     }
   }
 
-  const addItem = (product: Product) => {
-    const existing = items.find(i => i.product.id === product.id);
+  const addItem = (product: Product, color?: string, size?: string) => {
+    if (!noStock && product.current_stock <= 0) {
+      alert('Produto indisponível no estoque.');
+      return;
+    }
+
+    if (product.has_grid && !color && !size) {
+      setSelectedProductForGrid(product);
+      setIsGridModalOpen(true);
+      return;
+    }
+
+    const existing = items.find(i => 
+      i.product.id === product.id && 
+      i.color === color && 
+      i.size === size
+    );
     if (existing) {
-      const filtered = items.filter(i => i.product.id !== product.id);
-      setItems([{ ...existing, quantity: existing.quantity + 1 }, ...filtered]);
+      setItems(items.map(i => 
+        (i.product.id === product.id && i.color === color && i.size === size)
+          ? { ...i, quantity: i.quantity + 1 }
+          : i
+      ));
     } else {
-      setItems([{ product, quantity: 1 }, ...items]);
+      setItems([{ product, quantity: 1, color, size }, ...items]);
     }
     setProductSearch('');
+    setIsGridModalOpen(false);
+    setSelectedProductForGrid(null);
+    setGridForm({ color: '', size: '' });
   };
 
   const confirmRemoveItem = (productId: string) => {
@@ -108,14 +134,14 @@ export function BagForm({ onClose, onSave, campaignId }: BagFormProps) {
 
   const removeItem = () => {
     if (itemToDelete) {
-      setItems(items.filter(i => i.product.id !== itemToDelete));
+      setItems(items.filter(i => `${i.product.id}-${i.color}-${i.size}` !== itemToDelete));
       setItemToDelete(null);
     }
   };
 
-  const updateQuantity = (productId: string, delta: number) => {
+  const updateQuantity = (productId: string, delta: number, color?: string, size?: string) => {
     setItems(items.map(i => {
-      if (i.product.id === productId) {
+      if (i.product.id === productId && i.color === color && i.size === size) {
         const newQty = Math.max(1, i.quantity + delta);
         return { ...i, quantity: newQty };
       }
@@ -181,7 +207,9 @@ export function BagForm({ onClose, onSave, campaignId }: BagFormProps) {
         product_name: item.product.name,
         quantity: item.quantity,
         returned_quantity: 0,
-        unit_price: item.product.sale_price
+        unit_price: item.product.sale_price,
+        color: item.color || null,
+        size: item.size || null
       }));
 
       const { error: itemsError } = await supabase
@@ -195,14 +223,28 @@ export function BagForm({ onClose, onSave, campaignId }: BagFormProps) {
         for (const item of items) {
           const { data: product } = await supabase
             .from('products')
-            .select('current_stock')
+            .select('current_stock, has_grid, grid_data')
             .eq('id', item.product.id)
             .single();
           
           if (product) {
+            let updateData: any = { 
+              current_stock: Math.max(0, (product.current_stock || 0) - item.quantity) 
+            };
+
+            if (product.has_grid && product.grid_data && item.color && item.size) {
+              const newGridData = product.grid_data.map((g: any) => {
+                if (g.color === item.color && g.size === item.size) {
+                  return { ...g, quantity: Math.max(0, (g.quantity || 0) - item.quantity) };
+                }
+                return g;
+              });
+              updateData.grid_data = newGridData;
+            }
+
             await supabase
               .from('products')
-              .update({ current_stock: Math.max(0, (product.current_stock || 0) - item.quantity) })
+              .update(updateData)
               .eq('id', item.product.id);
           }
         }
@@ -393,23 +435,32 @@ export function BagForm({ onClose, onSave, campaignId }: BagFormProps) {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-50">
-                    {items.map((item) => (
-                      <tr key={item.product.id} className="group">
+                    {items.map((item, index) => (
+                      <tr key={`${item.product.id}-${item.color}-${item.size}-${index}`} className="group">
                         <td className="py-4">
                           <p className="text-sm font-bold text-zinc-800">{item.product.name}</p>
-                          <p className="text-[10px] text-zinc-400">{item.product.label_name || 'Sem marca'}</p>
+                          <div className="flex items-center gap-2">
+                            <p className="text-[10px] text-zinc-400">{item.product.label_name || 'Sem marca'}</p>
+                            {(item.color || item.size) && (
+                              <span className="text-[10px] bg-zinc-100 text-zinc-500 px-1.5 py-0.5 rounded">
+                                {item.color && `Cor: ${item.color}`}
+                                {item.color && item.size && ' | '}
+                                {item.size && `Tam: ${item.size}`}
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="py-4">
                           <div className="flex items-center justify-center gap-3">
                             <button 
-                              onClick={() => updateQuantity(item.product.id, -1)}
+                              onClick={() => updateQuantity(item.product.id, -1, item.color, item.size)}
                               className="w-6 h-6 rounded-full border border-zinc-200 flex items-center justify-center text-zinc-400 hover:border-emerald-500 hover:text-emerald-500 transition-all"
                             >
                               -
                             </button>
                             <span className="text-sm font-bold text-zinc-800 w-4 text-center">{item.quantity}</span>
                             <button 
-                              onClick={() => updateQuantity(item.product.id, 1)}
+                              onClick={() => updateQuantity(item.product.id, 1, item.color, item.size)}
                               className="w-6 h-6 rounded-full border border-zinc-200 flex items-center justify-center text-zinc-400 hover:border-emerald-500 hover:text-emerald-500 transition-all"
                             >
                               +
@@ -424,7 +475,7 @@ export function BagForm({ onClose, onSave, campaignId }: BagFormProps) {
                         </td>
                         <td className="py-4 text-right">
                           <button 
-                            onClick={() => confirmRemoveItem(item.product.id)}
+                            onClick={() => setItemToDelete(`${item.product.id}-${item.color}-${item.size}`)}
                             className="p-2 text-zinc-300 hover:text-red-500 transition-colors"
                           >
                             <Trash2 className="w-4 h-4" />
@@ -471,6 +522,84 @@ export function BagForm({ onClose, onSave, campaignId }: BagFormProps) {
           </div>
         </div>
       </div>
+
+      {/* Grid Selection Modal */}
+      {isGridModalOpen && selectedProductForGrid && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="bg-white rounded-3xl w-full max-w-md p-8 shadow-2xl">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-xl font-serif italic text-zinc-900">Selecionar Variação</h3>
+              <button onClick={() => setIsGridModalOpen(false)} className="p-2 hover:bg-zinc-100 rounded-full transition-colors">
+                <X className="w-5 h-5 text-zinc-400" />
+              </button>
+            </div>
+
+            <div className="space-y-6">
+              <div>
+                <p className="text-sm font-bold text-zinc-800 mb-1">{selectedProductForGrid.name}</p>
+                <p className="text-xs text-zinc-400">Escolha a cor e o tamanho para adicionar à sacola.</p>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest block mb-2">Cor</label>
+                  <div className="flex flex-wrap gap-2">
+                    {Array.from(new Set(selectedProductForGrid.grid_data?.map(g => g.color))).map(color => (
+                      <button
+                        key={color}
+                        onClick={() => setGridForm(prev => ({ ...prev, color, size: '' }))}
+                        className={cn(
+                          "px-4 py-2 rounded-xl border text-xs font-bold transition-all",
+                          gridForm.color === color 
+                            ? "border-emerald-500 text-emerald-600 bg-emerald-50" 
+                            : "border-zinc-200 text-zinc-600 hover:border-zinc-300"
+                        )}
+                      >
+                        {color}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {gridForm.color && (
+                  <div>
+                    <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest block mb-2">Tamanho</label>
+                    <div className="flex flex-wrap gap-2">
+                      {selectedProductForGrid.grid_data
+                        ?.filter(g => g.color === gridForm.color)
+                        .map(g => (
+                          <button
+                            key={g.size}
+                            disabled={g.quantity <= 0}
+                            onClick={() => setGridForm(prev => ({ ...prev, size: g.size }))}
+                            className={cn(
+                              "w-10 h-10 rounded-xl border flex items-center justify-center text-xs font-bold transition-all",
+                              g.quantity <= 0 
+                                ? "opacity-30 cursor-not-allowed bg-zinc-50" 
+                                : gridForm.size === g.size 
+                                  ? "border-emerald-500 text-emerald-600 bg-emerald-50" 
+                                  : "border-zinc-200 text-zinc-600 hover:border-zinc-300"
+                            )}
+                          >
+                            {g.size}
+                          </button>
+                        ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <button
+                disabled={!gridForm.color || !gridForm.size}
+                onClick={() => addItem(selectedProductForGrid, gridForm.color, gridForm.size)}
+                className="w-full bg-zinc-900 text-white py-4 rounded-2xl text-sm font-bold shadow-xl hover:bg-emerald-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Adicionar à Sacola
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <ConfirmationModal
         isOpen={!!itemToDelete}

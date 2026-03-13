@@ -32,10 +32,21 @@ export function Products() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [view, setView] = useState<'list' | 'form' | 'import' | 'labels'>('list');
+  const [view, setView] = useState<'list' | 'form' | 'import' | 'labels' | 'quick_entry'>('list');
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [quickEntryList, setQuickEntryList] = useState<{
+    product: Product;
+    quantity: number;
+    color?: string;
+    size?: string;
+  }[]>([]);
+  const [quickEntrySearch, setQuickEntrySearch] = useState('');
+  const [quickEntryLoading, setQuickEntryLoading] = useState(false);
+  const [isQuickEntryGridModalOpen, setIsQuickEntryGridModalOpen] = useState(false);
+  const [selectedProductForQuickEntryGrid, setSelectedProductForQuickEntryGrid] = useState<Product | null>(null);
+  const [quickEntryGridForm, setQuickEntryGridForm] = useState({ color: '', size: '' });
   const [profile, setProfile] = useState<any>(null);
   const [syncing, setSyncing] = useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
@@ -88,6 +99,8 @@ export function Products() {
     has_grid: boolean;
     category: string;
     is_visible_in_store: boolean;
+    description: string;
+    grid_data: { color: string; size: string; quantity: number }[];
   }>({
     name: '',
     label_name: '',
@@ -98,7 +111,16 @@ export function Products() {
     photo_url: '',
     has_grid: false,
     category: '',
-    is_visible_in_store: true
+    is_visible_in_store: true,
+    description: '',
+    grid_data: []
+  });
+
+  const [isGridModalOpen, setIsGridModalOpen] = useState(false);
+  const [gridForm, setGridForm] = useState({
+    color: '',
+    size: '',
+    quantity: ''
   });
   const [storeSettings, setStoreSettings] = useState<any>(null);
   const [isAddingCategory, setIsAddingCategory] = useState(false);
@@ -378,7 +400,9 @@ export function Products() {
       photo_url: '',
       has_grid: false,
       category: selectedCategory !== 'Todos' ? selectedCategory : '',
-      is_visible_in_store: true
+      is_visible_in_store: true,
+      description: '',
+      grid_data: []
     });
     setView('form');
   };
@@ -395,7 +419,9 @@ export function Products() {
       photo_url: product.photo_url || '',
       has_grid: product.has_grid || false,
       category: product.category || '',
-      is_visible_in_store: product.is_visible_in_store !== false
+      is_visible_in_store: product.is_visible_in_store !== false,
+      description: product.description || '',
+      grid_data: product.grid_data || []
     });
     setView('form');
   };
@@ -480,7 +506,9 @@ export function Products() {
         ean: finalEan,
         cost_price: Number(formData.cost_price.toString().replace(',', '.')) || 0,
         sale_price: Number(formData.sale_price.toString().replace(',', '.')) || 0,
-        current_stock: parseInt(formData.current_stock.toString()) || 0
+        current_stock: formData.has_grid 
+          ? formData.grid_data.reduce((sum, item) => sum + item.quantity, 0)
+          : (parseInt(formData.current_stock.toString()) || 0)
       };
 
       if (editingProduct) {
@@ -676,6 +704,127 @@ export function Products() {
     });
   };
 
+  const addToQuickEntry = (product: Product, color?: string, size?: string) => {
+    if (product.has_grid && !color && !size) {
+      setSelectedProductForQuickEntryGrid(product);
+      setQuickEntryGridForm({ color: '', size: '' });
+      setIsQuickEntryGridModalOpen(true);
+      return;
+    }
+
+    setQuickEntryList(prev => {
+      const existing = prev.find(item => 
+        item.product.id === product.id && 
+        item.color === color && 
+        item.size === size
+      );
+      if (existing) {
+        return prev.map(item => 
+          (item.product.id === product.id && item.color === color && item.size === size)
+            ? { ...item, quantity: item.quantity + 1 } 
+            : item
+        );
+      }
+      return [...prev, { product, quantity: 1, color, size }];
+    });
+    setQuickEntrySearch('');
+    setIsQuickEntryGridModalOpen(false);
+    addNotification({
+      type: 'success',
+      title: 'Produto Adicionado',
+      message: `${product.name}${color ? ` (${color}/${size})` : ''} adicionado à lista.`
+    });
+  };
+
+  const handleQuickEntryAdd = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!quickEntrySearch.trim()) return;
+
+    const product = products.find(p => 
+      (p.ean && p.ean === quickEntrySearch.trim()) || 
+      p.name.toLowerCase() === quickEntrySearch.trim().toLowerCase()
+    );
+
+    if (product) {
+      addToQuickEntry(product);
+    } else {
+      // Try partial match if no exact match
+      const partialMatches = products.filter(p => 
+        p.name.toLowerCase().includes(quickEntrySearch.trim().toLowerCase()) ||
+        (p.ean && p.ean.includes(quickEntrySearch.trim()))
+      );
+      
+      if (partialMatches.length === 1) {
+        addToQuickEntry(partialMatches[0]);
+      } else if (partialMatches.length > 1) {
+        // Don't alert here, let the user see the results below
+      } else {
+        alert('Produto não encontrado.');
+      }
+    }
+  };
+
+  const handleQuickEntrySave = async () => {
+    if (quickEntryList.length === 0) return;
+    setQuickEntryLoading(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Sessão expirada');
+
+      for (const item of quickEntryList) {
+        const { data: product } = await supabase
+          .from('products')
+          .select('current_stock, has_grid, grid_data')
+          .eq('id', item.product.id)
+          .single();
+
+        if (!product) continue;
+
+        let updateData: any = {};
+
+        if (product.has_grid && item.color && item.size) {
+          const gridData = product.grid_data || [];
+          const existingIndex = gridData.findIndex((g: any) => g.color === item.color && g.size === item.size);
+          
+          let newGridData;
+          if (existingIndex >= 0) {
+            newGridData = gridData.map((g: any, i: number) => 
+              i === existingIndex ? { ...g, quantity: (g.quantity || 0) + item.quantity } : g
+            );
+          } else {
+            newGridData = [...gridData, { color: item.color, size: item.size, quantity: item.quantity }];
+          }
+          
+          updateData.grid_data = newGridData;
+          updateData.current_stock = newGridData.reduce((sum: number, g: any) => sum + (g.quantity || 0), 0);
+        } else {
+          updateData.current_stock = (product.current_stock || 0) + item.quantity;
+        }
+
+        const { error } = await supabase
+          .from('products')
+          .update(updateData)
+          .eq('id', item.product.id);
+        if (error) throw error;
+      }
+      
+      addNotification({
+        type: 'success',
+        title: 'Estoque Atualizado',
+        message: `${quickEntryList.length} produtos tiveram o estoque atualizado.`
+      });
+      
+      setQuickEntryList([]);
+      setView('list');
+      fetchProducts();
+    } catch (err: any) {
+      console.error('Error updating stock:', err);
+      alert('Erro ao atualizar estoque: ' + (err.message || 'Erro desconhecido'));
+    } finally {
+      setQuickEntryLoading(false);
+    }
+  };
+
   const isAdmin = profile?.role === 'admin' || 
     profile?.email === 'anderlevita@gmail.com';
 
@@ -751,6 +900,17 @@ export function Products() {
                 value={formData.ean}
                 onChange={e => setFormData({...formData, ean: e.target.value})}
                 className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm focus:border-emerald-500 outline-none transition-all"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Descrição do Produto</label>
+              <textarea 
+                value={formData.description}
+                onChange={e => setFormData({...formData, description: e.target.value})}
+                placeholder="Descreva o produto para a loja virtual..."
+                rows={4}
+                className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm focus:border-emerald-500 outline-none transition-all resize-none"
               />
             </div>
 
@@ -847,6 +1007,17 @@ export function Products() {
                 )}
               </div>
 
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Descrição do Produto</label>
+                <textarea 
+                  value={formData.description || ''}
+                  onChange={e => setFormData({...formData, description: e.target.value})}
+                  placeholder="Descreva as características do produto..."
+                  rows={4}
+                  className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm focus:border-emerald-500 outline-none transition-all resize-none"
+                />
+              </div>
+
               <div className="bg-zinc-50/50 border border-zinc-100 rounded-2xl p-6 flex items-center justify-between">
                 <div className="flex items-center gap-4">
                   <div className="w-10 h-10 rounded-xl bg-white border border-zinc-100 flex items-center justify-center">
@@ -883,19 +1054,30 @@ export function Products() {
                   <p className="text-[10px] text-zinc-400">Solicitar cor e tamanho na montagem da sacola</p>
                 </div>
               </div>
-              <button 
-                type="button"
-                onClick={() => setFormData({...formData, has_grid: !formData.has_grid})}
-                className={cn(
-                  "w-12 h-6 rounded-full transition-all relative",
-                  formData.has_grid ? "bg-emerald-500" : "bg-zinc-200"
+              <div className="flex items-center gap-4">
+                {formData.has_grid && (
+                  <button
+                    type="button"
+                    onClick={() => setIsGridModalOpen(true)}
+                    className="text-xs font-bold text-emerald-600 hover:text-emerald-700 underline"
+                  >
+                    Configurar Grade ({formData.grid_data.length})
+                  </button>
                 )}
-              >
-                <div className={cn(
-                  "absolute top-1 w-4 h-4 bg-white rounded-full transition-all",
-                  formData.has_grid ? "left-7" : "left-1"
-                )} />
-              </button>
+                <button 
+                  type="button"
+                  onClick={() => setFormData({...formData, has_grid: !formData.has_grid})}
+                  className={cn(
+                    "w-12 h-6 rounded-full transition-all relative",
+                    formData.has_grid ? "bg-emerald-500" : "bg-zinc-200"
+                  )}
+                >
+                  <div className={cn(
+                    "absolute top-1 w-4 h-4 bg-white rounded-full transition-all",
+                    formData.has_grid ? "left-7" : "left-1"
+                  )} />
+                </button>
+              </div>
             </div>
 
             <div className="space-y-2">
@@ -945,6 +1127,397 @@ export function Products() {
             </button>
           </form>
         </div>
+
+        {/* Grid Configuration Modal */}
+        {isGridModalOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setIsGridModalOpen(false)} />
+            <div className="relative w-full max-w-lg bg-white rounded-[32px] p-8 shadow-2xl space-y-6">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xl font-bold text-zinc-800">Configurar Grade</h3>
+                <button onClick={() => setIsGridModalOpen(false)} className="p-2 hover:bg-zinc-100 rounded-full transition-colors">
+                  <X className="w-5 h-5 text-zinc-400" />
+                </button>
+              </div>
+
+              <div className="grid grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Cor</label>
+                  <input 
+                    type="text"
+                    value={gridForm.color}
+                    onChange={e => setGridForm({...gridForm, color: e.target.value})}
+                    placeholder="Ex: Azul"
+                    className="w-full bg-zinc-50 border border-zinc-100 rounded-xl px-4 py-3 text-sm focus:border-emerald-500 outline-none transition-all"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Tamanho</label>
+                  <input 
+                    type="text"
+                    value={gridForm.size}
+                    onChange={e => setGridForm({...gridForm, size: e.target.value})}
+                    placeholder="Ex: M"
+                    className="w-full bg-zinc-50 border border-zinc-100 rounded-xl px-4 py-3 text-sm focus:border-emerald-500 outline-none transition-all"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Qtd</label>
+                  <input 
+                    type="text"
+                    inputMode="numeric"
+                    value={gridForm.quantity}
+                    onChange={e => setGridForm({...gridForm, quantity: e.target.value.replace(/\D/g, '')})}
+                    placeholder="0"
+                    className="w-full bg-zinc-50 border border-zinc-100 rounded-xl px-4 py-3 text-sm focus:border-emerald-500 outline-none transition-all"
+                  />
+                </div>
+              </div>
+
+              <button 
+                type="button"
+                onClick={() => {
+                  if (!gridForm.color || !gridForm.size || !gridForm.quantity) return;
+                  setFormData({
+                    ...formData,
+                    grid_data: [
+                      ...formData.grid_data,
+                      { color: gridForm.color, size: gridForm.size, quantity: parseInt(gridForm.quantity) }
+                    ]
+                  });
+                  setGridForm({ color: '', size: '', quantity: '' });
+                }}
+                className="w-full bg-zinc-900 text-white py-4 rounded-2xl font-bold text-sm hover:bg-zinc-800 transition-all"
+              >
+                Adicionar à Grade
+              </button>
+
+              <div className="max-h-40 overflow-y-auto space-y-2">
+                {formData.grid_data.map((item, index) => (
+                  <div key={index} className="flex items-center justify-between bg-zinc-50 p-3 rounded-xl border border-zinc-100">
+                    <div className="flex items-center gap-4">
+                      <span className="text-xs font-bold text-zinc-700">{item.color}</span>
+                      <span className="text-xs text-zinc-400">/</span>
+                      <span className="text-xs font-bold text-zinc-700">{item.size}</span>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <span className="text-xs font-bold text-emerald-600">{item.quantity} un</span>
+                      <button 
+                        type="button"
+                        onClick={() => setFormData({
+                          ...formData,
+                          grid_data: formData.grid_data.filter((_, i) => i !== index)
+                        })}
+                        className="text-zinc-300 hover:text-red-500 transition-colors"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="pt-4 border-t border-zinc-100 flex items-center justify-between">
+                <p className="text-xs text-zinc-400 font-medium">Total na Grade:</p>
+                <p className="text-lg font-bold text-emerald-600">
+                  {formData.grid_data.reduce((sum, item) => sum + item.quantity, 0)} un
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (view === 'quick_entry') {
+    return (
+      <div className="space-y-8 animate-in fade-in duration-500">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <h2 className="text-2xl font-bold text-zinc-800 tracking-tight">Entrada Rápida de Estoque</h2>
+            <span className="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider">
+              {quickEntryList.length} itens na lista
+            </span>
+          </div>
+          <button 
+            onClick={() => {
+              if (quickEntryList.length > 0) {
+                setConfirmModal({
+                  isOpen: true,
+                  title: 'Sair da Entrada Rápida',
+                  message: 'Você tem itens na lista que não foram salvos. Deseja realmente sair?',
+                  variant: 'warning',
+                  onConfirm: () => {
+                    setQuickEntryList([]);
+                    setView('list');
+                    setConfirmModal(prev => ({ ...prev, isOpen: false }));
+                  }
+                });
+              } else {
+                setView('list');
+              }
+            }}
+            className="text-sm font-bold text-zinc-500 hover:text-zinc-800 transition-colors flex items-center justify-center gap-2 w-full sm:w-auto bg-zinc-100 sm:bg-transparent py-3 sm:py-0 rounded-xl sm:rounded-none"
+          >
+            Voltar para Lista
+          </button>
+        </div>
+
+        <div className="max-w-4xl mx-auto space-y-6">
+          <div className="bg-white border border-zinc-200 rounded-[32px] p-8 shadow-xl relative">
+            <form onSubmit={handleQuickEntryAdd} className="space-y-4">
+              <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Bipar EAN ou Digitar Nome</label>
+              <div className="flex gap-4">
+                <div className="relative flex-1">
+                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-400" />
+                  <input 
+                    autoFocus
+                    type="text" 
+                    value={quickEntrySearch}
+                    onChange={e => setQuickEntrySearch(e.target.value)}
+                    placeholder="Escaneie o código de barras ou digite o nome..."
+                    className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl pl-12 pr-6 py-4 text-sm focus:border-emerald-500 outline-none transition-all"
+                  />
+                </div>
+                <button 
+                  type="submit"
+                  className="bg-emerald-600 text-white px-8 rounded-2xl font-bold text-sm hover:bg-emerald-700 transition-colors"
+                >
+                  Adicionar
+                </button>
+              </div>
+            </form>
+
+            {/* Quick Entry Search Results */}
+            {quickEntrySearch.trim().length >= 2 && (
+              <div className="absolute left-8 right-8 top-full mt-2 bg-white border border-zinc-200 rounded-2xl shadow-2xl z-50 max-h-[300px] overflow-y-auto animate-in slide-in-from-top-2 duration-200">
+                {products
+                  .filter(p => 
+                    p.name.toLowerCase().includes(quickEntrySearch.toLowerCase()) ||
+                    (p.ean && p.ean.includes(quickEntrySearch))
+                  )
+                  .slice(0, 10)
+                  .map(product => (
+                    <button
+                      key={product.id}
+                      onClick={() => addToQuickEntry(product)}
+                      className="w-full px-6 py-4 flex items-center justify-between hover:bg-zinc-50 transition-colors border-b border-zinc-100 last:border-0"
+                    >
+                      <div className="flex items-center gap-4">
+                        <div className="w-10 h-10 rounded-lg bg-zinc-100 flex items-center justify-center overflow-hidden">
+                          {product.photo_url ? (
+                            <img src={product.photo_url} alt={product.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                          ) : (
+                            <PackageIcon className="w-5 h-5 text-zinc-400" />
+                          )}
+                        </div>
+                        <div className="text-left">
+                          <p className="text-sm font-bold text-zinc-800">{product.name}</p>
+                          <p className="text-[10px] text-zinc-400 font-mono">{product.ean || 'Sem EAN'}</p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-[10px] text-zinc-400 uppercase font-bold">Estoque</p>
+                        <p className="text-xs font-bold text-zinc-700">{product.current_stock} un</p>
+                      </div>
+                    </button>
+                  ))}
+                {products.filter(p => 
+                  p.name.toLowerCase().includes(quickEntrySearch.toLowerCase()) ||
+                  (p.ean && p.ean.includes(quickEntrySearch))
+                ).length === 0 && (
+                  <div className="px-6 py-8 text-center text-zinc-400 italic text-sm">
+                    Nenhum produto encontrado no catálogo.
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="bg-white border border-zinc-200 rounded-[32px] overflow-hidden shadow-sm">
+            <div className="p-6 border-b border-zinc-100 bg-zinc-50/50 flex items-center justify-between">
+              <h3 className="font-bold text-zinc-700">Lista de Entrada</h3>
+              {quickEntryList.length > 0 && (
+                <button 
+                  onClick={() => setQuickEntryList([])}
+                  className="text-[10px] font-bold text-red-500 uppercase tracking-widest hover:text-red-600"
+                >
+                  Limpar Lista
+                </button>
+              )}
+            </div>
+            
+            <div className="max-h-[400px] overflow-y-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-zinc-100 bg-zinc-50/30">
+                    <th className="px-8 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Produto</th>
+                    <th className="px-8 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Variação</th>
+                    <th className="px-8 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">EAN</th>
+                    <th className="px-8 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest text-center">Qtd. Entrada</th>
+                    <th className="px-8 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest text-right">Ações</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-100">
+                  {quickEntryList.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="px-8 py-12 text-center text-zinc-400 italic">Nenhum produto na lista. Comece bipando ou digitando acima.</td>
+                    </tr>
+                  ) : (
+                    quickEntryList.map((item, index) => (
+                      <tr key={`${item.product.id}-${item.color}-${item.size}`} className="hover:bg-zinc-50/50 transition-colors">
+                        <td className="px-8 py-4">
+                          <p className="text-sm font-bold text-zinc-800">{item.product.name}</p>
+                          <p className="text-[10px] text-zinc-400">Estoque atual: {item.product.current_stock} un</p>
+                        </td>
+                        <td className="px-8 py-4">
+                          {item.color || item.size ? (
+                            <span className="text-xs font-bold text-zinc-600 bg-zinc-100 px-2 py-1 rounded-md">
+                              {item.color}/{item.size}
+                            </span>
+                          ) : (
+                            <span className="text-xs text-zinc-400 italic">Nenhuma</span>
+                          )}
+                        </td>
+                        <td className="px-8 py-4 text-xs text-zinc-500 font-mono">{item.product.ean || '-'}</td>
+                        <td className="px-8 py-4">
+                          <div className="flex items-center justify-center gap-3">
+                            <button 
+                              onClick={() => {
+                                setQuickEntryList(prev => prev.map((it, i) => 
+                                  i === index ? { ...it, quantity: Math.max(1, it.quantity - 1) } : it
+                                ));
+                              }}
+                              className="w-8 h-8 rounded-lg bg-zinc-100 flex items-center justify-center text-zinc-600 hover:bg-zinc-200"
+                            >
+                              -
+                            </button>
+                            <input 
+                              type="number"
+                              value={item.quantity}
+                              onChange={e => {
+                                const val = parseInt(e.target.value) || 1;
+                                setQuickEntryList(prev => prev.map((it, i) => 
+                                  i === index ? { ...it, quantity: val } : it
+                                ));
+                              }}
+                              className="w-16 text-center bg-zinc-50 border border-zinc-100 rounded-lg py-1 text-sm font-bold"
+                            />
+                            <button 
+                              onClick={() => {
+                                setQuickEntryList(prev => prev.map((it, i) => 
+                                  i === index ? { ...it, quantity: it.quantity + 1 } : it
+                                ));
+                              }}
+                              className="w-8 h-8 rounded-lg bg-zinc-100 flex items-center justify-center text-zinc-600 hover:bg-zinc-200"
+                            >
+                              +
+                            </button>
+                          </div>
+                        </td>
+                        <td className="px-8 py-4 text-right">
+                          <button 
+                            onClick={() => setQuickEntryList(prev => prev.filter((_, i) => i !== index))}
+                            className="p-2 text-red-400 hover:bg-red-50 rounded-xl transition-colors"
+                          >
+                            <Trash2 className="w-5 h-5" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="p-8 bg-zinc-50 border-t border-zinc-100 flex justify-end">
+              <button 
+                onClick={handleQuickEntrySave}
+                disabled={quickEntryLoading || quickEntryList.length === 0}
+                className="bg-[#00a86b] hover:bg-[#008f5b] text-white px-12 py-4 rounded-2xl font-bold transition-all shadow-lg shadow-emerald-500/20 disabled:opacity-50 flex items-center gap-2"
+              >
+                {quickEntryLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <CheckCircle2 className="w-5 h-5" />}
+                Confirmar Entrada de Estoque
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Quick Entry Grid Modal */}
+        {isQuickEntryGridModalOpen && selectedProductForQuickEntryGrid && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <div className="bg-white rounded-3xl w-full max-w-md p-8 shadow-2xl">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-xl font-serif italic text-zinc-900">Selecionar Variação</h3>
+                <button onClick={() => setIsQuickEntryGridModalOpen(false)} className="p-2 hover:bg-zinc-100 rounded-full transition-colors">
+                  <X className="w-5 h-5 text-zinc-400" />
+                </button>
+              </div>
+
+              <div className="space-y-6">
+                <div>
+                  <p className="text-sm font-bold text-zinc-800 mb-1">{selectedProductForQuickEntryGrid.name}</p>
+                  <p className="text-xs text-zinc-400">Escolha a cor e o tamanho para a entrada de estoque.</p>
+                </div>
+
+                <div className="space-y-4">
+                  <div>
+                    <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest block mb-2">Cor</label>
+                    <div className="flex flex-wrap gap-2">
+                      {Array.from(new Set(selectedProductForQuickEntryGrid.grid_data?.map(g => g.color))).map(color => (
+                        <button
+                          key={color}
+                          onClick={() => setQuickEntryGridForm(prev => ({ ...prev, color, size: '' }))}
+                          className={cn(
+                            "px-4 py-2 rounded-xl border text-xs font-bold transition-all",
+                            quickEntryGridForm.color === color 
+                              ? "border-emerald-500 text-emerald-600 bg-emerald-50" 
+                              : "border-zinc-200 text-zinc-600 hover:border-zinc-300"
+                          )}
+                        >
+                          {color}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {quickEntryGridForm.color && (
+                    <div>
+                      <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest block mb-2">Tamanho</label>
+                      <div className="flex flex-wrap gap-2">
+                        {selectedProductForQuickEntryGrid.grid_data
+                          ?.filter(g => g.color === quickEntryGridForm.color)
+                          .map(g => (
+                            <button
+                              key={g.size}
+                              onClick={() => setQuickEntryGridForm(prev => ({ ...prev, size: g.size }))}
+                              className={cn(
+                                "w-10 h-10 rounded-xl border flex items-center justify-center text-xs font-bold transition-all",
+                                quickEntryGridForm.size === g.size 
+                                  ? "border-emerald-500 text-emerald-600 bg-emerald-50" 
+                                  : "border-zinc-200 text-zinc-600 hover:border-zinc-300"
+                              )}
+                            >
+                              {g.size}
+                            </button>
+                          ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <button
+                  disabled={!quickEntryGridForm.color || !quickEntryGridForm.size}
+                  onClick={() => addToQuickEntry(selectedProductForQuickEntryGrid, quickEntryGridForm.color, quickEntryGridForm.size)}
+                  className="w-full bg-zinc-900 text-white py-4 rounded-2xl text-sm font-bold shadow-xl hover:bg-emerald-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Adicionar à Lista
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -1351,6 +1924,13 @@ export function Products() {
           </div>
         </div>
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full sm:w-auto">
+          <button 
+            onClick={() => setView('quick_entry')}
+            className="flex items-center justify-center gap-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 px-4 py-3 sm:py-2.5 rounded-xl font-bold transition-all shadow-sm w-full sm:w-auto"
+          >
+            <History className="w-5 h-5" />
+            Entrada Rápida
+          </button>
           <button 
             onClick={() => setView('labels')}
             className="flex items-center justify-center gap-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 px-4 py-3 sm:py-2.5 rounded-xl font-bold transition-all shadow-sm w-full sm:w-auto"

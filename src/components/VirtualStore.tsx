@@ -37,11 +37,16 @@ interface Product {
   is_best_seller: boolean;
   is_ready_to_ship: boolean;
   description?: string;
+  has_grid?: boolean;
+  grid_data?: any[];
+  current_stock: number;
 }
 
 interface CartItem {
   product: Product;
   quantity: number;
+  selectedSize?: string;
+  selectedColor?: string;
 }
 
 const TESTIMONIALS = [];
@@ -68,6 +73,8 @@ export function VirtualStore({ slug }: { slug?: string }) {
   const [isStoreReviewOpen, setIsStoreReviewOpen] = useState(false);
   const [allStoreReviews, setAllStoreReviews] = useState<ProductReview[]>([]);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [selectedSize, setSelectedSize] = useState<string>('');
+  const [selectedColor, setSelectedColor] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const storeFileInputRef = useRef<HTMLInputElement>(null);
 
@@ -185,7 +192,10 @@ export function VirtualStore({ slug }: { slug?: string }) {
           category: p.category || "Geral",
           is_best_seller: false,
           is_ready_to_ship: p.current_stock > 0,
-          description: p.label_name || p.name
+          description: p.description || p.label_name || p.name,
+          has_grid: p.has_grid,
+          grid_data: p.grid_data,
+          current_stock: p.current_stock || 0
         }));
         setProducts(formattedProducts);
       }
@@ -298,6 +308,8 @@ export function VirtualStore({ slug }: { slug?: string }) {
   const openQuickView = (product: Product) => {
     setSelectedProduct(product);
     setIsQuickViewOpen(true);
+    setSelectedSize('');
+    setSelectedColor('');
     fetchReviews(product.id.toString());
   };
 
@@ -367,24 +379,44 @@ export function VirtualStore({ slug }: { slug?: string }) {
     }
   };
 
-  const addToCart = (product: Product) => {
+  const addToCart = (product: Product, size?: string, color?: string) => {
+    if (product.current_stock <= 0) {
+      alert('Produto indisponível no momento.');
+      return;
+    }
+
+    if (product.has_grid && (!size || !color)) {
+      openQuickView(product);
+      return;
+    }
+
     setCart(prev => {
-      const existing = prev.find(item => item.product.id === product.id);
+      const existing = prev.find(item => 
+        item.product.id === product.id && 
+        item.selectedSize === size && 
+        item.selectedColor === color
+      );
       if (existing) {
-        return prev.map(item => item.product.id === product.id ? { ...item, quantity: item.quantity + 1 } : item);
+        return prev.map(item => 
+          (item.product.id === product.id && item.selectedSize === size && item.selectedColor === color)
+            ? { ...item, quantity: item.quantity + 1 } 
+            : item
+        );
       }
-      return [...prev, { product, quantity: 1 }];
+      return [...prev, { product, quantity: 1, selectedSize: size, selectedColor: color }];
     });
     setIsCartOpen(true);
   };
 
-  const removeFromCart = (productId: number) => {
-    setCart(prev => prev.filter(item => item.product.id !== productId));
+  const removeFromCart = (productId: number, size?: string, color?: string) => {
+    setCart(prev => prev.filter(item => 
+      !(item.product.id === productId && item.selectedSize === size && item.selectedColor === color)
+    ));
   };
 
-  const updateQuantity = (productId: number, delta: number) => {
+  const updateQuantity = (productId: number, delta: number, size?: string, color?: string) => {
     setCart(prev => prev.map(item => {
-      if (item.product.id === productId) {
+      if (item.product.id === productId && item.selectedSize === size && item.selectedColor === color) {
         const newQuantity = Math.max(1, item.quantity + delta);
         return { ...item, quantity: newQuantity };
       }
@@ -655,15 +687,21 @@ export function VirtualStore({ slug }: { slug?: string }) {
                 )}
                 
                 <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-4">
-                  <button 
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      addToCart(product);
-                    }}
-                    className="w-full bg-white text-zinc-900 py-3 rounded-2xl text-xs font-bold shadow-2xl transform translate-y-4 group-hover:translate-y-0 transition-transform"
-                  >
-                    Comprar Agora
-                  </button>
+                  {product.current_stock > 0 ? (
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        addToCart(product);
+                      }}
+                      className="w-full bg-white text-zinc-900 py-3 rounded-2xl text-xs font-bold shadow-2xl transform translate-y-4 group-hover:translate-y-0 transition-transform"
+                    >
+                      Comprar Agora
+                    </button>
+                  ) : (
+                    <div className="w-full bg-zinc-800/80 backdrop-blur-md text-white py-3 rounded-2xl text-[10px] font-bold uppercase tracking-widest transform translate-y-4 group-hover:translate-y-0 transition-transform">
+                      Produto Indisponível
+                    </div>
+                  )}
                 </div>
               </div>
               
@@ -788,16 +826,58 @@ export function VirtualStore({ slug }: { slug?: string }) {
                     {selectedProduct.description}
                   </p>
 
-                  <div className="space-y-4">
-                    <p className="text-xs font-bold uppercase tracking-widest text-zinc-400">Tamanho</p>
-                    <div className="flex gap-3">
-                      {['P', 'M', 'G', 'GG'].map(size => (
-                        <button key={size} className="w-10 h-10 rounded-xl border border-zinc-200 flex items-center justify-center text-sm font-bold hover:border-[#FF007F] hover:text-[#FF007F] transition-all">
-                          {size}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+                  {selectedProduct.has_grid && selectedProduct.grid_data && selectedProduct.grid_data.length > 0 && (
+                    <>
+                      <div className="space-y-4">
+                        <p className="text-xs font-bold uppercase tracking-widest text-zinc-400">Cor</p>
+                        <div className="flex flex-wrap gap-3">
+                          {Array.from(new Set(selectedProduct.grid_data.map(item => item.color))).map(color => (
+                            <button 
+                              key={color} 
+                              onClick={() => setSelectedColor(color)}
+                              className={`px-4 py-2 rounded-xl border text-xs font-bold transition-all ${selectedColor === color ? 'border-[#FF007F] text-[#FF007F] bg-[#FF007F]/5' : 'border-zinc-200 text-zinc-600 hover:border-zinc-300'}`}
+                              style={{ 
+                                borderColor: selectedColor === color ? settings?.primary_color : undefined,
+                                color: selectedColor === color ? settings?.primary_color : undefined,
+                                backgroundColor: selectedColor === color ? `${settings?.primary_color}0d` : undefined
+                              }}
+                            >
+                              {color}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="space-y-4">
+                        <p className="text-xs font-bold uppercase tracking-widest text-zinc-400">Tamanho</p>
+                        <div className="flex flex-wrap gap-3">
+                          {Array.from(new Set(selectedProduct.grid_data
+                            .filter(item => !selectedColor || item.color === selectedColor)
+                            .map(item => item.size)
+                          )).map(size => {
+                            const gridItem = selectedProduct.grid_data?.find(item => item.size === size && (!selectedColor || item.color === selectedColor));
+                            const isOutOfStock = gridItem ? gridItem.quantity <= 0 : true;
+
+                            return (
+                              <button 
+                                key={size} 
+                                disabled={isOutOfStock}
+                                onClick={() => setSelectedSize(size)}
+                                className={`w-10 h-10 rounded-xl border flex items-center justify-center text-sm font-bold transition-all ${isOutOfStock ? 'opacity-30 cursor-not-allowed bg-zinc-50' : selectedSize === size ? 'border-[#FF007F] text-[#FF007F] bg-[#FF007F]/5' : 'border-zinc-200 text-zinc-600 hover:border-zinc-300'}`}
+                                style={{ 
+                                  borderColor: selectedSize === size ? settings?.primary_color : undefined,
+                                  color: selectedSize === size ? settings?.primary_color : undefined,
+                                  backgroundColor: selectedSize === size ? `${settings?.primary_color}0d` : undefined
+                                }}
+                              >
+                                {size}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </>
+                  )}
 
                   <div className="pt-4 flex gap-4">
                     <div className="flex items-center bg-zinc-100 rounded-2xl px-4 py-3 gap-4">
@@ -807,13 +887,21 @@ export function VirtualStore({ slug }: { slug?: string }) {
                     </div>
                     <button 
                       onClick={() => {
-                        addToCart(selectedProduct);
+                        if (selectedProduct.has_grid && (!selectedSize || !selectedColor)) {
+                          alert('Por favor, selecione cor e tamanho.');
+                          return;
+                        }
+                        addToCart(selectedProduct, selectedSize, selectedColor);
                         closeQuickView();
                       }}
-                      className="flex-1 bg-[#FF007F] text-white font-bold rounded-2xl py-4 shadow-lg shadow-[#FF007F]/20 hover:bg-[#E60072] transition-colors"
-                      style={{ backgroundColor: settings?.primary_color, boxShadow: `0 10px 15px -3px ${settings?.primary_color}33` }}
+                      disabled={selectedProduct.current_stock <= 0}
+                      className={`flex-1 font-bold rounded-2xl py-4 shadow-lg transition-colors ${selectedProduct.current_stock <= 0 ? 'bg-zinc-400 cursor-not-allowed' : 'bg-[#FF007F] text-white hover:bg-[#E60072]'}`}
+                      style={{ 
+                        backgroundColor: selectedProduct.current_stock <= 0 ? undefined : settings?.primary_color, 
+                        boxShadow: selectedProduct.current_stock <= 0 ? 'none' : `0 10px 15px -3px ${settings?.primary_color}33` 
+                      }}
                     >
-                      Comprar Agora
+                      {selectedProduct.current_stock > 0 ? 'Comprar Agora' : 'Indisponível'}
                     </button>
                   </div>
 
@@ -1303,9 +1391,16 @@ export function VirtualStore({ slug }: { slug?: string }) {
                             <div>
                               <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">{item.product.category}</p>
                               <h4 className="text-sm font-bold text-zinc-800 leading-tight mt-0.5">{item.product.name}</h4>
+                              {(item.selectedSize || item.selectedColor) && (
+                                <p className="text-[10px] text-zinc-500 mt-1">
+                                  {item.selectedColor && `Cor: ${item.selectedColor}`}
+                                  {item.selectedColor && item.selectedSize && ' | '}
+                                  {item.selectedSize && `Tam: ${item.selectedSize}`}
+                                </p>
+                              )}
                             </div>
                             <button 
-                              onClick={() => removeFromCart(item.product.id)}
+                              onClick={() => removeFromCart(item.product.id, item.selectedSize, item.selectedColor)}
                               className="p-1.5 text-zinc-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
                             >
                               <X className="w-4 h-4" />
@@ -1314,14 +1409,14 @@ export function VirtualStore({ slug }: { slug?: string }) {
                           <div className="flex items-center justify-between mt-4">
                             <div className="flex items-center gap-3 bg-zinc-50 rounded-lg p-1">
                               <button 
-                                onClick={() => updateQuantity(item.product.id, -1)}
+                                onClick={() => updateQuantity(item.product.id, -1, item.selectedSize, item.selectedColor)}
                                 className="w-6 h-6 flex items-center justify-center text-zinc-500 hover:bg-white hover:shadow-sm rounded-md transition-all"
                               >
                                 <Minus className="w-3 h-3" />
                               </button>
                               <span className="text-xs font-bold w-4 text-center">{item.quantity}</span>
                               <button 
-                                onClick={() => updateQuantity(item.product.id, 1)}
+                                onClick={() => updateQuantity(item.product.id, 1, item.selectedSize, item.selectedColor)}
                                 className="w-6 h-6 flex items-center justify-center text-zinc-500 hover:bg-white hover:shadow-sm rounded-md transition-all"
                               >
                                 <Plus className="w-3 h-3" />
@@ -1372,6 +1467,13 @@ export function VirtualStore({ slug }: { slug?: string }) {
           </>
         )}
       </AnimatePresence>
+
+      {/* Disclaimer */}
+      <div className="max-w-3xl mx-auto px-6 py-12 border-t border-zinc-50 mt-12">
+        <p className="text-[10px] text-zinc-400 text-center uppercase tracking-widest leading-relaxed max-w-2xl mx-auto">
+          A plataforma da Consigna Beauty não se responsabiliza pela criação, distribuição ou eventuais ressarcimentos de produtos, brindes ou serviços disponibilizados através dos seus usuários.
+        </p>
+      </div>
     </div>
   );
 }

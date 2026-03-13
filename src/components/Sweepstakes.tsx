@@ -20,7 +20,8 @@ import {
   Share2,
   Upload,
   Eye,
-  Check
+  Check,
+  Link as LinkIcon
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { Sweepstakes, SweepstakesParticipant } from '../types';
@@ -145,6 +146,29 @@ export function SweepstakesManager() {
         }
       }
     });
+  };
+
+  const shareLink = async (sweep: Sweepstakes) => {
+    const url = `${window.location.origin}/?sorteio=${sweep.id}`;
+    
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: `Sorteio: ${sweep.name}`,
+          text: `Confira os participantes e cupons do sorteio "${sweep.name}"!`,
+          url: url,
+        });
+      } catch (err) {
+        if ((err as Error).name !== 'AbortError') {
+          console.error('Error sharing:', err);
+          navigator.clipboard.writeText(url);
+          alert('Link copiado para a área de transferência!');
+        }
+      }
+    } else {
+      navigator.clipboard.writeText(url);
+      alert('Link copiado para a área de transferência!');
+    }
   };
 
   if (view === 'create') {
@@ -290,18 +314,27 @@ export function SweepstakesManager() {
                     <div className="w-12 h-12 rounded-2xl bg-emerald-50 flex items-center justify-center group-hover:scale-110 transition-transform">
                       <Trophy className="w-6 h-6 text-emerald-500" />
                     </div>
-                    <button 
-                      onClick={() => showArchived ? handleUnarchive(sweep.id) : handleArchive(sweep.id)}
-                      className={cn(
-                        "p-2 rounded-xl transition-all",
-                        showArchived 
-                          ? "text-zinc-400 hover:text-emerald-500 hover:bg-emerald-50" 
-                          : "text-zinc-400 hover:text-red-500 hover:bg-red-50"
-                      )}
-                      title={showArchived ? "Desarquivar" : "Arquivar"}
-                    >
-                      {showArchived ? <RefreshCcw className="w-4 h-4" /> : <Archive className="w-4 h-4" />}
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button 
+                        onClick={() => shareLink(sweep)}
+                        className="p-2 text-zinc-400 hover:text-emerald-500 hover:bg-emerald-50 rounded-xl transition-all"
+                        title="Compartilhar"
+                      >
+                        <LinkIcon className="w-4 h-4" />
+                      </button>
+                      <button 
+                        onClick={() => showArchived ? handleUnarchive(sweep.id) : handleArchive(sweep.id)}
+                        className={cn(
+                          "p-2 rounded-xl transition-all",
+                          showArchived 
+                            ? "text-zinc-400 hover:text-emerald-500 hover:bg-emerald-50" 
+                            : "text-zinc-400 hover:text-red-500 hover:bg-red-50"
+                        )}
+                        title={showArchived ? "Desarquivar" : "Arquivar"}
+                      >
+                        {showArchived ? <RefreshCcw className="w-4 h-4" /> : <Archive className="w-4 h-4" />}
+                      </button>
+                    </div>
                   </div>
                   <div className="space-y-1 mb-6">
                     <h4 className="text-xl font-bold text-zinc-800">{sweep.name}</h4>

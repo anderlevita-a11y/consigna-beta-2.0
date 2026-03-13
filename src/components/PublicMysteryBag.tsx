@@ -522,6 +522,13 @@ export function PublicMysteryBag() {
         )}
 
       </div>
+
+      {/* Disclaimer */}
+      <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-12 border-t border-zinc-100 mt-12">
+        <p className="text-[10px] text-zinc-400 text-center uppercase tracking-widest leading-relaxed max-w-2xl mx-auto">
+          A plataforma da Consigna Beauty não se responsabiliza pela criação, distribuição ou eventuais ressarcimentos de produtos, brindes ou serviços disponibilizados através dos seus usuários.
+        </p>
+      </div>
     </div>
   );
 }

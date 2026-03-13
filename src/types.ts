@@ -49,6 +49,12 @@ export interface AccessKey {
   created_at: string;
 }
 
+export interface ProductGridItem {
+  color: string;
+  size: string;
+  quantity: number;
+}
+
 export interface Product {
   id: string;
   name: string;
@@ -62,6 +68,8 @@ export interface Product {
   has_grid?: boolean;
   category?: string;
   is_visible_in_store?: boolean;
+  description?: string;
+  grid_data?: ProductGridItem[];
 }
 
 export interface Customer {
