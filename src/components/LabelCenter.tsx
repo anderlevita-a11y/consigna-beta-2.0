@@ -179,10 +179,12 @@ export function LabelCenter({ onClose, initialProduct }: LabelCenterProps) {
     setSelectedProducts(prev => prev.filter(p => p.product.id !== productId));
   };
 
-  const filteredProducts = products.filter(p => 
-    p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    String(p.ean || '').includes(searchTerm)
-  );
+  const filteredProducts = products.filter(p => {
+    const search = searchTerm.toLowerCase().trim();
+    return (p.name?.toLowerCase() || '').includes(search) ||
+           (p.label_name?.toLowerCase() || '').includes(search) ||
+           String(p.ean || '').toLowerCase().includes(search);
+  });
 
   const handlePrint = () => {
     const allBarcodeModels = [

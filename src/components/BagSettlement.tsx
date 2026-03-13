@@ -12,7 +12,8 @@ import {
   ExternalLink,
   Plus,
   MinusCircle,
-  RefreshCcw
+  RefreshCcw,
+  Package
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { generatePixPayload } from '../lib/pix';
@@ -119,7 +120,7 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
         return acc + (sold * item.unit_price);
       }, 0);
       
-      setReceivedAmount('0');
+      setReceivedAmount(bag.received_amount?.toString() || '0');
     } catch (err) {
       console.error('Error fetching data:', err);
     } finally {
@@ -146,6 +147,7 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
   const commission = totalSold * (campaignDiscount / 100);
   const totalExpenses = expenses.reduce((acc, e) => acc + e.value, 0);
   const amountToPay = totalSold - commission - totalExpenses;
+  const numericReceivedAmount = parseFloat(receivedAmount.replace(',', '.')) || 0;
 
   const handleAddExpense = () => {
     const numericValue = Number(expenseValue.replace(',', '.')) || 0;
@@ -193,7 +195,8 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
         .update({ 
           status: 'open',
           payment_status: 'pending',
-          total_value: totalGross
+          total_value: totalGross,
+          received_amount: 0
         })
         .eq('id', bag.id);
 
@@ -239,12 +242,12 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
       }
 
       // 2. Update bag status and payment
-      const numericReceivedAmount = parseFloat(receivedAmount.replace(',', '.')) || 0;
       const { error: bagError } = await supabase
         .from('bags')
         .update({ 
           status: 'closed',
-          total_value: totalSold,
+          total_value: amountToPay,
+          received_amount: numericReceivedAmount,
           payment_status: numericReceivedAmount >= amountToPay ? 'paid' : 'partial'
         })
         .eq('id', bag.id);
@@ -264,7 +267,13 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
   };
 
   const handleBarcodeReturn = (code: string) => {
-    const item = items.find(i => i.product.ean === code || i.product.name.toLowerCase().includes(code.toLowerCase()));
+    const searchLower = code.toLowerCase().trim();
+    const item = items.find(i => 
+      i.product.ean === searchLower || 
+      i.product.name.toLowerCase() === searchLower ||
+      (i.product.label_name && i.product.label_name.toLowerCase() === searchLower)
+    );
+    
     if (item) {
       updateReturnedQuantity(item.id, item.returned_quantity + 1);
       setSearchProduct('');
@@ -273,6 +282,15 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
       setSearchProduct('');
     }
   };
+
+  const filteredItems = searchProduct
+    ? items.filter(item => {
+        const search = searchProduct.toLowerCase().trim();
+        return (item.product.name?.toLowerCase() || '').includes(search) ||
+               (item.product.label_name?.toLowerCase() || '').includes(search) ||
+               String(item.product.ean || '').toLowerCase().includes(search);
+      }).slice(0, 10)
+    : [];
 
   const handleWhatsAppShare = async () => {
     try {
@@ -427,6 +445,28 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
                         }
                       }}
                     />
+                    {filteredItems.length > 0 && (
+                      <div className="absolute z-20 top-full right-0 mt-1 bg-white border border-zinc-200 rounded-xl shadow-xl max-h-60 overflow-y-auto w-80">
+                        {filteredItems.map(item => (
+                          <button 
+                            key={item.id}
+                            onClick={() => {
+                              updateReturnedQuantity(item.id, item.returned_quantity + 1);
+                              setSearchProduct('');
+                            }}
+                            className="w-full flex items-center gap-3 px-4 py-2 hover:bg-zinc-50 text-left border-b border-zinc-50 last:border-0"
+                          >
+                            <div className="w-8 h-8 rounded bg-zinc-100 flex items-center justify-center shrink-0">
+                              <Package className="w-4 h-4 text-zinc-400" />
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-sm font-bold text-zinc-800 truncate">{item.product.name}</p>
+                              <p className="text-[10px] text-zinc-400">EAN: {item.product.ean || '---'} | Enviado: {item.quantity}</p>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -508,6 +548,15 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
                     <span className="text-lg font-bold text-zinc-800">A Pagar</span>
                     <span className="text-2xl font-black text-emerald-500">R$ {amountToPay.toFixed(2)}</span>
                   </div>
+
+                  {numericReceivedAmount > 0 && numericReceivedAmount < amountToPay && (
+                    <div className="pt-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-0">
+                      <span className="text-sm font-bold text-zinc-500">Saldo Devedor</span>
+                      <span className="text-lg font-black text-red-500">
+                        R$ {(amountToPay - numericReceivedAmount).toFixed(2)}
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
 

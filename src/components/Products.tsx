@@ -741,25 +741,32 @@ export function Products() {
     if (!quickEntrySearch.trim()) return;
 
     const product = products.find(p => 
-      (p.ean && p.ean === quickEntrySearch.trim()) || 
-      p.name.toLowerCase() === quickEntrySearch.trim().toLowerCase()
+      (p.ean && p.ean.trim() === quickEntrySearch.trim()) || 
+      p.name.toLowerCase().trim() === quickEntrySearch.trim().toLowerCase()
     );
 
     if (product) {
       addToQuickEntry(product);
     } else {
       // Try partial match if no exact match
+      const searchTerm = quickEntrySearch.trim().toLowerCase();
       const partialMatches = products.filter(p => 
-        p.name.toLowerCase().includes(quickEntrySearch.trim().toLowerCase()) ||
-        (p.ean && p.ean.includes(quickEntrySearch.trim()))
+        p.name.toLowerCase().includes(searchTerm) ||
+        (p.ean && p.ean.includes(searchTerm))
       );
       
       if (partialMatches.length === 1) {
         addToQuickEntry(partialMatches[0]);
       } else if (partialMatches.length > 1) {
-        // Don't alert here, let the user see the results below
+        // If multiple matches, pick the one that starts with the search term or just the first one
+        const startsWithMatch = partialMatches.find(p => p.name.toLowerCase().startsWith(searchTerm));
+        addToQuickEntry(startsWithMatch || partialMatches[0]);
       } else {
-        alert('Produto não encontrado.');
+        addNotification({
+          type: 'error',
+          title: 'Não Encontrado',
+          message: 'Produto não encontrado no catálogo.'
+        });
       }
     }
   };
@@ -831,21 +838,24 @@ export function Products() {
   const isRestrictedPlan = profile?.status_pagamento === 'STARTER' || profile?.status_pagamento === 'TRIAL';
 
   const filteredProducts = products.filter(p => {
-    const matchesSearch = p.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                          String(p.ean || '').includes(searchTerm);
+    const search = searchTerm.toLowerCase().trim();
+    const matchesSearch = (p.name?.toLowerCase() || '').includes(search) ||
+                          (p.label_name?.toLowerCase() || '').includes(search) ||
+                          String(p.ean || '').toLowerCase().includes(search);
     const matchesCategory = selectedCategory === 'Todos' || p.category === selectedCategory;
     return matchesSearch && matchesCategory;
   });
 
   const filteredCentralProducts = centralProducts.filter(product => {
-    const searchLower = centralSearchTerm.toLowerCase();
+    const searchLower = centralSearchTerm.toLowerCase().trim();
     return (
       product.name?.toLowerCase().includes(searchLower) ||
+      (product.label_name?.toLowerCase() || '').includes(searchLower) ||
       String(product.ean || '').toLowerCase().includes(searchLower)
     );
   });
 
-  const displayedProducts = filteredProducts.slice(0, 100);
+  const displayedProducts = filteredProducts.slice(0, 300);
 
   if (view === 'form') {
     return (
@@ -1217,11 +1227,29 @@ export function Products() {
                 ))}
               </div>
 
-              <div className="pt-4 border-t border-zinc-100 flex items-center justify-between">
-                <p className="text-xs text-zinc-400 font-medium">Total na Grade:</p>
-                <p className="text-lg font-bold text-emerald-600">
-                  {formData.grid_data.reduce((sum, item) => sum + item.quantity, 0)} un
-                </p>
+              <div className="pt-6 border-t border-zinc-100 space-y-4">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs text-zinc-400 font-medium">Total na Grade:</p>
+                  <p className="text-lg font-bold text-emerald-600">
+                    {formData.grid_data.reduce((sum, item) => sum + item.quantity, 0)} un
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const total = formData.grid_data.reduce((sum, item) => sum + item.quantity, 0);
+                    setFormData({ ...formData, current_stock: total.toString() });
+                    setIsGridModalOpen(false);
+                    addNotification({
+                      type: 'info',
+                      title: 'Estoque Atualizado',
+                      message: `O estoque total foi atualizado para ${total} un baseado na grade.`
+                    });
+                  }}
+                  className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-bold text-sm hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-500/20"
+                >
+                  Salvar Grade e Atualizar Estoque Total
+                </button>
               </div>
             </div>
           </div>
@@ -1290,14 +1318,17 @@ export function Products() {
             </form>
 
             {/* Quick Entry Search Results */}
-            {quickEntrySearch.trim().length >= 2 && (
-              <div className="absolute left-8 right-8 top-full mt-2 bg-white border border-zinc-200 rounded-2xl shadow-2xl z-50 max-h-[300px] overflow-y-auto animate-in slide-in-from-top-2 duration-200">
+            {quickEntrySearch.trim().length >= 1 && (
+              <div className="absolute left-8 right-8 top-full mt-2 bg-white border border-zinc-200 rounded-2xl shadow-2xl z-50 max-h-[400px] overflow-y-auto animate-in slide-in-from-top-2 duration-200">
                 {products
-                  .filter(p => 
-                    p.name.toLowerCase().includes(quickEntrySearch.toLowerCase()) ||
-                    (p.ean && p.ean.includes(quickEntrySearch))
-                  )
-                  .slice(0, 10)
+                  .filter(p => {
+                    const search = quickEntrySearch.toLowerCase().trim();
+                    return (p.name?.toLowerCase() || '').includes(search) ||
+                           (p.label_name?.toLowerCase() || '').includes(search) ||
+                           (p.ean && p.ean.toLowerCase().includes(search));
+                  })
+                  .sort((a, b) => a.name.localeCompare(b.name))
+                  .slice(0, 30)
                   .map(product => (
                     <button
                       key={product.id}
@@ -2047,7 +2078,22 @@ export function Products() {
                 </tr>
               ) : displayedProducts.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-12 text-center text-zinc-500">Nenhum produto encontrado.</td>
+                  <td colSpan={7} className="px-6 py-12 text-center">
+                    <div className="flex flex-col items-center gap-2">
+                      <p className="text-zinc-500">Nenhum produto encontrado com os filtros atuais.</p>
+                      {(searchTerm || selectedCategory !== 'Todos') && (
+                        <button
+                          onClick={() => {
+                            setSearchTerm('');
+                            setSelectedCategory('Todos');
+                          }}
+                          className="text-sm font-bold text-emerald-600 hover:text-emerald-700 underline"
+                        >
+                          Limpar todos os filtros
+                        </button>
+                      )}
+                    </div>
+                  </td>
                 </tr>
               ) : (
                 <>
@@ -2127,10 +2173,10 @@ export function Products() {
                       </td>
                     </tr>
                   ))}
-                  {filteredProducts.length > 100 && (
+                  {filteredProducts.length > 300 && (
                     <tr>
                       <td colSpan={7} className="px-6 py-4 text-center text-xs text-zinc-500 bg-zinc-50">
-                        Mostrando os primeiros 100 resultados de {filteredProducts.length}. Use a busca para encontrar mais produtos.
+                        Mostrando os primeiros 300 resultados de {filteredProducts.length}. Use a busca para encontrar mais produtos.
                       </td>
                     </tr>
                   )}

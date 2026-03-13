@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { GoalCampaign, GoalParticipant, StoreSettings } from '../types';
-import { Loader2, Target, Gift, MessageSquare, MapPin, User, Send, CheckCircle2, ChevronRight, Share2, ChevronLeft } from 'lucide-react';
+import { Loader2, Target, Gift, MessageSquare, MapPin, User, Send, CheckCircle2, ChevronRight, Share2, ChevronLeft, BarChart3, Clock } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { format } from 'date-fns';
+import { format, differenceInDays } from 'date-fns';
 
 export function PublicGoals() {
   const [id, setId] = useState<string | null>(null);
@@ -17,9 +17,17 @@ export function PublicGoals() {
   const [formData, setFormData] = useState({
     name: '',
     city: '',
+    cpf: '',
+    phone: '',
+    contribution_value: 0,
     message: ''
   });
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [identifiedParticipant, setIdentifiedParticipant] = useState<GoalParticipant | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [showRanking, setShowRanking] = useState(false);
+  const [cpfToIdentify, setCpfToIdentify] = useState('');
+  const [identifying, setIdentifying] = useState(false);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -48,6 +56,19 @@ export function PublicGoals() {
   async function fetchData() {
     setLoading(true);
     try {
+      const params = new URLSearchParams(window.location.search);
+      let userId = params.get('u') || params.get('user');
+      const storeSlug = params.get('s') || params.get('store');
+
+      if (storeSlug && !userId) {
+        const { data: store } = await supabase
+          .from('store_settings')
+          .select('user_id')
+          .eq('store_slug', storeSlug)
+          .single();
+        if (store) userId = store.user_id;
+      }
+
       if (id) {
         // Fetch specific campaign
         const { data: campaignData, error: campaignError } = await supabase
@@ -82,19 +103,30 @@ export function PublicGoals() {
         setStep('details');
       } else {
         // Fetch all active campaigns
-        // We need to know which user's campaigns to fetch. 
-        // Usually, this would be based on a store slug or similar.
-        // For now, let's fetch all active ones, or maybe we need a store context.
-        // If the user shares the general link, it might be from their dashboard.
-        // Let's assume for now we fetch all active ones, but in a real app we'd filter by user/store.
-        const { data, error } = await supabase
+        let query = supabase
           .from('goal_campaigns')
           .select('*')
-          .eq('status', 'active')
-          .order('created_at', { ascending: false });
+          .eq('status', 'active');
+        
+        if (userId) {
+          query = query.eq('user_id', userId);
+        }
+
+        const { data, error } = await query.order('created_at', { ascending: false });
         
         if (error) throw error;
         setCampaigns(data || []);
+
+        // Also fetch store settings for the first campaign if available to get the theme
+        if (data && data.length > 0) {
+          const { data: storeData } = await supabase
+            .from('store_settings')
+            .select('*')
+            .eq('user_id', data[0].user_id)
+            .single();
+          if (storeData) setStoreSettings(storeData);
+        }
+
         setStep('list');
       }
     } catch (err) {
@@ -106,9 +138,52 @@ export function PublicGoals() {
 
   const handleJoinCampaign = (campaign: GoalCampaign) => {
     setSelectedCampaign(campaign);
+    setFormData({
+      name: '',
+      city: '',
+      cpf: '',
+      phone: '',
+      contribution_value: 0,
+      message: ''
+    });
+    setIsUpdating(false);
+    setIdentifiedParticipant(null);
     // Fetch participants for this campaign if not already fetched
     fetchParticipants(campaign.id);
     setStep('details');
+  };
+
+  const handleIdentify = async () => {
+    if (!selectedCampaign || !cpfToIdentify) return;
+    setIdentifying(true);
+    try {
+      const { data, error } = await supabase
+        .from('goal_participants')
+        .select('*')
+        .eq('campaign_id', selectedCampaign.id)
+        .eq('cpf', cpfToIdentify)
+        .maybeSingle();
+      
+      if (data) {
+        setIdentifiedParticipant(data);
+        setFormData({
+          name: data.name,
+          city: data.city,
+          cpf: data.cpf || '',
+          phone: data.phone || '',
+          contribution_value: data.contribution_value || 0,
+          message: data.message || ''
+        });
+        setIsUpdating(true);
+        setStep('form');
+      } else {
+        alert('Participante não encontrado com este CPF nesta campanha.');
+      }
+    } catch (err) {
+      console.error('Error identifying participant:', err);
+    } finally {
+      setIdentifying(false);
+    }
   };
 
   async function fetchParticipants(campaignId: string) {
@@ -117,7 +192,7 @@ export function PublicGoals() {
         .from('goal_participants')
         .select('*')
         .eq('campaign_id', campaignId)
-        .order('created_at', { ascending: false });
+        .order('contribution_value', { ascending: false });
       if (error) throw error;
       setParticipants(data || []);
     } catch (err) {
@@ -131,21 +206,51 @@ export function PublicGoals() {
     
     setSubmitting(true);
     try {
-      const { error } = await supabase
+      if (isUpdating && identifiedParticipant) {
+        const { error } = await supabase
+          .from('goal_participants')
+          .update({
+            name: formData.name,
+            city: formData.city,
+            phone: formData.phone,
+            contribution_value: formData.contribution_value,
+            message: formData.message
+          })
+          .eq('id', identifiedParticipant.id);
+
+        if (error) throw error;
+      } else {
+        const { error } = await supabase
+          .from('goal_participants')
+          .insert([{
+            campaign_id: selectedCampaign.id,
+            name: formData.name,
+            city: formData.city,
+            cpf: formData.cpf,
+            phone: formData.phone,
+            contribution_value: formData.contribution_value,
+            message: formData.message
+          }]);
+
+        if (error) throw error;
+      }
+
+      // Recalculate current_value in campaign (sum of contributions or count)
+      const { data: allParticipants } = await supabase
         .from('goal_participants')
-        .insert([{
-          campaign_id: selectedCampaign.id,
-          name: formData.name,
-          city: formData.city,
-          message: formData.message
-        }]);
+        .select('contribution_value')
+        .eq('campaign_id', selectedCampaign.id);
+      
+      let newValue = 0;
+      if (selectedCampaign.type === 'value') {
+        newValue = allParticipants?.reduce((acc, p) => acc + (p.contribution_value || 0), 0) || 0;
+      } else {
+        newValue = allParticipants?.length || 0;
+      }
 
-      if (error) throw error;
-
-      // Update current_value in campaign
       const { error: updateError } = await supabase
         .from('goal_campaigns')
-        .update({ current_value: selectedCampaign.current_value + 1 })
+        .update({ current_value: newValue })
         .eq('id', selectedCampaign.id);
       
       if (updateError) throw updateError;
@@ -270,12 +375,22 @@ export function PublicGoals() {
             <div className="bg-white rounded-[40px] p-8 shadow-sm">
               <div className="grid grid-cols-2 gap-4 mb-8">
                 <div className="bg-zinc-50 px-6 py-4 rounded-2xl text-center">
-                  <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-1">Participantes</p>
-                  <p className="text-2xl font-bold text-zinc-800">{selectedCampaign.current_value}</p>
+                  <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-1">
+                    {selectedCampaign.type === 'value' ? 'Total Arrecadado' : 'Participantes'}
+                  </p>
+                  <p className="text-2xl font-bold text-zinc-800">
+                    {selectedCampaign.type === 'value' 
+                      ? selectedCampaign.current_value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+                      : selectedCampaign.current_value}
+                  </p>
                 </div>
                 <div className="bg-zinc-50 px-6 py-4 rounded-2xl text-center">
                   <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-1">Meta</p>
-                  <p className="text-2xl font-bold text-emerald-600" style={storeSettings?.primary_color ? { color: storeSettings.primary_color } : {}}>{selectedCampaign.goal_value}</p>
+                  <p className="text-2xl font-bold text-emerald-600" style={storeSettings?.primary_color ? { color: storeSettings.primary_color } : {}}>
+                    {selectedCampaign.type === 'value'
+                      ? selectedCampaign.goal_value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+                      : selectedCampaign.goal_value}
+                  </p>
                 </div>
               </div>
 
@@ -295,38 +410,123 @@ export function PublicGoals() {
                     }}
                   />
                 </div>
+
+                {selectedCampaign.end_date && (
+                  <div className="flex items-center justify-between text-xs pt-4 border-t border-zinc-100 mt-4">
+                    <span className="text-zinc-400 uppercase font-bold tracking-widest flex items-center gap-1">
+                      <Clock className="w-3 h-3" />
+                      Prazo Restante
+                    </span>
+                    <span className={cn(
+                      "font-bold",
+                      differenceInDays(new Date(selectedCampaign.end_date), new Date()) < 3 ? "text-red-500" : "text-zinc-600"
+                    )}>
+                      {differenceInDays(new Date(selectedCampaign.end_date), new Date()) > 0 
+                        ? `${differenceInDays(new Date(selectedCampaign.end_date), new Date())} dias`
+                        : "Encerrada"}
+                    </span>
+                  </div>
+                )}
               </div>
 
-              <div className="mt-8 pt-8 border-t border-zinc-100 flex flex-col sm:flex-row gap-4">
-                <button 
-                  onClick={() => setStep('form')}
-                  className="flex-1 bg-[#00a86b] hover:bg-[#008f5b] text-white px-8 py-4 rounded-2xl font-bold transition-all shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2"
-                  style={storeSettings?.primary_color ? { backgroundColor: storeSettings.primary_color, boxShadow: `0 10px 15px -3px ${storeSettings.primary_color}33` } : {}}
-                >
-                  <User className="w-5 h-5" />
-                  Participar Agora
-                </button>
-                {!id && (
+              <div className="mt-8 pt-8 border-t border-zinc-100 space-y-4">
+                <div className="flex flex-col sm:flex-row gap-4">
                   <button 
-                    onClick={() => setStep('list')}
-                    className="px-8 py-4 text-sm font-bold text-zinc-500 bg-zinc-50 hover:bg-zinc-100 rounded-2xl transition-all"
+                    onClick={() => setStep('form')}
+                    className="flex-1 bg-[#00a86b] hover:bg-[#008f5b] text-white px-8 py-4 rounded-2xl font-bold transition-all shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2"
+                    style={storeSettings?.primary_color ? { backgroundColor: storeSettings.primary_color, boxShadow: `0 10px 15px -3px ${storeSettings.primary_color}33` } : {}}
                   >
-                    Ver Outras Metas
+                    <User className="w-5 h-5" />
+                    Participar Agora
                   </button>
-                )}
+                  <button 
+                    onClick={() => setShowRanking(!showRanking)}
+                    className="flex-1 bg-zinc-100 hover:bg-zinc-200 text-zinc-600 px-8 py-4 rounded-2xl font-bold transition-all flex items-center justify-center gap-2"
+                  >
+                    <BarChart3 className="w-5 h-5" />
+                    {showRanking ? 'Ver Recados' : 'Ver Ranking'}
+                  </button>
+                </div>
+
+                <div className="bg-zinc-50 p-6 rounded-3xl space-y-4">
+                  <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest text-center">Já participa? Atualize seu progresso</p>
+                  <div className="flex gap-2">
+                    <input 
+                      type="text"
+                      placeholder="Seu CPF"
+                      value={cpfToIdentify}
+                      onChange={e => setCpfToIdentify(e.target.value)}
+                      className="flex-1 bg-white border border-zinc-200 rounded-xl px-4 py-2 text-sm focus:border-emerald-500 outline-none transition-all"
+                    />
+                    <button 
+                      onClick={handleIdentify}
+                      disabled={identifying}
+                      className="bg-zinc-800 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-zinc-900 transition-all disabled:opacity-50"
+                    >
+                      {identifying ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Entrar'}
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
 
-            {/* Messages / Participants */}
+            {/* Messages / Participants or Ranking */}
             <div className="bg-white rounded-[40px] p-8 shadow-sm">
               <h3 className="text-xl font-bold text-zinc-800 mb-6 flex items-center gap-2">
-                <MessageSquare className="w-5 h-5 text-emerald-500" style={storeSettings?.primary_color ? { color: storeSettings.primary_color } : {}} />
-                Recados dos Participantes
+                {showRanking ? (
+                  <>
+                    <BarChart3 className="w-5 h-5 text-emerald-500" style={storeSettings?.primary_color ? { color: storeSettings.primary_color } : {}} />
+                    Ranking de Competição
+                  </>
+                ) : (
+                  <>
+                    <MessageSquare className="w-5 h-5 text-emerald-500" style={storeSettings?.primary_color ? { color: storeSettings.primary_color } : {}} />
+                    Recados dos Participantes
+                  </>
+                )}
               </h3>
               
               <div className="space-y-6">
                 {participants.length === 0 ? (
-                  <p className="text-center text-zinc-400 italic py-8">Seja o primeiro a deixar um recado!</p>
+                  <p className="text-center text-zinc-400 italic py-8">Ainda não há participantes.</p>
+                ) : showRanking ? (
+                  <div className="space-y-4">
+                    {participants
+                      .sort((a, b) => (b.contribution_value || 0) - (a.contribution_value || 0))
+                      .map((p, idx) => (
+                      <div key={p.id} className="flex items-center justify-between p-4 bg-zinc-50 rounded-2xl border border-zinc-100">
+                        <div className="flex items-center gap-4">
+                          <span className={cn(
+                            "w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm",
+                            idx === 0 ? "bg-yellow-100 text-yellow-700" : 
+                            idx === 1 ? "bg-zinc-200 text-zinc-700" :
+                            idx === 2 ? "bg-orange-100 text-orange-700" :
+                            "bg-white text-zinc-400"
+                          )}>
+                            {idx + 1}
+                          </span>
+                          <div>
+                            <p className="text-sm font-bold text-zinc-800">{p.name}</p>
+                            <p className="text-[10px] text-zinc-400 uppercase tracking-widest">{p.city}</p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm font-bold text-emerald-600" style={storeSettings?.primary_color ? { color: storeSettings.primary_color } : {}}>
+                            {p.contribution_value?.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                          </p>
+                          <div className="w-24 h-1.5 bg-zinc-200 rounded-full mt-1 overflow-hidden">
+                            <div 
+                              className="h-full bg-emerald-500" 
+                              style={{ 
+                                width: `${Math.min(100, (p.contribution_value || 0) / selectedCampaign.goal_value * 100)}%`,
+                                backgroundColor: storeSettings?.primary_color || undefined
+                              }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 ) : (
                   participants.map(p => (
                     <div key={p.id} className="bg-zinc-50 rounded-3xl p-6 space-y-3">
@@ -364,33 +564,84 @@ export function PublicGoals() {
         {step === 'form' && selectedCampaign && (
           <div className="bg-white rounded-[40px] p-8 sm:p-12 shadow-sm max-w-xl mx-auto animate-in fade-in slide-in-from-bottom-4 duration-500">
             <div className="text-center mb-8">
-              <h2 className="text-2xl font-bold text-zinc-800">Participar da Meta</h2>
-              <p className="text-sm text-zinc-500 mt-2">Preencha seus dados e deixe um recado para os outros participantes.</p>
+              <h2 className="text-2xl font-bold text-zinc-800">
+                {isUpdating ? 'Atualizar meu Progresso' : 'Participar da Meta'}
+              </h2>
+              <p className="text-sm text-zinc-500 mt-2">
+                {isUpdating 
+                  ? 'Atualize seu valor atingido e deixe um novo recado.' 
+                  : 'Preencha seus dados para entrar na competição!'}
+              </p>
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-6">
-              <div className="space-y-2">
-                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Seu Nome</label>
-                <input 
-                  required
-                  type="text" 
-                  value={formData.name}
-                  onChange={e => setFormData({...formData, name: e.target.value})}
-                  className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm focus:border-emerald-500 outline-none transition-all"
-                  style={{ '--tw-ring-color': storeSettings?.primary_color } as any}
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Seu Nome</label>
+                  <input 
+                    required
+                    type="text" 
+                    value={formData.name}
+                    onChange={e => setFormData({...formData, name: e.target.value})}
+                    className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm focus:border-emerald-500 outline-none transition-all"
+                    style={{ '--tw-ring-color': storeSettings?.primary_color } as any}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Sua Cidade</label>
+                  <input 
+                    required
+                    type="text" 
+                    value={formData.city}
+                    onChange={e => setFormData({...formData, city: e.target.value})}
+                    className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm focus:border-emerald-500 outline-none transition-all"
+                    style={{ '--tw-ring-color': storeSettings?.primary_color } as any}
+                  />
+                </div>
               </div>
-              <div className="space-y-2">
-                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Sua Cidade</label>
-                <input 
-                  required
-                  type="text" 
-                  value={formData.city}
-                  onChange={e => setFormData({...formData, city: e.target.value})}
-                  className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm focus:border-emerald-500 outline-none transition-all"
-                  style={{ '--tw-ring-color': storeSettings?.primary_color } as any}
-                />
-              </div>
+
+              {!isUpdating && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Seu CPF</label>
+                    <input 
+                      required
+                      type="text" 
+                      value={formData.cpf}
+                      onChange={e => setFormData({...formData, cpf: e.target.value})}
+                      className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm focus:border-emerald-500 outline-none transition-all"
+                      style={{ '--tw-ring-color': storeSettings?.primary_color } as any}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Seu Telefone</label>
+                    <input 
+                      required
+                      type="text" 
+                      value={formData.phone}
+                      onChange={e => setFormData({...formData, phone: e.target.value})}
+                      className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm focus:border-emerald-500 outline-none transition-all"
+                      style={{ '--tw-ring-color': storeSettings?.primary_color } as any}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {selectedCampaign.type === 'value' && (
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Seu Valor Atingido (R$)</label>
+                  <input 
+                    required
+                    type="number" 
+                    step="0.01"
+                    value={formData.contribution_value}
+                    onChange={e => setFormData({...formData, contribution_value: Number(e.target.value)})}
+                    className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm focus:border-emerald-500 outline-none transition-all"
+                    style={{ '--tw-ring-color': storeSettings?.primary_color } as any}
+                  />
+                </div>
+              )}
+
               <div className="space-y-2">
                 <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Recado (Opcional)</label>
                 <textarea 
@@ -417,7 +668,7 @@ export function PublicGoals() {
                   style={storeSettings?.primary_color ? { backgroundColor: storeSettings.primary_color, boxShadow: `0 10px 15px -3px ${storeSettings.primary_color}33` } : {}}
                 >
                   {submitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
-                  Enviar e Participar
+                  {isUpdating ? 'Atualizar' : 'Participar'}
                 </button>
               </div>
             </form>

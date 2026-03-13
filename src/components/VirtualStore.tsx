@@ -28,6 +28,7 @@ import { StoreSettings, ProductReview } from '../types';
 interface Product {
   id: number;
   name: string;
+  label_name?: string;
   ean?: string;
   price_original: number;
   price_discounted: number;
@@ -184,6 +185,7 @@ export function VirtualStore({ slug }: { slug?: string }) {
         const formattedProducts: Product[] = allProductsData.map(p => ({
           id: p.id,
           name: p.name,
+          label_name: p.label_name,
           ean: p.ean,
           price_original: p.sale_price,
           price_discounted: p.sale_price, // Will apply global discount later in render
@@ -365,9 +367,11 @@ export function VirtualStore({ slug }: { slug?: string }) {
   };
 
   const filteredProducts = products.filter(p => {
-    const matchesSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                         p.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         (p.ean && p.ean.toLowerCase().includes(searchQuery.toLowerCase()));
+    const search = searchQuery.toLowerCase().trim();
+    const matchesSearch = (p.name?.toLowerCase() || '').includes(search) || 
+                         (p.category?.toLowerCase() || '').includes(search) ||
+                         (p.label_name?.toLowerCase() || '').includes(search) ||
+                         (p.ean && p.ean.toLowerCase().includes(search));
     const matchesCategory = activeCategory === 'Todos' || p.category === activeCategory;
     return matchesSearch && matchesCategory;
   });
@@ -707,7 +711,11 @@ export function VirtualStore({ slug }: { slug?: string }) {
               
               <div className="space-y-1 px-1">
                 <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-[0.2em]">{product.category}</p>
-                <h5 className="text-sm font-serif text-zinc-800 leading-tight group-hover:text-[#FF007F] transition-colors" style={{ '--hover-color': settings?.primary_color } as any}>
+                <h5 
+                  onClick={() => openQuickView(product)}
+                  className="text-sm font-serif text-zinc-800 leading-tight group-hover:text-[#FF007F] transition-colors cursor-pointer" 
+                  style={{ '--hover-color': settings?.primary_color } as any}
+                >
                   {product.name}
                 </h5>
                 <div className="flex flex-col items-center gap-0.5">
@@ -822,7 +830,7 @@ export function VirtualStore({ slug }: { slug?: string }) {
                     </button>
                   </div>
 
-                  <p className="text-sm text-zinc-600 leading-relaxed">
+                  <p className="text-sm text-zinc-600 leading-relaxed whitespace-pre-wrap">
                     {selectedProduct.description}
                   </p>
 

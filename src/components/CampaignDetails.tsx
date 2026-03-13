@@ -6,7 +6,6 @@ import {
   Printer, 
   Megaphone, 
   Undo2, 
-  Trash2, 
   FileText,
   Loader2,
   Save,
@@ -38,6 +37,10 @@ export function CampaignDetails({ campaign, onBack, onAddBag }: CampaignDetailsP
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [customerSearch, setCustomerSearch] = useState('');
   const [assigning, setAssigning] = useState(false);
+  const [movingBag, setMovingBag] = useState<Bag | null>(null);
+  const [availableCampaigns, setAvailableCampaigns] = useState<Campaign[]>([]);
+  const [loadingCampaigns, setLoadingCampaigns] = useState(false);
+  const [campaignSearch, setCampaignSearch] = useState('');
   const [printing, setPrinting] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [pdfUrl, setPdfUrl] = useState('');
@@ -261,72 +264,50 @@ export function CampaignDetails({ campaign, onBack, onAddBag }: CampaignDetailsP
     }
   };
 
-  const handleMoveBag = (bag: Bag) => {
-    setPromptModal({
-      isOpen: true,
-      title: 'Mover Sacola',
-      message: 'Digite o nome da nova campanha:',
-      onConfirm: async (newCampaignName) => {
-        setPromptModal(prev => ({ ...prev, isOpen: false }));
-        try {
-          // Find or create campaign
-          const { data: campaignData } = await supabase
-            .from('campaigns')
-            .select('id')
-            .eq('name', newCampaignName)
-            .single();
+  const handleMoveBag = async (bag: Bag) => {
+    setMovingBag(bag);
+    setLoadingCampaigns(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user;
+      if (!user) return;
 
-          let targetCampaignId = campaignData?.id;
+      const { data, error } = await supabase
+        .from('campaigns')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('status', 'active')
+        .neq('id', campaign.id)
+        .order('name');
 
-          if (!targetCampaignId) {
-            const { data: newCamp } = await supabase
-              .from('campaigns')
-              .insert({ name: newCampaignName, status: 'active', discount_pct: 0 })
-              .select()
-              .single();
-            targetCampaignId = newCamp?.id;
-          }
-
-          if (targetCampaignId) {
-            await supabase
-              .from('bags')
-              .update({ campaign_id: targetCampaignId })
-              .eq('id', bag.id);
-            
-            fetchBags();
-            alert('Sacola movida com sucesso!');
-          }
-        } catch (err) {
-          console.error('Error moving bag:', err);
-          alert('Erro ao mover sacola');
-        }
-      }
-    });
+      if (error) throw error;
+      setAvailableCampaigns(data || []);
+    } catch (err) {
+      console.error('Error fetching campaigns:', err);
+    } finally {
+      setLoadingCampaigns(false);
+    }
   };
 
-  const handleArchiveBag = (bagId: string) => {
-    setConfirmModal({
-      isOpen: true,
-      title: 'Arquivar Sacola',
-      message: 'Deseja arquivar esta sacola?',
-      variant: 'warning',
-      onConfirm: async () => {
-        try {
-          const { error } = await supabase
-            .from('bags')
-            .update({ status: 'archived' })
-            .eq('id', bagId);
-
-          if (error) throw error;
-          fetchBags();
-        } catch (err) {
-          console.error('Error archiving bag:', err);
-          alert('Erro ao arquivar sacola');
-        } finally {
-          setConfirmModal(prev => ({ ...prev, isOpen: false }));
-        }
-      }
-    });
+  const executeMoveBag = async (targetCampaignId: string) => {
+    if (!movingBag) return;
+    setAssigning(true);
+    try {
+      const { error } = await supabase
+        .from('bags')
+        .update({ campaign_id: targetCampaignId })
+        .eq('id', movingBag.id);
+      
+      if (error) throw error;
+      setMovingBag(null);
+      fetchBags();
+      alert('Sacola movida com sucesso!');
+    } catch (err) {
+      console.error('Error moving bag:', err);
+      alert('Erro ao mover sacola');
+    } finally {
+      setAssigning(false);
+    }
   };
 
   const handleReopenBag = (bag: Bag) => {
@@ -414,6 +395,10 @@ export function CampaignDetails({ campaign, onBack, onAddBag }: CampaignDetailsP
     ? customers.filter(c => c.nome.toLowerCase().includes(customerSearch.toLowerCase()) || String(c.cpf || '').includes(customerSearch)).slice(0, 10)
     : [];
 
+  const filteredCampaigns = campaignSearch
+    ? availableCampaigns.filter(c => c.name.toLowerCase().includes(campaignSearch.toLowerCase()))
+    : availableCampaigns;
+
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
@@ -471,12 +456,6 @@ export function CampaignDetails({ campaign, onBack, onAddBag }: CampaignDetailsP
             <Undo2 className="w-3.5 h-3.5" />
           </div>
           <span>Mover Campanha</span>
-        </div>
-        <div className="flex items-center gap-2 text-xs text-zinc-500">
-          <div className="p-1.5 bg-red-50 rounded-lg text-red-600">
-            <Trash2 className="w-3.5 h-3.5" />
-          </div>
-          <span>Arquivar Sacola</span>
         </div>
       </div>
 
@@ -580,13 +559,6 @@ export function CampaignDetails({ campaign, onBack, onAddBag }: CampaignDetailsP
                           >
                             <Undo2 className="w-4.5 h-4.5" />
                           </button>
-                          <button 
-                            className="p-2.5 text-zinc-400 hover:bg-red-50 hover:text-red-600 rounded-xl transition-all active:scale-95"
-                            title="Arquivar Sacola"
-                            onClick={() => handleArchiveBag(bag.id)}
-                          >
-                            <Trash2 className="w-4.5 h-4.5" />
-                          </button>
                         </div>
                       </td>
                     </tr>
@@ -664,6 +636,59 @@ export function CampaignDetails({ campaign, onBack, onAddBag }: CampaignDetailsP
                 )}
                 {!customerSearch && (
                   <p className="text-center py-4 text-zinc-400 text-sm italic">Digite para buscar clientes.</p>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Move Bag Modal */}
+      {movingBag && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="bg-white w-full max-w-md rounded-2xl border border-zinc-200 shadow-2xl overflow-hidden">
+            <div className="p-6 border-b border-zinc-100 flex items-center justify-between">
+              <h3 className="text-lg font-bold text-zinc-800">Mover Sacola {movingBag.bag_number}</h3>
+              <button onClick={() => setMovingBag(null)} className="p-2 hover:bg-zinc-100 rounded-lg text-zinc-400">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <p className="text-sm text-zinc-500">Selecione a campanha de destino para esta sacola:</p>
+              
+              <div className="relative">
+                <input 
+                  type="text" 
+                  placeholder="Buscar campanha..."
+                  value={campaignSearch}
+                  onChange={(e) => setCampaignSearch(e.target.value)}
+                  className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3 text-sm text-zinc-800 focus:border-emerald-500 outline-none"
+                />
+                <Search className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+              </div>
+
+              <div className="space-y-2 max-h-60 overflow-y-auto">
+                {loadingCampaigns ? (
+                  <div className="flex justify-center py-8">
+                    <Loader2 className="w-6 h-6 animate-spin text-emerald-500" />
+                  </div>
+                ) : filteredCampaigns.length > 0 ? (
+                  filteredCampaigns.map(c => (
+                    <button 
+                      key={c.id}
+                      onClick={() => executeMoveBag(c.id)}
+                      disabled={assigning}
+                      className="w-full flex items-center justify-between p-3 bg-zinc-50 hover:bg-zinc-100 rounded-xl border border-zinc-100 transition-all text-left"
+                    >
+                      <div>
+                        <p className="text-sm font-bold text-zinc-800">{c.name}</p>
+                        <p className="text-[10px] text-zinc-400">Criada em: {format(new Date(c.created_at), "dd/MM/yyyy")}</p>
+                      </div>
+                      {assigning ? <Loader2 className="w-4 h-4 animate-spin text-emerald-500" /> : <ChevronLeft className="w-4 h-4 text-zinc-300 rotate-180" />}
+                    </button>
+                  ))
+                ) : (
+                  <p className="text-center py-4 text-zinc-400 text-sm">Nenhuma campanha encontrada.</p>
                 )}
               </div>
             </div>

@@ -346,6 +346,8 @@ export interface GoalCampaign {
   reward_description: string;
   status: 'active' | 'finished';
   created_at: string;
+  type?: 'participants' | 'value';
+  end_date?: string;
 }
 
 export interface GoalParticipant {
@@ -353,6 +355,9 @@ export interface GoalParticipant {
   campaign_id: string;
   name: string;
   city: string;
+  cpf?: string;
+  phone?: string;
+  contribution_value?: number;
   message?: string;
   created_at: string;
 }

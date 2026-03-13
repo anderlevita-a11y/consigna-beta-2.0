@@ -260,7 +260,12 @@ export function BagForm({ onClose, onSave, campaignId }: BagFormProps) {
   };
 
   const filteredProducts = productSearch 
-    ? products.filter(p => p.name.toLowerCase().includes(productSearch.toLowerCase()) || String(p.ean || '').includes(productSearch)).slice(0, 50)
+    ? products.filter(p => {
+        const search = productSearch.toLowerCase().trim();
+        return (p.name?.toLowerCase() || '').includes(search) ||
+               (p.label_name?.toLowerCase() || '').includes(search) ||
+               String(p.ean || '').toLowerCase().includes(search);
+      }).slice(0, 50)
     : [];
 
   const filteredCustomers = customerSearch

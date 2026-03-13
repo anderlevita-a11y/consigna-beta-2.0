@@ -15,12 +15,14 @@ import {
   MessageSquare,
   Target,
   Gift,
-  Share2
+  Share2,
+  Calendar,
+  Clock
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { GoalCampaign, GoalParticipant } from '../types';
 import { cn } from '../lib/utils';
-import { format } from 'date-fns';
+import { format, differenceInDays } from 'date-fns';
 import { ConfirmationModal } from './ConfirmationModal';
 
 export function GoalsManager() {
@@ -61,9 +63,12 @@ export function GoalsManager() {
   };
 
   const shareLink = async (campaign?: GoalCampaign) => {
+    const { data: { session } } = await supabase.auth.getSession();
+    const userId = session?.user?.id;
+
     const url = campaign 
       ? `${window.location.origin}/?metas=${campaign.id}`
-      : `${window.location.origin}/?metas-e-brindes=true`;
+      : `${window.location.origin}/?metas-e-brindes=true${userId ? `&u=${userId}` : ''}`;
     
     if (navigator.share) {
       try {
@@ -196,8 +201,29 @@ export function GoalsManager() {
                 </div>
                 <div className="flex items-center justify-between text-xs">
                   <span className="text-zinc-400 uppercase font-bold tracking-widest">Meta</span>
-                  <span className="text-zinc-800 font-bold">{campaign.goal_value}</span>
+                  <span className="text-zinc-800 font-bold">
+                    {campaign.type === 'value' 
+                      ? campaign.goal_value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+                      : campaign.goal_value}
+                  </span>
                 </div>
+
+                {campaign.end_date && (
+                  <div className="flex items-center justify-between text-xs pt-2 border-t border-zinc-50">
+                    <span className="text-zinc-400 uppercase font-bold tracking-widest flex items-center gap-1">
+                      <Clock className="w-3 h-3" />
+                      Prazo
+                    </span>
+                    <span className={cn(
+                      "font-bold",
+                      differenceInDays(new Date(campaign.end_date), new Date()) < 3 ? "text-red-500" : "text-zinc-600"
+                    )}>
+                      {differenceInDays(new Date(campaign.end_date), new Date()) > 0 
+                        ? `${differenceInDays(new Date(campaign.end_date), new Date())} dias restantes`
+                        : "Encerrada"}
+                    </span>
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -231,6 +257,8 @@ function GoalForm({ onClose, onSave }: { onClose: () => void; onSave: () => void
     description: '',
     goal_value: 100,
     reward_description: '',
+    type: 'participants' as 'participants' | 'value',
+    end_date: ''
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -250,7 +278,9 @@ function GoalForm({ onClose, onSave }: { onClose: () => void; onSave: () => void
           goal_value: formData.goal_value,
           current_value: 0,
           reward_description: formData.reward_description,
-          status: 'active'
+          status: 'active',
+          type: formData.type,
+          end_date: formData.end_date || null
         }]);
 
       if (error) throw error;
@@ -287,7 +317,20 @@ function GoalForm({ onClose, onSave }: { onClose: () => void; onSave: () => void
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           <div className="space-y-2">
-            <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Valor da Meta (Qtd. Participantes)</label>
+            <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Tipo de Meta</label>
+            <select 
+              className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm focus:border-emerald-500 outline-none transition-all"
+              value={formData.type}
+              onChange={e => setFormData({...formData, type: e.target.value as 'participants' | 'value'})}
+            >
+              <option value="participants">Quantidade de Participantes</option>
+              <option value="value">Valor Financeiro / Pontos</option>
+            </select>
+          </div>
+          <div className="space-y-2">
+            <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">
+              {formData.type === 'participants' ? 'Meta (Qtd. Participantes)' : 'Meta (Valor Total)'}
+            </label>
             <input 
               required
               type="number" 
@@ -296,6 +339,9 @@ function GoalForm({ onClose, onSave }: { onClose: () => void; onSave: () => void
               className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm focus:border-emerald-500 outline-none transition-all"
             />
           </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           <div className="space-y-2">
             <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Brinde de Recompensa</label>
             <input 
@@ -304,6 +350,15 @@ function GoalForm({ onClose, onSave }: { onClose: () => void; onSave: () => void
               placeholder="Ex: Voucher de R$ 50,00"
               value={formData.reward_description}
               onChange={e => setFormData({...formData, reward_description: e.target.value})}
+              className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm focus:border-emerald-500 outline-none transition-all"
+            />
+          </div>
+          <div className="space-y-2">
+            <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Data Limite (Opcional)</label>
+            <input 
+              type="date" 
+              value={formData.end_date}
+              onChange={e => setFormData({...formData, end_date: e.target.value})}
               className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm focus:border-emerald-500 outline-none transition-all"
             />
           </div>
@@ -365,20 +420,32 @@ function GoalDetails({ campaign, onBack }: { campaign: GoalCampaign; onBack: () 
     }
   }
 
-  const handleDeleteParticipant = async (id: string) => {
+  const handleDeleteParticipant = async (participantId: string) => {
     if (!window.confirm('Tem certeza que deseja excluir este participante?')) return;
     try {
       const { error } = await supabase
         .from('goal_participants')
         .delete()
-        .eq('id', id);
+        .eq('id', participantId);
       
       if (error) throw error;
 
-      // Update current_value in campaign
+      // Recalculate current_value in campaign
+      const { data: remaining } = await supabase
+        .from('goal_participants')
+        .select('contribution_value')
+        .eq('campaign_id', campaign.id);
+      
+      let newValue = 0;
+      if (campaign.type === 'value') {
+        newValue = remaining?.reduce((acc, p) => acc + (p.contribution_value || 0), 0) || 0;
+      } else {
+        newValue = remaining?.length || 0;
+      }
+
       await supabase
         .from('goal_campaigns')
-        .update({ current_value: campaign.current_value - 1 })
+        .update({ current_value: newValue })
         .eq('id', campaign.id);
 
       fetchParticipants();
@@ -420,7 +487,9 @@ function GoalDetails({ campaign, onBack }: { campaign: GoalCampaign; onBack: () 
               <tr className="bg-zinc-50/50">
                 <th className="px-8 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Data</th>
                 <th className="px-8 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Participante</th>
+                <th className="px-8 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">CPF / Telefone</th>
                 <th className="px-8 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Cidade</th>
+                <th className="px-8 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Valor</th>
                 <th className="px-8 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Recado</th>
                 <th className="px-8 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest text-right">Ações</th>
               </tr>
@@ -428,13 +497,13 @@ function GoalDetails({ campaign, onBack }: { campaign: GoalCampaign; onBack: () 
             <tbody className="divide-y divide-zinc-100">
               {loading ? (
                 <tr>
-                  <td colSpan={5} className="px-8 py-20 text-center">
+                  <td colSpan={7} className="px-8 py-20 text-center">
                     <Loader2 className="w-8 h-8 animate-spin text-emerald-500 mx-auto" />
                   </td>
                 </tr>
               ) : participants.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-8 py-20 text-center text-zinc-400 italic">
+                  <td colSpan={7} className="px-8 py-20 text-center text-zinc-400 italic">
                     Nenhum participante ainda.
                   </td>
                 </tr>
@@ -443,7 +512,16 @@ function GoalDetails({ campaign, onBack }: { campaign: GoalCampaign; onBack: () 
                   <tr key={p.id} className="hover:bg-zinc-50/50 transition-colors">
                     <td className="px-8 py-4 text-zinc-500 text-sm">{format(new Date(p.created_at), "dd/MM/yy HH:mm")}</td>
                     <td className="px-8 py-4 font-bold text-zinc-800 text-sm">{p.name}</td>
+                    <td className="px-8 py-4 text-zinc-500 text-sm">
+                      <div className="flex flex-col">
+                        <span>{p.cpf || '-'}</span>
+                        <span className="text-[10px]">{p.phone || '-'}</span>
+                      </div>
+                    </td>
                     <td className="px-8 py-4 text-zinc-500 text-sm">{p.city}</td>
+                    <td className="px-8 py-4 text-zinc-800 font-bold text-sm">
+                      {p.contribution_value?.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) || '-'}
+                    </td>
                     <td className="px-8 py-4 text-zinc-600 text-sm italic">
                       {p.message ? `"${p.message}"` : '-'}
                     </td>
