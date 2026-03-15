@@ -11,6 +11,7 @@ import {
   Upload,
   CheckCircle2,
   X,
+  Barcode,
   ChevronLeft,
   TrendingUp,
   History,
@@ -25,10 +26,11 @@ import { Product, PriceSuggestion } from '../types';
 import { ConfirmationModal } from './ConfirmationModal';
 import { PrintPreview } from './PrintPreview';
 import { LabelCenter } from './LabelCenter';
-import { cn, printFallback } from '../lib/utils';
+import { cn, printFallback, formatError } from '../lib/utils';
 import { useNotifications } from './NotificationCenter';
 
 export function Products() {
+  const { addNotification } = useNotifications();
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -85,8 +87,6 @@ export function Products() {
   const [priceHistory, setPriceHistory] = useState<PriceSuggestion[]>([]);
   const [selectedProductForLabels, setSelectedProductForLabels] = useState<Product | null>(null);
 
-  const { addNotification } = useNotifications();
-
   // Form State
   const [formData, setFormData] = useState<{
     name: string;
@@ -100,11 +100,13 @@ export function Products() {
     category: string;
     is_visible_in_store: boolean;
     description: string;
+    ean_variations: string[];
     grid_data: { color: string; size: string; quantity: number }[];
   }>({
     name: '',
     label_name: '',
     ean: '',
+    ean_variations: [],
     cost_price: '',
     sale_price: '',
     current_stock: '',
@@ -125,6 +127,7 @@ export function Products() {
   const [storeSettings, setStoreSettings] = useState<any>(null);
   const [isAddingCategory, setIsAddingCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
+  const [eanVariationInput, setEanVariationInput] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('Todos');
 
   useEffect(() => {
@@ -223,7 +226,11 @@ export function Products() {
           fetchCentralProducts();
         } catch (err) {
           console.error('Error deleting central product:', err);
-          alert('Erro ao excluir produto');
+          addNotification({
+            type: 'error',
+            title: 'Erro ao excluir',
+            message: formatError(err)
+          });
         } finally {
           setConfirmModal(prev => ({ ...prev, isOpen: false }));
         }
@@ -248,10 +255,18 @@ export function Products() {
           if (error) throw error;
           
           await fetchCentralProducts();
-          alert('Central de produtos limpa com sucesso!');
+          addNotification({
+            type: 'success',
+            title: 'Sucesso',
+            message: 'Central de produtos limpa com sucesso!'
+          });
         } catch (err: any) {
           console.error('Error clearing central:', err);
-          alert('Erro ao limpar central: ' + (err.message || 'Erro desconhecido'));
+          addNotification({
+            type: 'error',
+            title: 'Erro ao limpar central',
+            message: formatError(err)
+          });
         } finally {
           setConfirmModal(prev => ({ ...prev, isOpen: false }));
         }
@@ -261,7 +276,11 @@ export function Products() {
 
   const handleImportProducts = async () => {
     if (!excelData.trim()) {
-      alert('Cole os dados do Excel primeiro.');
+      addNotification({
+        type: 'warning',
+        title: 'Aviso',
+        message: 'Cole os dados do Excel primeiro.'
+      });
       return;
     }
 
@@ -293,7 +312,11 @@ export function Products() {
       });
 
       if (productsToInsert.length === 0) {
-        alert('Nenhum dado válido encontrado.');
+        addNotification({
+          type: 'warning',
+          title: 'Aviso',
+          message: 'Nenhum dado válido encontrado.'
+        });
         setImporting(false);
         return;
       }
@@ -305,12 +328,20 @@ export function Products() {
 
       if (error) throw error;
 
-      alert(`${productsToInsert.length} produtos importados com sucesso para a Central!`);
+      addNotification({
+        type: 'success',
+        title: 'Sucesso',
+        message: `${productsToInsert.length} produtos importados com sucesso para a Central!`
+      });
       setExcelData('');
       fetchCentralProducts();
     } catch (err: any) {
       console.error('Error importing products:', err);
-      alert('Erro ao importar produtos: ' + (err.message || 'Verifique o formato dos dados.'));
+      addNotification({
+        type: 'error',
+        title: 'Erro ao importar',
+        message: formatError(err)
+      });
     } finally {
       setImporting(false);
     }
@@ -343,7 +374,11 @@ export function Products() {
       setFormData(prev => ({ ...prev, photo_url: publicUrl }));
     } catch (err) {
       console.error('Error uploading image:', err);
-      alert('Erro ao carregar imagem');
+      addNotification({
+        type: 'error',
+        title: 'Erro no upload',
+        message: formatError(err)
+      });
     } finally {
       setUploading(false);
     }
@@ -383,6 +418,11 @@ export function Products() {
       setProducts(allProducts);
     } catch (err) {
       console.error('Error fetching products:', err);
+      addNotification({
+        type: 'error',
+        title: 'Erro ao carregar produtos',
+        message: formatError(err)
+      });
     } finally {
       setLoading(false);
     }
@@ -402,6 +442,7 @@ export function Products() {
       category: selectedCategory !== 'Todos' ? selectedCategory : '',
       is_visible_in_store: true,
       description: '',
+      ean_variations: [],
       grid_data: []
     });
     setView('form');
@@ -421,6 +462,7 @@ export function Products() {
       category: product.category || '',
       is_visible_in_store: product.is_visible_in_store !== false,
       description: product.description || '',
+      ean_variations: product.ean_variations || [],
       grid_data: product.grid_data || []
     });
     setView('form');
@@ -442,7 +484,11 @@ export function Products() {
           fetchProducts();
         } catch (err) {
           console.error('Error deleting product:', err);
-          alert('Erro ao excluir produto');
+          addNotification({
+            type: 'error',
+            title: 'Erro ao excluir',
+            message: formatError(err)
+          });
         } finally {
           setConfirmModal(prev => ({ ...prev, isOpen: false }));
         }
@@ -460,7 +506,11 @@ export function Products() {
 
       const currentCategories = storeSettings?.categories || [];
       if (currentCategories.includes(newCategoryName.trim())) {
-        alert('Esta categoria já existe.');
+        addNotification({
+          type: 'warning',
+          title: 'Aviso',
+          message: 'Esta categoria já existe.'
+        });
         return;
       }
 
@@ -485,8 +535,46 @@ export function Products() {
       });
     } catch (err) {
       console.error('Error adding category:', err);
-      alert('Erro ao adicionar categoria');
+      addNotification({
+        type: 'error',
+        title: 'Erro ao adicionar categoria',
+        message: formatError(err)
+      });
     }
+  };
+
+  const handleAddEanVariation = () => {
+    const val = eanVariationInput.trim();
+    if (!val) return;
+    if (formData.ean_variations.length >= 10) {
+      addNotification({
+        type: 'warning',
+        title: 'Limite atingido',
+        message: 'Limite de 10 variações atingido.'
+      });
+      return;
+    }
+    if (formData.ean_variations.includes(val)) {
+      addNotification({
+        type: 'warning',
+        title: 'Variação duplicada',
+        message: 'Esta variação já foi adicionada.'
+      });
+      return;
+    }
+    if (val === formData.ean) {
+      addNotification({
+        type: 'warning',
+        title: 'EAN principal',
+        message: 'Esta variação é igual ao EAN principal.'
+      });
+      return;
+    }
+    setFormData({
+      ...formData,
+      ean_variations: [...formData.ean_variations, val]
+    });
+    setEanVariationInput('');
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -534,12 +622,24 @@ export function Products() {
         );
         
         if (conflictingProduct) {
-          alert(`Erro: O código EAN "${formData.ean}" já está cadastrado no produto "${conflictingProduct.name}". Cada produto deve ter um EAN exclusivo.`);
+          addNotification({
+            type: 'error',
+            title: 'EAN Duplicado',
+            message: `O código EAN "${formData.ean}" já está cadastrado no produto "${conflictingProduct.name}". Cada produto deve ter um EAN exclusivo.`
+          });
         } else {
-          alert('Erro: Já existe um produto com este código EAN no seu catálogo.');
+          addNotification({
+            type: 'error',
+            title: 'EAN Duplicado',
+            message: 'Já existe um produto com este código EAN no seu catálogo.'
+          });
         }
       } else {
-        alert('Erro ao salvar produto: ' + (err.message || 'Erro desconhecido'));
+        addNotification({
+          type: 'error',
+          title: 'Erro ao salvar produto',
+          message: formatError(err)
+        });
       }
     } finally {
       setSaving(false);
@@ -560,7 +660,11 @@ export function Products() {
       });
 
       if (exists) {
-        alert('Este produto já está no seu catálogo.');
+        addNotification({
+          type: 'warning',
+          title: 'Aviso',
+          message: 'Este produto já está no seu catálogo.'
+        });
         return;
       }
 
@@ -579,11 +683,19 @@ export function Products() {
 
       if (error) throw error;
       
-      alert('Produto adicionado com sucesso!');
+      addNotification({
+        type: 'success',
+        title: 'Sucesso',
+        message: 'Produto adicionado com sucesso!'
+      });
       fetchProducts();
     } catch (err: any) {
       console.error('Error adding product from central:', err);
-      alert('Erro ao adicionar produto: ' + (err.message || 'Erro desconhecido'));
+      addNotification({
+        type: 'error',
+        title: 'Erro ao adicionar produto',
+        message: formatError(err)
+      });
     }
   };
 
@@ -658,13 +770,21 @@ export function Products() {
         created_by: user.id
       }]);
 
-      alert('Sugestão de preço salva e usuários notificados!');
+      addNotification({
+        type: 'success',
+        title: 'Sucesso',
+        message: 'Sugestão de preço salva e usuários notificados!'
+      });
       setIsPriceModalOpen(false);
       fetchCentralProducts();
       fetchPriceSuggestions();
     } catch (err: any) {
       console.error('Error saving price suggestion:', err);
-      alert('Erro ao salvar sugestão: ' + (err.message || 'Erro desconhecido'));
+      addNotification({
+        type: 'error',
+        title: 'Erro ao salvar',
+        message: formatError(err)
+      });
     }
   };
 
@@ -692,11 +812,19 @@ export function Products() {
           
           if (error) throw error;
           
-          alert('Preço atualizado com sucesso!');
+          addNotification({
+            type: 'success',
+            title: 'Sucesso',
+            message: 'Preço atualizado com sucesso!'
+          });
           fetchProducts();
         } catch (err: any) {
           console.error('Error applying price suggestion:', err);
-          alert('Erro ao atualizar preço: ' + (err.message || 'Erro desconhecido'));
+          addNotification({
+            type: 'error',
+            title: 'Erro ao atualizar preço',
+            message: formatError(err)
+          });
         } finally {
           setConfirmModal(prev => ({ ...prev, isOpen: false }));
         }
@@ -805,7 +933,7 @@ export function Products() {
           updateData.grid_data = newGridData;
           updateData.current_stock = newGridData.reduce((sum: number, g: any) => sum + (g.quantity || 0), 0);
         } else {
-          updateData.current_stock = (product.current_stock || 0) + item.quantity;
+          updateData.current_stock = Number(product.current_stock || 0) + item.quantity;
         }
 
         const { error } = await supabase
@@ -826,7 +954,11 @@ export function Products() {
       fetchProducts();
     } catch (err: any) {
       console.error('Error updating stock:', err);
-      alert('Erro ao atualizar estoque: ' + (err.message || 'Erro desconhecido'));
+      addNotification({
+        type: 'error',
+        title: 'Erro ao atualizar estoque',
+        message: formatError(err)
+      });
     } finally {
       setQuickEntryLoading(false);
     }
@@ -841,7 +973,8 @@ export function Products() {
     const search = searchTerm.toLowerCase().trim();
     const matchesSearch = (p.name?.toLowerCase() || '').includes(search) ||
                           (p.label_name?.toLowerCase() || '').includes(search) ||
-                          String(p.ean || '').toLowerCase().includes(search);
+                          String(p.ean || '').toLowerCase().includes(search) ||
+                          (p.ean_variations || []).some(v => v.toLowerCase().includes(search));
     const matchesCategory = selectedCategory === 'Todos' || p.category === selectedCategory;
     return matchesSearch && matchesCategory;
   });
@@ -1119,13 +1252,52 @@ export function Products() {
               </div>
             </div>
 
-            <div className="space-y-2">
-              <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Variações de EAN</label>
-              <input 
-                type="text" 
-                placeholder="Adicionar EAN..."
-                className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm focus:border-emerald-500 outline-none transition-all"
-              />
+            <div className="space-y-4">
+              <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest block">Variações de EAN (Máx. 10)</label>
+              <div className="flex gap-2">
+                <input 
+                  type="text" 
+                  value={eanVariationInput}
+                  onChange={e => setEanVariationInput(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleAddEanVariation();
+                    }
+                  }}
+                  placeholder="Digitar ou bipar variação EAN..."
+                  className="flex-1 bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm focus:border-emerald-500 outline-none transition-all"
+                />
+                <button
+                  type="button"
+                  onClick={handleAddEanVariation}
+                  disabled={!eanVariationInput.trim() || formData.ean_variations.length >= 10}
+                  className="bg-zinc-900 text-white px-6 rounded-2xl font-bold text-sm hover:bg-zinc-800 transition-colors disabled:opacity-50"
+                >
+                  Adicionar
+                </button>
+              </div>
+              
+              {formData.ean_variations.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {formData.ean_variations.map((v, i) => (
+                    <div key={i} className="bg-zinc-100 text-zinc-700 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-2 border border-zinc-200">
+                      <Barcode className="w-3 h-3 text-zinc-400" />
+                      {v}
+                      <button 
+                        type="button"
+                        onClick={() => setFormData({
+                          ...formData,
+                          ean_variations: formData.ean_variations.filter((_, idx) => idx !== i)
+                        })}
+                        className="text-zinc-400 hover:text-red-500 transition-colors"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             <button 
@@ -1325,7 +1497,8 @@ export function Products() {
                     const search = quickEntrySearch.toLowerCase().trim();
                     return (p.name?.toLowerCase() || '').includes(search) ||
                            (p.label_name?.toLowerCase() || '').includes(search) ||
-                           (p.ean && p.ean.toLowerCase().includes(search));
+                           (p.ean && p.ean.toLowerCase().includes(search)) ||
+                           (p.ean_variations || []).some(v => v.toLowerCase().includes(search));
                   })
                   .sort((a, b) => a.name.localeCompare(b.name))
                   .slice(0, 30)
@@ -1354,10 +1527,12 @@ export function Products() {
                       </div>
                     </button>
                   ))}
-                {products.filter(p => 
-                  p.name.toLowerCase().includes(quickEntrySearch.toLowerCase()) ||
-                  (p.ean && p.ean.includes(quickEntrySearch))
-                ).length === 0 && (
+                {products.filter(p => {
+                  const search = quickEntrySearch.toLowerCase().trim();
+                  return p.name.toLowerCase().includes(search) ||
+                         (p.ean && p.ean.includes(search)) ||
+                         (p.ean_variations || []).some(v => v.toLowerCase().includes(search));
+                }).length === 0 && (
                   <div className="px-6 py-8 text-center text-zinc-400 italic text-sm">
                     Nenhum produto encontrado no catálogo.
                   </div>
@@ -1640,11 +1815,19 @@ export function Products() {
                           }
                         }
                         
-                        alert(`${updatedCount} produtos atualizados com sucesso!`);
+                        addNotification({
+                          type: 'success',
+                          title: 'Sincronização Concluída',
+                          message: `${updatedCount} produtos atualizados com sucesso!`
+                        });
                         fetchProducts();
                       } catch (err) {
                         console.error('Error syncing all prices:', err);
-                        alert('Erro ao sincronizar preços.');
+                        addNotification({
+                          type: 'error',
+                          title: 'Erro na sincronização',
+                          message: formatError(err)
+                        });
                       } finally {
                         setSyncing(false);
                       }

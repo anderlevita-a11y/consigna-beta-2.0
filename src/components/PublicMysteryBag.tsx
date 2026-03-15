@@ -2,9 +2,11 @@ import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { MysteryBagCampaign, MysteryBag, StoreSettings } from '../types';
 import { Loader2, ShoppingBag, Trophy, Info, Upload, CheckCircle2, Gift, ChevronLeft } from 'lucide-react';
-import { cn, validateCPF, validatePhone } from '../lib/utils';
+import { cn, validateCPF, validatePhone, formatError } from '../lib/utils';
+import { useNotifications } from './NotificationCenter';
 
 export function PublicMysteryBag() {
+  const { addNotification } = useNotifications();
   const [id, setId] = useState<string | null>(null);
   const [campaign, setCampaign] = useState<MysteryBagCampaign | null>(null);
   const [bags, setBags] = useState<MysteryBag[]>([]);
@@ -91,17 +93,29 @@ export function PublicMysteryBag() {
     e.preventDefault();
     
     if (formData.name.trim().split(' ').length < 2) {
-      alert('Por favor, insira seu nome completo.');
+      addNotification({
+        type: 'warning',
+        title: 'Nome incompleto',
+        message: 'Por favor, insira seu nome completo.'
+      });
       return;
     }
 
     if (!validateCPF(formData.cpf)) {
-      alert('CPF inválido. Por favor, verifique o número digitado.');
+      addNotification({
+        type: 'warning',
+        title: 'CPF inválido',
+        message: 'CPF inválido. Por favor, verifique o número digitado.'
+      });
       return;
     }
 
     if (!validatePhone(formData.phone)) {
-      alert('Telefone inválido. Por favor, insira um número válido com DDD.');
+      addNotification({
+        type: 'warning',
+        title: 'Telefone inválido',
+        message: 'Telefone inválido. Por favor, insira um número válido com DDD.'
+      });
       return;
     }
 
@@ -151,7 +165,11 @@ export function PublicMysteryBag() {
       }
     } catch (err) {
       console.error('Error uploading receipt:', err);
-      alert('Erro ao fazer upload do comprovante.');
+      addNotification({
+        type: 'error',
+        title: 'Erro no upload',
+        message: 'Erro ao fazer upload do comprovante.'
+      });
     } finally {
       setUploading(false);
     }
@@ -178,7 +196,11 @@ export function PublicMysteryBag() {
       setStep('success');
     } catch (err) {
       console.error('Error confirming purchase:', err);
-      alert('Erro ao confirmar compra. A sacola pode já ter sido reservada.');
+      addNotification({
+        type: 'error',
+        title: 'Erro na confirmação',
+        message: 'Erro ao confirmar compra. A sacola pode já ter sido reservada.'
+      });
       fetchCampaign(); // Refresh to see if it was taken
       setStep('select');
     } finally {

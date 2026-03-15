@@ -10,7 +10,7 @@ import {
   ShoppingBag,
   TrendingUp
 } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn, formatError } from '../lib/utils';
 
 export type NotificationType = 'info' | 'warning' | 'error' | 'success' | 'route' | 'sale' | 'price_change';
 
@@ -64,6 +64,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
   return (
     <NotificationContext.Provider value={{ notifications, addNotification, markAsRead, removeNotification, unreadCount }}>
+      <SystemAlert />
       {children}
     </NotificationContext.Provider>
   );
@@ -180,13 +181,7 @@ export function SystemAlert() {
 
   useEffect(() => {
     const handleError = (message: any) => {
-      if (typeof message !== 'string') return;
-      if (message.includes('Failed to fetch') || message.includes('Falha ao conectar com o Supabase')) {
-        message = 'Erro de conexão: O Supabase está pausado ou a URL está incorreta. Acesse o painel do Supabase e restaure seu projeto.';
-      } else if (message.includes('Edge Function')) {
-        message = 'O servidor de PDF está indisponível. O sistema usará o modo de impressão simplificado automaticamente.';
-      }
-      setError(message);
+      setError(formatError(message));
       setTimeout(() => setError(null), 10000);
     };
 

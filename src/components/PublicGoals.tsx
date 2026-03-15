@@ -2,11 +2,13 @@ import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { GoalCampaign, GoalParticipant, StoreSettings } from '../types';
 import { Loader2, Target, Gift, MessageSquare, MapPin, User, Send, CheckCircle2, ChevronRight, Share2, ChevronLeft, BarChart3, Clock } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn, formatError } from '../lib/utils';
 import { format, differenceInDays } from 'date-fns';
+import { useNotifications } from './NotificationCenter';
 
 export function PublicGoals() {
   const [id, setId] = useState<string | null>(null);
+  const { addNotification } = useNotifications();
   const [campaigns, setCampaigns] = useState<GoalCampaign[]>([]);
   const [selectedCampaign, setSelectedCampaign] = useState<GoalCampaign | null>(null);
   const [participants, setParticipants] = useState<GoalParticipant[]>([]);
@@ -177,10 +179,19 @@ export function PublicGoals() {
         setIsUpdating(true);
         setStep('form');
       } else {
-        alert('Participante não encontrado com este CPF nesta campanha.');
+        addNotification({
+          type: 'warning',
+          title: 'Não encontrado',
+          message: 'Participante não encontrado com este CPF nesta campanha.'
+        });
       }
     } catch (err) {
       console.error('Error identifying participant:', err);
+      addNotification({
+        type: 'error',
+        title: 'Erro',
+        message: formatError(err)
+      });
     } finally {
       setIdentifying(false);
     }
@@ -258,7 +269,11 @@ export function PublicGoals() {
       setStep('success');
     } catch (err) {
       console.error('Error joining campaign:', err);
-      alert('Erro ao participar da campanha.');
+      addNotification({
+        type: 'error',
+        title: 'Erro ao participar',
+        message: formatError(err)
+      });
     } finally {
       setSubmitting(false);
     }
@@ -701,7 +716,11 @@ export function PublicGoals() {
                 onClick={() => {
                   const url = window.location.href;
                   navigator.clipboard.writeText(url);
-                  alert('Link copiado!');
+                  addNotification({
+                    type: 'success',
+                    title: 'Link copiado',
+                    message: 'Link copiado para a área de transferência!'
+                  });
                 }}
                 className="flex items-center justify-center gap-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-600 px-8 py-4 rounded-2xl font-bold transition-all"
               >

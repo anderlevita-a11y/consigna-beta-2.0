@@ -15,11 +15,12 @@ import {
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { Campaign, Bag, Customer } from '../types';
-import { cn, printFallback } from '../lib/utils';
+import { cn, printFallback, formatError } from '../lib/utils';
 import { format } from 'date-fns';
 import { ConfirmationModal } from './ConfirmationModal';
 import { PromptModal } from './PromptModal';
 import { PrintPreview } from './PrintPreview';
+import { useNotifications } from './NotificationCenter';
 
 import { BagSettlement } from './BagSettlement';
 
@@ -27,11 +28,13 @@ interface CampaignDetailsProps {
   campaign: Campaign;
   onBack: () => void;
   onAddBag: () => void;
+  onEditBag: (bagId: string) => void;
 }
 
-export function CampaignDetails({ campaign, onBack, onAddBag }: CampaignDetailsProps) {
+export function CampaignDetails({ campaign, onBack, onAddBag, onEditBag }: CampaignDetailsProps) {
   const [bags, setBags] = useState<Bag[]>([]);
   const [loading, setLoading] = useState(true);
+  const { addNotification } = useNotifications();
   const [settlingBag, setSettlingBag] = useState<Bag | null>(null);
   const [assigningBag, setAssigningBag] = useState<Bag | null>(null);
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -102,6 +105,54 @@ export function CampaignDetails({ campaign, onBack, onAddBag }: CampaignDetailsP
     }
   }
 
+  const handleBagClick = (bag: Bag) => {
+    if (bag.status === 'closed') {
+      setConfirmModal({
+        isOpen: true,
+        title: 'Reabrir Sacola',
+        message: 'Esta sacola já está acertada. Deseja reabri-la para adicionar ou excluir produtos?',
+        variant: 'warning',
+        onConfirm: async () => {
+          try {
+            const { error } = await supabase
+              .from('bags')
+              .update({ status: 'open' })
+              .eq('id', bag.id);
+            
+            if (error) throw error;
+            
+            addNotification({
+              type: 'success',
+              title: 'Sacola Reaberta',
+              message: 'A sacola foi reaberta com sucesso.'
+            });
+            
+            setConfirmModal(prev => ({ ...prev, isOpen: false }));
+            onEditBag(bag.id);
+          } catch (err) {
+            console.error('Error reopening bag:', err);
+            addNotification({
+              type: 'error',
+              title: 'Erro ao reabrir',
+              message: formatError(err)
+            });
+          }
+        }
+      });
+    } else {
+      setConfirmModal({
+        isOpen: true,
+        title: 'Editar Sacola',
+        message: 'Deseja editar esta sacola para adicionar ou excluir produtos?',
+        variant: 'info',
+        onConfirm: () => {
+          setConfirmModal(prev => ({ ...prev, isOpen: false }));
+          onEditBag(bag.id);
+        }
+      });
+    }
+  };
+
   const handleAssignCustomer = async (customerId: string) => {
     if (!assigningBag) return;
     setAssigning(true);
@@ -116,7 +167,11 @@ export function CampaignDetails({ campaign, onBack, onAddBag }: CampaignDetailsP
       fetchBags();
     } catch (err) {
       console.error('Error assigning customer:', err);
-      alert('Erro ao atribuir cliente');
+      addNotification({
+        type: 'error',
+        title: 'Erro ao atribuir',
+        message: formatError(err)
+      });
     } finally {
       setAssigning(false);
     }
@@ -255,7 +310,7 @@ export function CampaignDetails({ campaign, onBack, onAddBag }: CampaignDetailsP
             total: (item.quantity - (item.returned_quantity || 0)) * item.unit_price
           })).filter(i => i.qtd > 0)
         };
-        printFallback(payload);
+        printFallback(payload, (msg) => addNotification({ type: 'warning', title: 'Impressão', message: msg }));
       } catch (fallbackErr) {
         console.error('Fallback print failed:', fallbackErr);
       }
@@ -301,10 +356,18 @@ export function CampaignDetails({ campaign, onBack, onAddBag }: CampaignDetailsP
       if (error) throw error;
       setMovingBag(null);
       fetchBags();
-      alert('Sacola movida com sucesso!');
+      addNotification({
+        type: 'success',
+        title: 'Sucesso',
+        message: 'Sacola movida com sucesso!'
+      });
     } catch (err) {
       console.error('Error moving bag:', err);
-      alert('Erro ao mover sacola');
+      addNotification({
+        type: 'error',
+        title: 'Erro ao mover',
+        message: formatError(err)
+      });
     } finally {
       setAssigning(false);
     }
@@ -370,7 +433,11 @@ export function CampaignDetails({ campaign, onBack, onAddBag }: CampaignDetailsP
           fetchBags();
         } catch (err) {
           console.error('Error reopening bag:', err);
-          alert('Erro ao reabrir sacola');
+          addNotification({
+            type: 'error',
+            title: 'Erro ao reabrir',
+            message: formatError(err)
+          });
         } finally {
           setConfirmModal(prev => ({ ...prev, isOpen: false }));
         }
@@ -489,7 +556,12 @@ export function CampaignDetails({ campaign, onBack, onAddBag }: CampaignDetailsP
                   {bags.slice(0, 100).map((bag) => (
                     <tr key={bag.id} className="hover:bg-zinc-50/50 transition-colors group">
                       <td className="px-8 py-6">
-                        <span className="text-emerald-600 font-bold">#{bag.bag_number.replace(/\D/g, '')}</span>
+                        <button 
+                          onClick={() => handleBagClick(bag)}
+                          className="text-emerald-600 font-bold hover:text-emerald-700 hover:underline transition-all"
+                        >
+                          #{bag.bag_number.replace(/\D/g, '')}
+                        </button>
                       </td>
                       <td className="px-8 py-6">
                         <div className="flex items-center justify-between">

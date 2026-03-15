@@ -25,11 +25,12 @@ import {
   CheckCircle2,
   FileText
 } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn, formatError } from '../lib/utils';
 import { supabase } from '../lib/supabase';
 import { Logo } from './Logo';
 import { Profile } from '../types';
 import { syncCatalog } from '../lib/syncCatalog';
+import { useNotifications } from './NotificationCenter';
 
 interface SidebarProps {
   activeTab: string;
@@ -60,6 +61,7 @@ export function Sidebar({ activeTab, setActiveTab, isOpen, onClose, profile, cla
   const [syncing, setSyncing] = useState(false);
   const [previewData, setPreviewData] = useState<{ inserted: any[], updated: any[] } | null>(null);
   const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
+  const { addNotification } = useNotifications();
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -92,7 +94,11 @@ export function Sidebar({ activeTab, setActiveTab, isOpen, onClose, profile, cla
       setIsPreviewModalOpen(true);
     } catch (err: any) {
       console.error('Error previewing catalog sync:', err);
-      alert('Erro ao carregar prévia: ' + (err.message || 'Erro desconhecido'));
+      addNotification({
+        type: 'error',
+        title: 'Erro na prévia',
+        message: formatError(err)
+      });
     } finally {
       setSyncing(false);
     }
@@ -102,12 +108,20 @@ export function Sidebar({ activeTab, setActiveTab, isOpen, onClose, profile, cla
     setSyncing(true);
     try {
       const { inserted, updated } = await syncCatalog(false);
-      alert(`Sincronização concluída!\n\n- ${inserted} novos produtos adicionados\n- ${updated} produtos atualizados`);
+      addNotification({
+        type: 'success',
+        title: 'Sincronização concluída',
+        message: `- ${inserted} novos produtos adicionados\n- ${updated} produtos atualizados`
+      });
       setIsPreviewModalOpen(false);
       window.dispatchEvent(new CustomEvent('catalog_synced'));
     } catch (err: any) {
       console.error('Error syncing catalog:', err);
-      alert('Erro ao sincronizar catálogo: ' + (err.message || 'Erro desconhecido'));
+      addNotification({
+        type: 'error',
+        title: 'Erro na sincronização',
+        message: formatError(err)
+      });
     } finally {
       setSyncing(false);
     }

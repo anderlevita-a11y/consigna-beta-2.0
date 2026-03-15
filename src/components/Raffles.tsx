@@ -25,15 +25,28 @@ import {
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { Raffle, RaffleTicket } from '../types';
-import { cn } from '../lib/utils';
+import { cn, formatError } from '../lib/utils';
 import { format } from 'date-fns';
 import { ConfirmationModal } from './ConfirmationModal';
+import { useNotifications } from './NotificationCenter';
 
 export function RafflesManager() {
   const [raffles, setRaffles] = useState<Raffle[]>([]);
   const [loading, setLoading] = useState(true);
+  const { addNotification } = useNotifications();
   const [view, setView] = useState<'list' | 'create' | 'details' | 'draw'>('list');
   const [selectedRaffle, setSelectedRaffle] = useState<Raffle | null>(null);
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {},
+  });
 
   useEffect(() => {
     fetchRaffles();
@@ -81,12 +94,20 @@ export function RafflesManager() {
           console.error('Error sharing:', err);
           // Fallback
           navigator.clipboard.writeText(url);
-          alert('Link copiado para a área de transferência!');
+          addNotification({
+            type: 'success',
+            title: 'Link copiado',
+            message: 'Link copiado para a área de transferência!'
+          });
         }
       }
     } else {
       navigator.clipboard.writeText(url);
-      alert('Link copiado para a área de transferência!');
+      addNotification({
+        type: 'success',
+        title: 'Link copiado',
+        message: 'Link copiado para a área de transferência!'
+      });
     }
   };
 
@@ -212,6 +233,7 @@ export function RafflesManager() {
 }
 
 function RaffleForm({ onClose, onSave }: { onClose: () => void; onSave: () => void }) {
+  const { addNotification } = useNotifications();
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     title: '',
@@ -267,7 +289,11 @@ function RaffleForm({ onClose, onSave }: { onClose: () => void; onSave: () => vo
       onSave();
     } catch (err) {
       console.error('Error saving raffle:', err);
-      alert('Erro ao criar rifa');
+      addNotification({
+        type: 'error',
+        title: 'Erro ao criar',
+        message: formatError(err)
+      });
     } finally {
       setLoading(false);
     }
@@ -416,8 +442,20 @@ function RaffleForm({ onClose, onSave }: { onClose: () => void; onSave: () => vo
 }
 
 function RaffleDetails({ raffle, onBack, onDraw }: { raffle: Raffle; onBack: () => void; onDraw: () => void }) {
+  const { addNotification } = useNotifications();
   const [tickets, setTickets] = useState<RaffleTicket[]>([]);
   const [loading, setLoading] = useState(true);
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {}
+  });
 
   const paidTicketsCount = tickets.filter(t => t.status === 'paid').length;
   const isFullyPaid = paidTicketsCount === raffle.total_tickets;
@@ -454,7 +492,11 @@ function RaffleDetails({ raffle, onBack, onDraw }: { raffle: Raffle; onBack: () 
       fetchTickets();
     } catch (err) {
       console.error('Error approving payment:', err);
-      alert('Erro ao aprovar pagamento');
+      addNotification({
+        type: 'error',
+        title: 'Erro ao aprovar',
+        message: formatError(err)
+      });
     }
   };
 
@@ -515,26 +557,46 @@ function RaffleDetails({ raffle, onBack, onDraw }: { raffle: Raffle; onBack: () 
       fetchTickets();
     } catch (err) {
       console.error('Error uploading receipt:', err);
-      alert('Erro ao carregar comprovante');
+      addNotification({
+        type: 'error',
+        title: 'Erro ao carregar',
+        message: formatError(err)
+      });
     } finally {
       setUploadingId(null);
     }
   };
 
   const handleRejectPayment = async (ticketId: string) => {
-    if (!window.confirm('Tem certeza que deseja rejeitar este pagamento e liberar o número?')) return;
-    try {
-      const { error } = await supabase
-        .from('raffle_tickets')
-        .delete()
-        .eq('id', ticketId);
-      
-      if (error) throw error;
-      fetchTickets();
-    } catch (err) {
-      console.error('Error rejecting payment:', err);
-      alert('Erro ao rejeitar pagamento');
-    }
+    setConfirmModal({
+      isOpen: true,
+      title: 'Rejeitar Pagamento',
+      message: 'Tem certeza que deseja rejeitar este pagamento e liberar o número?',
+      onConfirm: async () => {
+        setConfirmModal(prev => ({ ...prev, isOpen: false }));
+        try {
+          const { error } = await supabase
+            .from('raffle_tickets')
+            .delete()
+            .eq('id', ticketId);
+          
+          if (error) throw error;
+          addNotification({
+            type: 'success',
+            title: 'Sucesso',
+            message: 'Pagamento rejeitado e número liberado!'
+          });
+          fetchTickets();
+        } catch (err) {
+          console.error('Error rejecting payment:', err);
+          addNotification({
+            type: 'error',
+            title: 'Erro ao rejeitar',
+            message: formatError(err)
+          });
+        }
+      }
+    });
   };
 
   return (
@@ -700,6 +762,17 @@ function RaffleDraw({ raffle, onBack }: { raffle: Raffle; onBack: () => void }) 
   const [tickets, setTickets] = useState<RaffleTicket[]>([]);
   const [winners, setWinners] = useState<any[]>([]);
   const [drawing, setDrawing] = useState(false);
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {},
+  });
 
   useEffect(() => {
     fetchTickets();
@@ -830,6 +903,14 @@ function RaffleDraw({ raffle, onBack }: { raffle: Raffle; onBack: () => void }) 
           </div>
         </div>
       </div>
+      <ConfirmationModal
+        isOpen={confirmModal.isOpen}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        onConfirm={confirmModal.onConfirm}
+        onCancel={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+        variant="danger"
+      />
     </div>
   );
 }

@@ -18,9 +18,11 @@ import {
   Loader2,
   Save
 } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn, formatError } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { supabase } from '../lib/supabase';
+import { useNotifications } from './NotificationCenter';
+import { ConfirmationModal } from './ConfirmationModal';
 import { 
   AreaChart, 
   Area, 
@@ -57,6 +59,7 @@ const DEFAULT_CATEGORIES: CategoryState = {
 const COLORS = ['#38a89d', '#4a1d33', '#f59e0b', '#ef4444', '#8b5cf6', '#3b82f6', '#10b981'];
 
 export function FinancialControl() {
+  const { addNotification } = useNotifications();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [categories, setCategories] = useState<CategoryState>(DEFAULT_CATEGORIES);
   const [loading, setLoading] = useState(true);
@@ -66,6 +69,17 @@ export function FinancialControl() {
   const [newCategoryName, setNewCategoryName] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'income' | 'expense'>('all');
   const [searchTerm, setSearchTerm] = useState('');
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {}
+  });
 
   // Form State
   const [newTransaction, setNewTransaction] = useState<Partial<Transaction>>({
@@ -230,28 +244,48 @@ export function FinancialControl() {
 
     } catch (err: any) {
       console.error('Error adding transaction:', err);
-      alert('Erro ao salvar lançamento: ' + (err.message || 'Tente novamente.'));
+      addNotification({
+        type: 'error',
+        title: 'Erro ao salvar',
+        message: formatError(err)
+      });
     } finally {
       setSaving(false);
     }
   };
 
   const removeTransaction = async (id: string) => {
-    if (!confirm('Deseja realmente excluir este lançamento?')) return;
+    setConfirmModal({
+      isOpen: true,
+      title: 'Excluir Lançamento',
+      message: 'Deseja realmente excluir este lançamento? Esta ação não pode ser desfeita.',
+      onConfirm: async () => {
+        try {
+          const { error } = await supabase
+            .from('financial_transactions')
+            .delete()
+            .eq('id', id);
 
-    try {
-      const { error } = await supabase
-        .from('financial_transactions')
-        .delete()
-        .eq('id', id);
+          if (error) throw error;
 
-      if (error) throw error;
-
-      setTransactions(transactions.filter(t => t.id !== id));
-    } catch (err: any) {
-      console.error('Error removing transaction:', err);
-      alert('Erro ao excluir: ' + (err.message || 'Tente novamente.'));
-    }
+          setTransactions(transactions.filter(t => t.id !== id));
+          addNotification({
+            type: 'success',
+            title: 'Lançamento excluído',
+            message: 'O lançamento foi removido com sucesso.'
+          });
+        } catch (err: any) {
+          console.error('Error removing transaction:', err);
+          addNotification({
+            type: 'error',
+            title: 'Erro ao excluir',
+            message: formatError(err)
+          });
+        } finally {
+          setConfirmModal(prev => ({ ...prev, isOpen: false }));
+        }
+      }
+    });
   };
 
   if (loading) {
@@ -670,6 +704,15 @@ export function FinancialControl() {
           </div>
         )}
       </AnimatePresence>
+
+      {/* Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={confirmModal.isOpen}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        onConfirm={confirmModal.onConfirm}
+        onCancel={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+      />
     </div>
   );
 }

@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { Save, X, Calendar, Percent, FileText } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { Campaign } from '../types';
+import { useNotifications } from './NotificationCenter';
+import { formatError } from '../lib/utils';
 
 interface CampaignFormProps {
   onClose: () => void;
@@ -10,6 +12,7 @@ interface CampaignFormProps {
 }
 
 export function CampaignForm({ onClose, onSave, initialData }: CampaignFormProps) {
+  const { addNotification } = useNotifications();
   const [loading, setLoading] = useState(false);
   const [discountPctInput, setDiscountPctInput] = useState(initialData?.discount_pct?.toString() || '30');
   const [formData, setFormData] = useState({
@@ -56,7 +59,11 @@ export function CampaignForm({ onClose, onSave, initialData }: CampaignFormProps
       onSave();
     } catch (err) {
       console.error('Error saving campaign:', err);
-      alert('Erro ao salvar campanha');
+      addNotification({
+        type: 'error',
+        title: 'Erro ao salvar',
+        message: formatError(err)
+      });
     } finally {
       setLoading(false);
     }

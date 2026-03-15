@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Printer, X, Package, Tag, Settings, Plus, Minus, Search, CheckCircle2, ChevronRight, LayoutTemplate, Edit3 } from 'lucide-react';
 import { Product, LabelModel as CustomLabelModel } from '../types';
 import { supabase } from '../lib/supabase';
-import { cn } from '../lib/utils';
+import { cn, formatError } from '../lib/utils';
+import { useNotifications } from './NotificationCenter';
 import JsBarcode from 'jsbarcode';
 import { LabelModelEditor } from './LabelModelEditor';
 
@@ -105,6 +106,7 @@ const SHIPPING_MODELS: LabelModel[] = [
 ];
 
 export function LabelCenter({ onClose, initialProduct }: LabelCenterProps) {
+  const { addNotification } = useNotifications();
   const [activeTab, setActiveTab] = useState<LabelType>('barcode');
   const [selectedModel, setSelectedModel] = useState<string>('pimaco_6180');
   const [products, setProducts] = useState<Product[]>([]);
@@ -139,6 +141,11 @@ export function LabelCenter({ onClose, initialProduct }: LabelCenterProps) {
       setCustomModels(data || []);
     } catch (error) {
       console.error('Error loading custom models:', error);
+      addNotification({
+        type: 'error',
+        title: 'Erro ao carregar modelos',
+        message: formatError(error)
+      });
     }
   };
 
@@ -156,6 +163,11 @@ export function LabelCenter({ onClose, initialProduct }: LabelCenterProps) {
       if (data) setProducts(data);
     } catch (error) {
       console.error('Error loading products:', error);
+      addNotification({
+        type: 'error',
+        title: 'Erro ao carregar produtos',
+        message: formatError(error)
+      });
     }
   };
 
@@ -183,7 +195,8 @@ export function LabelCenter({ onClose, initialProduct }: LabelCenterProps) {
     const search = searchTerm.toLowerCase().trim();
     return (p.name?.toLowerCase() || '').includes(search) ||
            (p.label_name?.toLowerCase() || '').includes(search) ||
-           String(p.ean || '').toLowerCase().includes(search);
+           String(p.ean || '').toLowerCase().includes(search) ||
+           (p.ean_variations || []).some(v => v.toLowerCase().includes(search));
   });
 
   const handlePrint = () => {
@@ -211,7 +224,11 @@ export function LabelCenter({ onClose, initialProduct }: LabelCenterProps) {
 
     const printWindow = window.open('', '_blank');
     if (!printWindow) {
-      alert("O seu navegador bloqueou a abertura da página de impressão. Por favor, permita os pop-ups para este site.");
+      addNotification({
+        type: 'error',
+        title: 'Pop-up bloqueado',
+        message: 'O seu navegador bloqueou a abertura da página de impressão. Por favor, permita os pop-ups para este site.'
+      });
       return;
     }
 

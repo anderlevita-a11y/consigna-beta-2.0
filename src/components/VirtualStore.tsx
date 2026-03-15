@@ -24,12 +24,15 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { supabase } from '../lib/supabase';
 import { StoreSettings, ProductReview } from '../types';
+import { cn, formatError } from '../lib/utils';
+import { useNotifications } from './NotificationCenter';
 
 interface Product {
   id: number;
   name: string;
   label_name?: string;
   ean?: string;
+  ean_variations?: string[];
   price_original: number;
   price_discounted: number;
   discount_percentage: number;
@@ -53,6 +56,7 @@ interface CartItem {
 const TESTIMONIALS = [];
 
 export function VirtualStore({ slug }: { slug?: string }) {
+  const { addNotification } = useNotifications();
   const [searchQuery, setSearchQuery] = useState('');
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
@@ -203,8 +207,11 @@ export function VirtualStore({ slug }: { slug?: string }) {
       }
     } catch (error: any) {
       console.error("Error fetching data:", error);
-      // Optional: show notification if we had access to the context here
-      // But since we are inside a function, we'll just let the global error handler catch it if it's a fetch error
+      addNotification({
+        type: 'error',
+        title: 'Erro de Conexão',
+        message: formatError(error)
+      });
     } finally {
         setLoading(false);
       }
@@ -271,7 +278,11 @@ export function VirtualStore({ slug }: { slug?: string }) {
       setNewReview(prev => ({ ...prev, customer_photo_url: publicUrl }));
     } catch (err: any) {
       console.error('Error uploading photo:', err);
-      alert('Erro ao carregar foto: ' + err.message);
+      addNotification({
+        type: 'error',
+        title: 'Erro no upload',
+        message: formatError(err)
+      });
     } finally {
       setUploadingPhoto(false);
     }
@@ -280,7 +291,11 @@ export function VirtualStore({ slug }: { slug?: string }) {
   const submitStoreReview = async () => {
     if (!settings) return;
     if (!newReview.customer_name || !newReview.comment) {
-      alert('Por favor, preencha seu nome e comentário.');
+      addNotification({
+        type: 'warning',
+        title: 'Campos obrigatórios',
+        message: 'Por favor, preencha seu nome e comentário.'
+      });
       return;
     }
 
@@ -298,12 +313,20 @@ export function VirtualStore({ slug }: { slug?: string }) {
         });
 
       if (error) throw error;
-      alert('Sua avaliação foi enviada e está aguardando aprovação!');
+      addNotification({
+        type: 'success',
+        title: 'Avaliação Enviada',
+        message: 'Sua avaliação foi enviada e está aguardando aprovação!'
+      });
       setIsStoreReviewOpen(false);
       setNewReview({ rating: 5, customer_name: '', comment: '', customer_photo_url: '' });
     } catch (err: any) {
       console.error('Error submitting store review:', err);
-      alert('Erro ao enviar avaliação: ' + err.message);
+      addNotification({
+        type: 'error',
+        title: 'Erro ao enviar',
+        message: formatError(err)
+      });
     }
   };
 
@@ -334,7 +357,11 @@ export function VirtualStore({ slug }: { slug?: string }) {
   const submitReview = async () => {
     if (!selectedProduct || !settings) return;
     if (!newReview.customer_name || !newReview.comment) {
-      alert('Por favor, preencha seu nome e comentário.');
+      addNotification({
+        type: 'warning',
+        title: 'Campos obrigatórios',
+        message: 'Por favor, preencha seu nome e comentário.'
+      });
       return;
     }
 
@@ -352,12 +379,20 @@ export function VirtualStore({ slug }: { slug?: string }) {
         });
 
       if (error) throw error;
-      alert('Sua avaliação foi enviada e está aguardando aprovação!');
+      addNotification({
+        type: 'success',
+        title: 'Avaliação Enviada',
+        message: 'Sua avaliação foi enviada e está aguardando aprovação!'
+      });
       setIsReviewing(false);
       setNewReview({ rating: 5, customer_name: '', comment: '', customer_photo_url: '' });
     } catch (err: any) {
       console.error('Error submitting review:', err);
-      alert('Erro ao enviar avaliação: ' + err.message);
+      addNotification({
+        type: 'error',
+        title: 'Erro ao enviar',
+        message: formatError(err)
+      });
     }
   };
 
@@ -371,7 +406,8 @@ export function VirtualStore({ slug }: { slug?: string }) {
     const matchesSearch = (p.name?.toLowerCase() || '').includes(search) || 
                          (p.category?.toLowerCase() || '').includes(search) ||
                          (p.label_name?.toLowerCase() || '').includes(search) ||
-                         (p.ean && p.ean.toLowerCase().includes(search));
+                         (p.ean && p.ean.toLowerCase().includes(search)) ||
+                         (p.ean_variations || []).some(v => v.toLowerCase().includes(search));
     const matchesCategory = activeCategory === 'Todos' || p.category === activeCategory;
     return matchesSearch && matchesCategory;
   });
@@ -385,7 +421,11 @@ export function VirtualStore({ slug }: { slug?: string }) {
 
   const addToCart = (product: Product, size?: string, color?: string) => {
     if (product.current_stock <= 0) {
-      alert('Produto indisponível no momento.');
+      addNotification({
+        type: 'warning',
+        title: 'Indisponível',
+        message: 'Produto indisponível no momento.'
+      });
       return;
     }
 
@@ -437,7 +477,11 @@ export function VirtualStore({ slug }: { slug?: string }) {
 
   const handleCheckout = () => {
     if (!settings?.whatsapp_number) {
-      alert('Número de WhatsApp da loja não configurado.');
+      addNotification({
+        type: 'error',
+        title: 'Configuração ausente',
+        message: 'Número de WhatsApp da loja não configurado.'
+      });
       return;
     }
 
@@ -896,7 +940,11 @@ export function VirtualStore({ slug }: { slug?: string }) {
                     <button 
                       onClick={() => {
                         if (selectedProduct.has_grid && (!selectedSize || !selectedColor)) {
-                          alert('Por favor, selecione cor e tamanho.');
+                          addNotification({
+                            type: 'warning',
+                            title: 'Seleção incompleta',
+                            message: 'Por favor, selecione cor e tamanho.'
+                          });
                           return;
                         }
                         addToCart(selectedProduct, selectedSize, selectedColor);

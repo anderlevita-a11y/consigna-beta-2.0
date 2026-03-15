@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { ShieldCheck, FileText, CheckCircle2, Loader2 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import ReactMarkdown from 'react-markdown';
+import { useNotifications } from './NotificationCenter';
 
 interface LegalConfirmationModalProps {
   isOpen: boolean;
@@ -11,6 +12,7 @@ interface LegalConfirmationModalProps {
 }
 
 export function LegalConfirmationModal({ isOpen, privacyPolicy, termsOfUse, onConfirm }: LegalConfirmationModalProps) {
+  const { addNotification } = useNotifications();
   const [accepted, setAccepted] = useState(false);
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'privacy' | 'terms'>('privacy');
@@ -24,7 +26,7 @@ export function LegalConfirmationModal({ isOpen, privacyPolicy, termsOfUse, onCo
       await onConfirm();
     } catch (err) {
       console.error(err);
-      alert('Erro ao confirmar termos. Tente novamente.');
+      addNotification({ type: 'error', title: 'Erro', message: 'Erro ao confirmar termos. Tente novamente.' });
     } finally {
       setLoading(false);
     }

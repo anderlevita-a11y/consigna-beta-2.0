@@ -2,10 +2,12 @@ import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { Raffle, RaffleTicket, StoreSettings } from '../types';
 import { Loader2, Ticket, Trophy, Info, Upload, CheckCircle2, ChevronLeft } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn, formatError } from '../lib/utils';
+import { useNotifications } from './NotificationCenter';
 
 export function PublicRaffle() {
   const [id, setId] = useState<string | null>(null);
+  const { addNotification } = useNotifications();
   const [raffle, setRaffle] = useState<Raffle | null>(null);
   const [tickets, setTickets] = useState<RaffleTicket[]>([]);
   const [loading, setLoading] = useState(true);
@@ -135,7 +137,11 @@ export function PublicRaffle() {
       }
     } catch (err) {
       console.error('Error uploading receipt:', err);
-      alert('Erro ao fazer upload do comprovante.');
+      addNotification({
+        type: 'error',
+        title: 'Erro no upload',
+        message: 'Erro ao fazer upload do comprovante.'
+      });
     } finally {
       setUploading(false);
     }
@@ -161,7 +167,11 @@ export function PublicRaffle() {
       setStep('success');
     } catch (err) {
       console.error('Error confirming purchase:', err);
-      alert('Erro ao confirmar compra. O número pode já ter sido reservado.');
+      addNotification({
+        type: 'error',
+        title: 'Erro na reserva',
+        message: 'Erro ao confirmar compra. O número pode já ter sido reservado.'
+      });
       fetchRaffle(); // Refresh to see if it was taken
       setStep('select');
     } finally {

@@ -12,6 +12,7 @@ import {
 import { supabase } from '../lib/supabase';
 import { Customer } from '../types';
 import { cn } from '../lib/utils';
+import { useNotifications } from './NotificationCenter';
 
 interface CustomerFormProps {
   customer?: Customer;
@@ -20,6 +21,7 @@ interface CustomerFormProps {
 }
 
 export function CustomerForm({ customer, onClose, onSave }: CustomerFormProps) {
+  const { addNotification } = useNotifications();
   const [loading, setLoading] = useState(false);
   const [uploadingDoc, setUploadingDoc] = useState(false);
   const [uploadingProof, setUploadingProof] = useState(false);
@@ -86,7 +88,11 @@ export function CustomerForm({ customer, onClose, onSave }: CustomerFormProps) {
 
     } catch (err) {
       console.error(`Error uploading ${type}:`, err);
-      alert(`Erro ao carregar ${isDoc ? 'documento' : 'comprovante'}.`);
+      addNotification({
+        type: 'error',
+        title: 'Erro no upload',
+        message: `Erro ao carregar ${isDoc ? 'documento' : 'comprovante'}.`
+      });
     } finally {
       if (isDoc) setUploadingDoc(false);
       else setUploadingProof(false);
@@ -136,7 +142,7 @@ export function CustomerForm({ customer, onClose, onSave }: CustomerFormProps) {
       onSave();
     } catch (err: any) {
       console.error('Error saving customer:', err);
-      alert('Erro ao salvar cliente: ' + (err.message || 'Verifique os dados e tente novamente.'));
+      addNotification({ type: 'error', title: 'Erro ao salvar', message: 'Erro ao salvar cliente: ' + (err.message || 'Verifique os dados e tente novamente.') });
     } finally {
       setLoading(false);
     }
@@ -150,13 +156,13 @@ export function CustomerForm({ customer, onClose, onSave }: CustomerFormProps) {
           latitude: position.coords.latitude,
           longitude: position.coords.longitude
         }));
-        alert('Localização GPS capturada com sucesso!');
+        addNotification({ type: 'success', title: 'GPS', message: 'Localização GPS capturada com sucesso!' });
       }, (error) => {
         console.error('Error getting location:', error);
-        alert('Erro ao capturar localização GPS.');
+        addNotification({ type: 'error', title: 'GPS', message: 'Erro ao capturar localização GPS.' });
       });
     } else {
-      alert('Geolocalização não suportada pelo seu navegador.');
+      addNotification({ type: 'warning', title: 'GPS', message: 'Geolocalização não suportada pelo seu navegador.' });
     }
   };
 

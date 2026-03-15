@@ -21,11 +21,13 @@ import {
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { GoalCampaign, GoalParticipant } from '../types';
-import { cn } from '../lib/utils';
+import { cn, formatError } from '../lib/utils';
 import { format, differenceInDays } from 'date-fns';
 import { ConfirmationModal } from './ConfirmationModal';
+import { useNotifications } from './NotificationCenter';
 
 export function GoalsManager() {
+  const { addNotification } = useNotifications();
   const [campaigns, setCampaigns] = useState<GoalCampaign[]>([]);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<'list' | 'create' | 'details'>('list');
@@ -80,12 +82,20 @@ export function GoalsManager() {
       } catch (err) {
         if ((err as Error).name !== 'AbortError') {
           navigator.clipboard.writeText(url);
-          alert('Link copiado para a área de transferência!');
+          addNotification({
+            type: 'success',
+            title: 'Link copiado',
+            message: 'Link copiado para a área de transferência!'
+          });
         }
       }
     } else {
       navigator.clipboard.writeText(url);
-      alert('Link copiado para a área de transferência!');
+      addNotification({
+        type: 'success',
+        title: 'Link copiado',
+        message: 'Link copiado para a área de transferência!'
+      });
     }
   };
 
@@ -251,6 +261,7 @@ export function GoalsManager() {
 }
 
 function GoalForm({ onClose, onSave }: { onClose: () => void; onSave: () => void }) {
+  const { addNotification } = useNotifications();
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     title: '',
@@ -287,7 +298,11 @@ function GoalForm({ onClose, onSave }: { onClose: () => void; onSave: () => void
       onSave();
     } catch (err) {
       console.error('Error saving goal campaign:', err);
-      alert('Erro ao criar campanha');
+      addNotification({
+        type: 'error',
+        title: 'Erro ao salvar',
+        message: formatError(err)
+      });
     } finally {
       setLoading(false);
     }
@@ -396,8 +411,20 @@ function GoalForm({ onClose, onSave }: { onClose: () => void; onSave: () => void
 }
 
 function GoalDetails({ campaign, onBack }: { campaign: GoalCampaign; onBack: () => void }) {
+  const { addNotification } = useNotifications();
   const [participants, setParticipants] = useState<GoalParticipant[]>([]);
   const [loading, setLoading] = useState(true);
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {}
+  });
 
   useEffect(() => {
     fetchParticipants();
@@ -421,38 +448,54 @@ function GoalDetails({ campaign, onBack }: { campaign: GoalCampaign; onBack: () 
   }
 
   const handleDeleteParticipant = async (participantId: string) => {
-    if (!window.confirm('Tem certeza que deseja excluir este participante?')) return;
-    try {
-      const { error } = await supabase
-        .from('goal_participants')
-        .delete()
-        .eq('id', participantId);
-      
-      if (error) throw error;
+    setConfirmModal({
+      isOpen: true,
+      title: 'Excluir Participante',
+      message: 'Tem certeza que deseja excluir este participante?',
+      onConfirm: async () => {
+        setConfirmModal(prev => ({ ...prev, isOpen: false }));
+        try {
+          const { error } = await supabase
+            .from('goal_participants')
+            .delete()
+            .eq('id', participantId);
+          
+          if (error) throw error;
 
-      // Recalculate current_value in campaign
-      const { data: remaining } = await supabase
-        .from('goal_participants')
-        .select('contribution_value')
-        .eq('campaign_id', campaign.id);
-      
-      let newValue = 0;
-      if (campaign.type === 'value') {
-        newValue = remaining?.reduce((acc, p) => acc + (p.contribution_value || 0), 0) || 0;
-      } else {
-        newValue = remaining?.length || 0;
+          // Recalculate current_value in campaign
+          const { data: remaining } = await supabase
+            .from('goal_participants')
+            .select('contribution_value')
+            .eq('campaign_id', campaign.id);
+          
+          let newValue = 0;
+          if (campaign.type === 'value') {
+            newValue = remaining?.reduce((acc, p) => acc + (p.contribution_value || 0), 0) || 0;
+          } else {
+            newValue = remaining?.length || 0;
+          }
+
+          await supabase
+            .from('goal_campaigns')
+            .update({ current_value: newValue })
+            .eq('id', campaign.id);
+
+          addNotification({
+            type: 'success',
+            title: 'Sucesso',
+            message: 'Participante excluído com sucesso!'
+          });
+          fetchParticipants();
+        } catch (err) {
+          console.error('Error deleting participant:', err);
+          addNotification({
+            type: 'error',
+            title: 'Erro ao excluir',
+            message: formatError(err)
+          });
+        }
       }
-
-      await supabase
-        .from('goal_campaigns')
-        .update({ current_value: newValue })
-        .eq('id', campaign.id);
-
-      fetchParticipants();
-    } catch (err) {
-      console.error('Error deleting participant:', err);
-      alert('Erro ao excluir participante');
-    }
+    });
   };
 
   return (
@@ -540,6 +583,14 @@ function GoalDetails({ campaign, onBack }: { campaign: GoalCampaign; onBack: () 
           </table>
         </div>
       </div>
+      <ConfirmationModal
+        isOpen={confirmModal.isOpen}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        onConfirm={confirmModal.onConfirm}
+        onCancel={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+        variant="danger"
+      />
     </div>
   );
 }

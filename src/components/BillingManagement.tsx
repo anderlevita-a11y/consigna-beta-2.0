@@ -3,6 +3,7 @@ import { FileText, Copy, CheckCircle2, Search, Loader2, Send, Printer } from 'lu
 import { supabase } from '../lib/supabase';
 import { Profile, Customer } from '../types';
 import { differenceInDays, parseISO } from 'date-fns';
+import { useNotifications } from './NotificationCenter';
 
 interface BillingManagementProps {
   profile: Profile | null;
@@ -28,6 +29,7 @@ const getInitialPaymentInfo = (p: Profile | null) => {
 };
 
 export function BillingManagement({ profile }: BillingManagementProps) {
+  const { addNotification } = useNotifications();
   const [creditorName, setCreditorName] = useState(profile?.nome || '');
   const [debtorName, setDebtorName] = useState('');
   const [debtorPhone, setDebtorPhone] = useState('');
@@ -222,7 +224,11 @@ ${new Date().toLocaleDateString('pt-BR')}`;
     const printWindow = window.open(url, '_blank');
     
     if (!printWindow) {
-      alert("O seu navegador bloqueou a abertura da página de impressão. Por favor, permita os pop-ups para este site.");
+      addNotification({
+        type: 'error',
+        title: 'Pop-up bloqueado',
+        message: 'O seu navegador bloqueou a abertura da página de impressão. Por favor, permita os pop-ups para este site.'
+      });
     }
   };
 

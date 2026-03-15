@@ -11,10 +11,11 @@ import {
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { Campaign } from '../types';
-import { cn } from '../lib/utils';
+import { cn, formatError } from '../lib/utils';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { ConfirmationModal } from './ConfirmationModal';
+import { useNotifications } from './NotificationCenter';
 
 import { CampaignForm } from './CampaignForm';
 import { BagForm } from './BagForm';
@@ -23,10 +24,12 @@ import { CampaignDetails } from './CampaignDetails';
 export function Campaigns() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(true);
+  const { addNotification } = useNotifications();
   const [view, setView] = useState<'list' | 'campaign-form' | 'bag-form' | 'campaign-details'>('list');
   const [showArchived, setShowArchived] = useState(false);
   const [editingCampaign, setEditingCampaign] = useState<Campaign | undefined>();
   const [selectedCampaign, setSelectedCampaign] = useState<Campaign | undefined>();
+  const [editingBagId, setEditingBagId] = useState<string | undefined>();
 
   // Confirmation Modal State
   const [confirmModal, setConfirmModal] = useState<{
@@ -99,7 +102,11 @@ export function Campaigns() {
           fetchCampaigns();
         } catch (err) {
           console.error('Error archiving campaign:', err);
-          alert('Erro ao arquivar campanha');
+          addNotification({
+            type: 'error',
+            title: 'Erro ao arquivar',
+            message: formatError(err)
+          });
         } finally {
           setConfirmModal(prev => ({ ...prev, isOpen: false }));
         }
@@ -123,7 +130,11 @@ export function Campaigns() {
           fetchCampaigns();
         } catch (err) {
           console.error('Error unarchiving campaign:', err);
-          alert('Erro ao desarquivar campanha');
+          addNotification({
+            type: 'error',
+            title: 'Erro ao desarquivar',
+            message: formatError(err)
+          });
         } finally {
           setConfirmModal(prev => ({ ...prev, isOpen: false }));
         }
@@ -154,9 +165,16 @@ export function Campaigns() {
   if (view === 'bag-form') {
     return (
       <BagForm 
-        onClose={() => setView(selectedCampaign ? 'campaign-details' : 'list')} 
-        onSave={() => setView(selectedCampaign ? 'campaign-details' : 'list')}
+        onClose={() => {
+          setEditingBagId(undefined);
+          setView(selectedCampaign ? 'campaign-details' : 'list');
+        }} 
+        onSave={() => {
+          setEditingBagId(undefined);
+          setView(selectedCampaign ? 'campaign-details' : 'list');
+        }}
         campaignId={selectedCampaign?.id}
+        bagId={editingBagId}
       />
     );
   }
@@ -166,7 +184,14 @@ export function Campaigns() {
       <CampaignDetails 
         campaign={selectedCampaign}
         onBack={() => setView('list')}
-        onAddBag={() => setView('bag-form')}
+        onAddBag={() => {
+          setEditingBagId(undefined);
+          setView('bag-form');
+        }}
+        onEditBag={(bagId) => {
+          setEditingBagId(bagId);
+          setView('bag-form');
+        }}
       />
     );
   }

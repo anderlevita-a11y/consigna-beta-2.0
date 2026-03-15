@@ -19,9 +19,11 @@ import { QRCodeSVG } from 'qrcode.react';
 import { generatePixPayload } from '../lib/pix';
 import { supabase } from '../lib/supabase';
 import { Bag, BagItem, Product, Profile } from '../types';
-import { cn, printFallback } from '../lib/utils';
+import { cn, printFallback, formatError } from '../lib/utils';
 import { format } from 'date-fns';
 import { PrintPreview } from './PrintPreview';
+import { useNotifications } from './NotificationCenter';
+import { ConfirmationModal } from './ConfirmationModal';
 
 interface BagSettlementProps {
   bag: Bag;
@@ -35,6 +37,7 @@ interface SettlementItem extends BagItem {
 }
 
 export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
+  const { addNotification } = useNotifications();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [items, setItems] = useState<SettlementItem[]>([]);
@@ -49,6 +52,17 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
   const [expenses, setExpenses] = useState<{ description: string; value: number }[]>([]);
   const [expenseDesc, setExpenseDesc] = useState('');
   const [expenseValue, setExpenseValue] = useState<string>('0');
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {}
+  });
 
   useEffect(() => {
     fetchData();
@@ -162,53 +176,63 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
   };
 
   const handleReopen = async () => {
-    if (!window.confirm('Deseja reabrir esta sacola? Os itens devolvidos serão removidos do estoque novamente.')) return;
-    
-    setSaving(true);
-    try {
-      // 1. Revert stock and reset returned_quantity
-      for (const item of items) {
-        if (item.returned_quantity > 0) {
-          const { data: product } = await supabase
-            .from('products')
-            .select('current_stock')
-            .eq('id', item.product.id)
-            .single();
-          
-          if (product) {
-            await supabase
-              .from('products')
-              .update({ current_stock: Math.max(0, (product.current_stock || 0) - item.returned_quantity) })
-              .eq('id', item.product.id);
+    setConfirmModal({
+      isOpen: true,
+      title: 'Reabrir Sacola',
+      message: 'Deseja reabrir esta sacola? Os itens devolvidos serão removidos do estoque novamente.',
+      onConfirm: async () => {
+        setConfirmModal(prev => ({ ...prev, isOpen: false }));
+        setSaving(true);
+        try {
+          // 1. Revert stock and reset returned_quantity
+          for (const item of items) {
+            if (item.returned_quantity > 0) {
+              const { data: product } = await supabase
+                .from('products')
+                .select('current_stock')
+                .eq('id', item.product.id)
+                .single();
+              
+              if (product) {
+                await supabase
+                  .from('products')
+                  .update({ current_stock: Math.max(0, (product.current_stock || 0) - item.returned_quantity) })
+                  .eq('id', item.product.id);
+              }
+              
+              await supabase
+                .from('bag_items')
+                .update({ returned_quantity: 0 })
+                .eq('id', item.id);
+            }
           }
+
+          // 2. Update bag status
+          const { error: bagError } = await supabase
+            .from('bags')
+            .update({ 
+              status: 'open',
+              payment_status: 'pending',
+              total_value: totalGross,
+              received_amount: 0
+            })
+            .eq('id', bag.id);
+
+          if (bagError) throw bagError;
           
-          await supabase
-            .from('bag_items')
-            .update({ returned_quantity: 0 })
-            .eq('id', item.id);
+          onSave();
+        } catch (err) {
+          console.error('Error reopening bag:', err);
+          addNotification({
+            type: 'error',
+            title: 'Erro ao reabrir',
+            message: 'Erro ao reabrir sacola. Verifique sua conexão.'
+          });
+        } finally {
+          setSaving(false);
         }
       }
-
-      // 2. Update bag status
-      const { error: bagError } = await supabase
-        .from('bags')
-        .update({ 
-          status: 'open',
-          payment_status: 'pending',
-          total_value: totalGross,
-          received_amount: 0
-        })
-        .eq('id', bag.id);
-
-      if (bagError) throw bagError;
-      
-      onSave();
-    } catch (err) {
-      console.error('Error reopening bag:', err);
-      alert('Erro ao reabrir sacola. Verifique sua conexão.');
-    } finally {
-      setSaving(false);
-    }
+    });
   };
 
   const handleFinalize = async () => {
@@ -228,27 +252,49 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
         if (item.returned_quantity > 0) {
           const { data: product } = await supabase
             .from('products')
-            .select('current_stock')
+            .select('current_stock, has_grid, grid_data')
             .eq('id', item.product.id)
             .single();
           
           if (product) {
+            let updateData: any = {
+              current_stock: Number(product.current_stock || 0) + item.returned_quantity
+            };
+
+            // Update grid data if product has grid
+            if (product.has_grid && product.grid_data && item.color && item.size) {
+              const newGridData = product.grid_data.map((g: any) => {
+                if (g.color === item.color && g.size === item.size) {
+                  return { ...g, quantity: (g.quantity || 0) + item.returned_quantity };
+                }
+                return g;
+              });
+              updateData.grid_data = newGridData;
+            }
+
             await supabase
               .from('products')
-              .update({ current_stock: (product.current_stock || 0) + item.returned_quantity })
+              .update(updateData)
               .eq('id', item.product.id);
           }
         }
       }
 
       // 2. Update bag status and payment
+      let paymentStatus: 'paid' | 'partial' | 'pending' = 'partial';
+      if (numericReceivedAmount >= amountToPay) {
+        paymentStatus = 'paid';
+      } else if (numericReceivedAmount <= 0) {
+        paymentStatus = 'pending';
+      }
+
       const { error: bagError } = await supabase
         .from('bags')
         .update({ 
           status: 'closed',
           total_value: amountToPay,
           received_amount: numericReceivedAmount,
-          payment_status: numericReceivedAmount >= amountToPay ? 'paid' : 'partial'
+          payment_status: paymentStatus
         })
         .eq('id', bag.id);
 
@@ -260,7 +306,11 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
       onSave();
     } catch (err) {
       console.error('Error finalizing settlement:', err);
-      alert('Erro ao finalizar acerto. Verifique sua conexão.');
+      addNotification({
+        type: 'error',
+        title: 'Erro ao finalizar',
+        message: 'Erro ao finalizar acerto. Verifique sua conexão.'
+      });
     } finally {
       setSaving(false);
     }
@@ -278,7 +328,11 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
       updateReturnedQuantity(item.id, item.returned_quantity + 1);
       setSearchProduct('');
     } else {
-      alert('Erro de leitura: Produto não encontrado na sacola.');
+      addNotification({
+        type: 'warning',
+        title: 'Não encontrado',
+        message: 'Erro de leitura: Produto não encontrado na sacola.'
+      });
       setSearchProduct('');
     }
   };
@@ -308,7 +362,9 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
       });
       
       message += `\nSubtotal: R$ ${totalSold.toFixed(2)}`;
-      message += `\nDesconto Campanha (${campaignDiscount}%): R$ ${commission.toFixed(2)}`;
+      if (campaignDiscount > 0) {
+        message += `\nDesconto Campanha (${campaignDiscount}%): R$ ${commission.toFixed(2)}`;
+      }
       
       if (totalExpenses > 0) {
         message += `\n*Despesas Adicionais:*\n`;
@@ -378,7 +434,7 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
           total: (item.quantity - item.returned_quantity) * item.unit_price
         })).filter(i => i.qtd > 0)
       };
-      printFallback(payload);
+      printFallback(payload, (msg) => addNotification({ type: 'warning', title: 'Impressão', message: msg }));
     } finally {
       setSaving(false);
     }
@@ -717,7 +773,11 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
                               `SAC${bag.bag_number.replace(/\D/g, '')}`
                             );
                             navigator.clipboard.writeText(payload);
-                            alert('Código PIX copiado!');
+                            addNotification({
+                              type: 'success',
+                              title: 'Copiado',
+                              message: 'Código PIX copiado!'
+                            });
                           }}
                           className="flex items-center gap-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 px-4 py-2 rounded-lg text-xs font-bold transition-colors"
                         >
@@ -779,6 +839,14 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
           onClose={() => setShowPreview(false)} 
         />
       )}
+      <ConfirmationModal
+        isOpen={confirmModal.isOpen}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        onConfirm={confirmModal.onConfirm}
+        onCancel={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+        variant="warning"
+      />
     </div>
   );
 }

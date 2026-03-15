@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { formatError } from '../lib/utils';
 import { Loader2, Eye, EyeOff } from 'lucide-react';
 import { motion } from 'motion/react';
 
@@ -28,7 +29,7 @@ export function Login() {
 
       if (error) throw error;
     } catch (err: any) {
-      setError(err.message || 'Erro ao fazer login. Verifique suas credenciais.');
+      setError(formatError(err));
     } finally {
       setLoading(false);
     }
@@ -52,29 +53,46 @@ export function Login() {
       setSuccessMsg('Cadastro realizado com sucesso! Verifique seu email se necessário.');
       
     } catch (err: any) {
-      setError(err.message || 'Erro ao cadastrar.');
+      setError(formatError(err));
     } finally {
       setLoading(false);
     }
   };
 
   const handleResetPassword = async () => {
-    if (!email) {
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail) {
       setError('Por favor, digite seu email no campo acima para recuperar a senha.');
       return;
     }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(trimmedEmail)) {
+      setError('Por favor, digite um email válido.');
+      return;
+    }
+
     setLoading(true);
     setError(null);
     setSuccessMsg(null);
     try {
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: window.location.origin,
+      const { error } = await supabase.auth.resetPasswordForEmail(trimmedEmail, {
+        redirectTo: `${window.location.origin}/`,
       });
-      if (error) throw error;
+      
+      if (error) {
+        // Handle specific Supabase errors that might not be caught by formatError
+        if (error.message.includes('rate limit')) {
+          throw new Error('Muitas solicitações. Por favor, aguarde um minuto antes de tentar novamente.');
+        }
+        throw error;
+      }
+
       setResetSent(true);
-      setSuccessMsg('Instruções de recuperação enviadas para o seu email!');
+      setSuccessMsg('Instruções de recuperação enviadas para o seu email! Verifique também a caixa de spam.');
     } catch (err: any) {
-      setError(err.message || 'Erro ao tentar recuperar a senha.');
+      console.error('Reset password error:', err);
+      setError(formatError(err));
     } finally {
       setLoading(false);
     }

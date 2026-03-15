@@ -3,6 +3,8 @@ import { X, Save, Plus, Trash2, LayoutTemplate, Settings, Eye } from 'lucide-rea
 import { LabelModel, LabelElementConfig } from '../types';
 import { supabase } from '../lib/supabase';
 import { cn } from '../lib/utils';
+import { useNotifications } from './NotificationCenter';
+import { ConfirmationModal } from './ConfirmationModal';
 
 interface LabelModelEditorProps {
   onClose: () => void;
@@ -37,9 +39,14 @@ const DEFAULT_MODEL: Partial<LabelModel> = {
 };
 
 export function LabelModelEditor({ onClose, onSaved }: LabelModelEditorProps) {
+  const { addNotification } = useNotifications();
   const [models, setModels] = useState<LabelModel[]>([]);
   const [editingModel, setEditingModel] = useState<Partial<LabelModel> | null>(null);
   const [loading, setLoading] = useState(false);
+  const [deleteModal, setDeleteModal] = useState<{ isOpen: boolean; modelId: string | null }>({
+    isOpen: false,
+    modelId: null
+  });
 
   useEffect(() => {
     loadModels();
@@ -61,7 +68,7 @@ export function LabelModelEditor({ onClose, onSaved }: LabelModelEditorProps) {
 
   const handleSave = async () => {
     if (!editingModel?.name) {
-      alert('Por favor, dê um nome ao modelo.');
+      addNotification({ type: 'warning', title: 'Aviso', message: 'Por favor, dê um nome ao modelo.' });
       return;
     }
 
@@ -90,33 +97,40 @@ export function LabelModelEditor({ onClose, onSaved }: LabelModelEditorProps) {
 
       if (error) throw error;
       
-      alert('Modelo salvo com sucesso!');
+      addNotification({ type: 'success', title: 'Sucesso', message: 'Modelo salvo com sucesso!' });
       setEditingModel(null);
       loadModels();
       if (onSaved) onSaved();
     } catch (error: any) {
       console.error('Error saving label model:', error);
-      alert('Erro ao salvar modelo: ' + error.message);
+      addNotification({ type: 'error', title: 'Erro', message: 'Erro ao salvar modelo: ' + error.message });
     } finally {
       setLoading(false);
     }
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Tem certeza que deseja excluir este modelo?')) return;
+    setDeleteModal({ isOpen: true, modelId: id });
+  };
 
+  const confirmDelete = async () => {
+    if (!deleteModal.modelId) return;
+    
     try {
       const { error } = await supabase
         .from('label_models')
         .delete()
-        .eq('id', id);
+        .eq('id', deleteModal.modelId);
 
       if (error) throw error;
+      addNotification({ type: 'success', title: 'Sucesso', message: 'Modelo excluído com sucesso!' });
       loadModels();
       if (onSaved) onSaved();
     } catch (error) {
       console.error('Error deleting label model:', error);
-      alert('Erro ao excluir modelo.');
+      addNotification({ type: 'error', title: 'Erro', message: 'Erro ao excluir modelo.' });
+    } finally {
+      setDeleteModal({ isOpen: false, modelId: null });
     }
   };
 
@@ -413,6 +427,15 @@ export function LabelModelEditor({ onClose, onSaved }: LabelModelEditorProps) {
           </div>
         )}
       </div>
+      {/* Modal de Confirmação de Exclusão */}
+      <ConfirmationModal
+        isOpen={deleteModal.isOpen}
+        title="Excluir Modelo"
+        message="Tem certeza que deseja excluir este modelo de etiqueta? Esta ação não pode ser desfeita."
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleteModal({ isOpen: false, modelId: null })}
+        variant="danger"
+      />
     </div>
   );
 }

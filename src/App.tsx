@@ -95,6 +95,7 @@ export default function App() {
     return (
       <NotificationProvider>
         <PublicRaffle />
+        <NotificationCenter />
       </NotificationProvider>
     );
   }
@@ -103,6 +104,7 @@ export default function App() {
     return (
       <NotificationProvider>
         <PublicMysteryBag />
+        <NotificationCenter />
       </NotificationProvider>
     );
   }
@@ -111,6 +113,7 @@ export default function App() {
     return (
       <NotificationProvider>
         <PublicGoals />
+        <NotificationCenter />
       </NotificationProvider>
     );
   }
@@ -119,6 +122,7 @@ export default function App() {
     return (
       <NotificationProvider>
         <PublicSweepstakes />
+        <NotificationCenter />
       </NotificationProvider>
     );
   }
@@ -129,6 +133,7 @@ export default function App() {
         <div className="min-h-screen bg-white">
           <VirtualStore slug={storeSlug} />
         </div>
+        <NotificationCenter />
       </NotificationProvider>
     );
   }
@@ -224,6 +229,19 @@ function AppContent() {
   }, []);
 
   const { addNotification } = useNotifications();
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('payment') === 'success') {
+      addNotification({
+        type: 'success',
+        title: 'Pagamento Confirmado!',
+        message: 'Sua assinatura Starter foi processada com sucesso. Em instantes seu acesso será liberado.'
+      });
+      // Clear the param
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
 
   useEffect(() => {
     if (!session) return;
@@ -448,7 +466,7 @@ function AppContent() {
     const trialEnd = isTrial && profile?.vencimento ? new Date(profile.vencimento) : null;
     const isTrialExpired = isTrial && trialEnd && trialEnd.getTime() < new Date().getTime();
     
-    const hasAccess = isAdmin || ((!!profile?.access_key_code || profile?.plano_tipo === 'pro') && !isBlocked && !isTrialExpired);
+    const hasAccess = isAdmin || ((!!profile?.access_key_code || ['pro', 'starter'].includes(profile?.plano_tipo)) && !isBlocked && !isTrialExpired);
     
     if (!hasAccess && activeTab !== 'profile') {
       return <ProfileScreen />;
@@ -495,7 +513,6 @@ function AppContent() {
 
   return (
     <div className="flex min-h-screen bg-[#f8f9fa] text-zinc-800 font-sans selection:bg-emerald-500/30 selection:text-emerald-900">
-      <SystemAlert />
       <Sidebar 
         activeTab={activeTab} 
         setActiveTab={setActiveTab} 

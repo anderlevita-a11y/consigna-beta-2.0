@@ -19,8 +19,10 @@ import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { BagForm } from './BagForm';
 import { BagSettlement } from './BagSettlement';
+import { useNotifications } from './NotificationCenter';
 
 export function Bags() {
+  const { addNotification } = useNotifications();
   const [bags, setBags] = useState<Bag[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -74,7 +76,7 @@ export function Bags() {
       fetchBags();
     } catch (err) {
       console.error('Error assigning customer:', err);
-      alert('Erro ao atribuir cliente');
+      addNotification({ type: 'error', title: 'Erro', message: 'Erro ao atribuir cliente' });
     } finally {
       setAssigning(false);
     }

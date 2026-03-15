@@ -20,9 +20,10 @@ import {
   Smartphone,
   Loader2
 } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn, formatError } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { supabase } from '../lib/supabase';
+import { useNotifications } from './NotificationCenter';
 
 interface Task {
   id: string;
@@ -58,6 +59,7 @@ interface Feedback {
 }
 
 export function SmartNotepad() {
+  const { addNotification } = useNotifications();
   const [activeTab, setActiveTab] = useState<'today' | 'content' | 'sales' | 'insights'>('today');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -116,6 +118,11 @@ export function SmartNotepad() {
         }
       } catch (err) {
         console.error('Error loading from Supabase:', err);
+        addNotification({
+          type: 'error',
+          title: 'Erro ao carregar notas',
+          message: formatError(err)
+        });
       }
 
       // Fallback to localStorage
@@ -186,10 +193,18 @@ export function SmartNotepad() {
         });
 
       if (error) throw error;
-      alert('Bloco de notas salvo com sucesso!');
+      addNotification({
+        type: 'success',
+        title: 'Sucesso',
+        message: 'Bloco de notas salvo com sucesso!'
+      });
     } catch (err: any) {
       console.error('Error saving to Supabase:', err);
-      alert('Erro ao salvar no servidor: ' + (err.message || 'Tente novamente.'));
+      addNotification({
+        type: 'error',
+        title: 'Erro ao salvar notas',
+        message: formatError(err)
+      });
     } finally {
       setSaving(false);
     }

@@ -2,13 +2,15 @@ import React, { useState, useEffect } from 'react';
 import { Save, X, Search, ShoppingBag, User, Package, Trash2, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { Product, Customer } from '../types';
-import { cn } from '../lib/utils';
+import { cn, formatError } from '../lib/utils';
+import { useNotifications } from './NotificationCenter';
 import { ConfirmationModal } from './ConfirmationModal';
 
 interface BagFormProps {
   onClose: () => void;
   onSave: () => void;
   campaignId?: string;
+  bagId?: string;
 }
 
 interface BagItem {
@@ -18,14 +20,17 @@ interface BagItem {
   size?: string;
 }
 
-export function BagForm({ onClose, onSave, campaignId }: BagFormProps) {
+export function BagForm({ onClose, onSave, campaignId, bagId }: BagFormProps) {
+  const { addNotification } = useNotifications();
   const [loading, setLoading] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(!!bagId);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<string>('');
   const [resellerName, setResellerName] = useState('');
   const [noStock, setNoStock] = useState(false);
   const [items, setItems] = useState<BagItem[]>([]);
+  const [originalItems, setOriginalItems] = useState<BagItem[]>([]);
   const [productSearch, setProductSearch] = useState('');
   const [itemToDelete, setItemToDelete] = useState<string | null>(null);
   const [isGridModalOpen, setIsGridModalOpen] = useState(false);
@@ -76,7 +81,7 @@ export function BagForm({ onClose, onSave, campaignId }: BagFormProps) {
       while (pHasMore) {
         const { data, error } = await supabase
           .from('products')
-          .select('id, name, ean, sale_price, current_stock, label_name, has_grid, grid_data')
+          .select('id, name, ean, ean_variations, sale_price, current_stock, label_name, has_grid, grid_data')
           .eq('user_id', user.id)
           .order('name')
           .range(pFrom, pTo);
@@ -91,14 +96,65 @@ export function BagForm({ onClose, onSave, campaignId }: BagFormProps) {
         if (allProducts.length >= 10000) pHasMore = false;
       }
       setProducts(allProducts);
+
+      // If editing, fetch bag and items
+      if (bagId) {
+        const { data: bag, error: bagError } = await supabase
+          .from('bags')
+          .select('*')
+          .eq('id', bagId)
+          .single();
+        
+        if (bagError) throw bagError;
+        if (bag) {
+          setSelectedCustomer(bag.customer_id || '');
+          setResellerName(bag.reseller_name || '');
+          
+          const { data: bagItems, error: itemsError } = await supabase
+            .from('bag_items')
+            .select('*')
+            .eq('bag_id', bagId);
+          
+          if (itemsError) throw itemsError;
+          if (bagItems) {
+            const mappedItems = bagItems.map(item => {
+              const product = allProducts.find(p => p.id === item.product_id);
+              return {
+                product: product || {
+                  id: item.product_id,
+                  name: item.product_name,
+                  sale_price: item.unit_price,
+                  current_stock: 0
+                },
+                quantity: item.quantity,
+                color: item.color,
+                size: item.size
+              };
+            });
+            setItems(mappedItems);
+            setOriginalItems(mappedItems);
+          }
+        }
+      }
     } catch (err) {
       console.error('Error fetching initial data:', err);
+      addNotification({
+        type: 'error',
+        title: 'Erro ao carregar dados',
+        message: formatError(err)
+      });
+    } finally {
+      setInitialLoading(false);
     }
   }
 
   const addItem = (product: Product, color?: string, size?: string) => {
     if (!noStock && product.current_stock <= 0) {
-      alert('Produto indisponível no estoque.');
+      addNotification({
+        type: 'warning',
+        title: 'Sem estoque',
+        message: 'Produto indisponível no estoque.'
+      });
       return;
     }
 
@@ -154,7 +210,11 @@ export function BagForm({ onClose, onSave, campaignId }: BagFormProps) {
 
   const handleSubmit = async () => {
     if (items.length === 0) {
-      alert('Adicione pelo menos um produto');
+      addNotification({
+        type: 'warning',
+        title: 'Aviso',
+        message: 'Adicione pelo menos um produto'
+      });
       return;
     }
 
@@ -164,41 +224,101 @@ export function BagForm({ onClose, onSave, campaignId }: BagFormProps) {
     const user = session?.user;
       if (!user) return;
 
-      // Get next bag number
-      const { data: lastBag } = await supabase
-        .from('bags')
-        .select('bag_number')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .single();
+      // 1. Create or Update Bag
+      let bag;
+      if (bagId) {
+        // Revert stock for original items first
+        if (!noStock) {
+          for (const item of originalItems) {
+            const { data: product } = await supabase
+              .from('products')
+              .select('current_stock, has_grid, grid_data')
+              .eq('id', item.product.id)
+              .single();
+            
+            if (product) {
+              let updateData: any = { 
+                current_stock: Number(product.current_stock || 0) + item.quantity 
+              };
 
-      let nextNumber = 1;
-      if (lastBag) {
-        const match = lastBag.bag_number.match(/\d+/);
-        if (match) {
-          nextNumber = parseInt(match[0]) + 1;
+              if (product.has_grid && product.grid_data && item.color && item.size) {
+                const newGridData = product.grid_data.map((g: any) => {
+                  if (g.color === item.color && g.size === item.size) {
+                    return { ...g, quantity: (g.quantity || 0) + item.quantity };
+                  }
+                  return g;
+                });
+                updateData.grid_data = newGridData;
+              }
+
+              await supabase
+                .from('products')
+                .update(updateData)
+                .eq('id', item.product.id);
+            }
+          }
         }
+
+        const { data: updatedBag, error: bagError } = await supabase
+          .from('bags')
+          .update({
+            customer_id: selectedCustomer || null,
+            reseller_name: resellerName || null,
+            total_value: totalValue,
+            total_items: totalItems,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', bagId)
+          .select()
+          .single();
+        
+        if (bagError) throw bagError;
+        bag = updatedBag;
+
+        // Delete old items
+        const { error: deleteError } = await supabase
+          .from('bag_items')
+          .delete()
+          .eq('bag_id', bagId);
+        
+        if (deleteError) throw deleteError;
+      } else {
+        // Get next bag number
+        const { data: lastBag } = await supabase
+          .from('bags')
+          .select('bag_number')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .single();
+
+        let nextNumber = 1;
+        if (lastBag) {
+          const match = lastBag.bag_number.match(/\d+/);
+          if (match) {
+            nextNumber = parseInt(match[0]) + 1;
+          }
+        }
+
+        const { data: newBag, error: bagError } = await supabase
+          .from('bags')
+          .insert([{
+            bag_number: `M${nextNumber.toString().padStart(4, '0')}`,
+            customer_id: selectedCustomer || null,
+            campaign_id: campaignId || null,
+            reseller_name: resellerName || null,
+            status: 'open',
+            total_value: totalValue,
+            total_items: totalItems,
+            payment_status: 'pending',
+            user_id: user.id
+          }])
+          .select()
+          .single();
+
+        if (bagError) throw bagError;
+        bag = newBag;
       }
-
-      // 1. Create Bag
-      const { data: bag, error: bagError } = await supabase
-        .from('bags')
-        .insert([{
-          bag_number: `M${nextNumber.toString().padStart(4, '0')}`,
-          customer_id: selectedCustomer || null,
-          campaign_id: campaignId || null,
-          reseller_name: resellerName || null,
-          status: 'open',
-          total_value: totalValue,
-          total_items: totalItems,
-          payment_status: 'pending',
-          user_id: user.id
-        }])
-        .select()
-        .single();
-
-      if (bagError) throw bagError;
 
       // 2. Create Bag Items
       const bagItems = items.map(item => ({
@@ -229,7 +349,7 @@ export function BagForm({ onClose, onSave, campaignId }: BagFormProps) {
           
           if (product) {
             let updateData: any = { 
-              current_stock: Math.max(0, (product.current_stock || 0) - item.quantity) 
+              current_stock: Math.max(0, Number(product.current_stock || 0) - item.quantity) 
             };
 
             if (product.has_grid && product.grid_data && item.color && item.size) {
@@ -253,7 +373,11 @@ export function BagForm({ onClose, onSave, campaignId }: BagFormProps) {
       onSave();
     } catch (err) {
       console.error('Error saving bag:', err);
-      alert('Erro ao salvar sacola');
+      addNotification({
+        type: 'error',
+        title: 'Erro ao salvar sacola',
+        message: formatError(err)
+      });
     } finally {
       setLoading(false);
     }
@@ -264,13 +388,23 @@ export function BagForm({ onClose, onSave, campaignId }: BagFormProps) {
         const search = productSearch.toLowerCase().trim();
         return (p.name?.toLowerCase() || '').includes(search) ||
                (p.label_name?.toLowerCase() || '').includes(search) ||
-               String(p.ean || '').toLowerCase().includes(search);
+               String(p.ean || '').toLowerCase().includes(search) ||
+               (p.ean_variations || []).some(v => v.toLowerCase().includes(search));
       }).slice(0, 50)
     : [];
 
   const filteredCustomers = customerSearch
     ? customers.filter(c => c.nome.toLowerCase().includes(customerSearch.toLowerCase()) || String(c.cpf || '').includes(customerSearch)).slice(0, 50)
     : [];
+
+  if (initialLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 space-y-4">
+        <Loader2 className="w-8 h-8 text-emerald-500 animate-spin" />
+        <p className="text-zinc-500 font-medium">Carregando dados da sacola...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
@@ -371,7 +505,11 @@ export function BagForm({ onClose, onSave, campaignId }: BagFormProps) {
                           if (match) {
                             addItem(match);
                           } else {
-                            alert('Erro de leitura: Produto não encontrado no catálogo.');
+                            addNotification({
+                              type: 'error',
+                              title: 'Não Encontrado',
+                              message: 'Erro de leitura: Produto não encontrado no catálogo.'
+                            });
                             setProductSearch('');
                           }
                         }

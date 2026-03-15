@@ -60,6 +60,7 @@ export interface Product {
   name: string;
   label_name?: string;
   ean?: string;
+  ean_variations?: string[];
   cost_price: number;
   sale_price: number;
   current_stock: number;

@@ -43,15 +43,53 @@ export function validateCPF(cpf: string): boolean {
   return true;
 }
 
+export function formatError(error: any): string {
+  const message = error?.message || String(error);
+  
+  if (message.includes('Failed to fetch') || message.includes('Falha ao conectar com o Supabase')) {
+    return 'Erro de conexão: O Supabase está pausado ou a URL está incorreta. Acesse o painel do Supabase e restaure seu projeto.';
+  }
+  
+  if (message.includes('Edge Function')) {
+    return 'O servidor de PDF está indisponível. O sistema usará o modo de impressão simplificado automaticamente.';
+  }
+
+  if (message.includes('Refresh Token Not Found') || message.includes('Invalid Refresh Token')) {
+    return 'Sua sessão expirou. Por favor, faça login novamente.';
+  }
+
+  if (message.includes('Email rate limit exceeded')) {
+    return 'Muitas solicitações de email. Por favor, aguarde um minuto antes de tentar novamente.';
+  }
+
+  if (message.includes('User not found')) {
+    return 'Usuário não encontrado.';
+  }
+
+  if (message.includes('Invalid login credentials')) {
+    return 'Email ou senha incorretos.';
+  }
+
+  if (message.includes('Error sending recovery email')) {
+    return 'Erro ao enviar email de recuperação. Isso geralmente ocorre devido a limites do Supabase ou falta de configuração SMTP. Verifique as configurações de Autenticação no painel do Supabase.';
+  }
+
+  return message;
+}
+
 export function validatePhone(phone: string): boolean {
   const digits = phone.replace(/\D/g, '');
   return digits.length >= 10 && digits.length <= 11;
 }
 
-export function printFallback(payload: any) {
+export function printFallback(payload: any, onError?: (msg: string) => void) {
   const win = window.open('', '_blank');
   if (!win) {
-    alert('Por favor, permita popups para imprimir.');
+    if (onError) {
+      onError('Por favor, permita popups para imprimir.');
+    } else {
+      console.warn('Popup blocked: Por favor, permita popups para imprimir.');
+    }
     return;
   }
 

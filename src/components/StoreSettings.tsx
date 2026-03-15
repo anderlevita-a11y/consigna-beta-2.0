@@ -26,6 +26,7 @@ import { supabase } from '../lib/supabase';
 import { Product, ProductReview } from '../types';
 import { ConfirmationModal } from './ConfirmationModal';
 import { Star, Check, X as CloseIcon, Trash2 as TrashIcon } from 'lucide-react';
+import { useNotifications } from './NotificationCenter';
 
 interface StoreSettings {
   store_name: string;
@@ -47,6 +48,7 @@ interface StoreSettings {
 }
 
 export function StoreSettings() {
+  const { addNotification } = useNotifications();
   const [settings, setSettings] = useState<StoreSettings>({
     store_name: 'Minha Loja Beauty',
     store_slug: '',
@@ -1012,10 +1014,10 @@ export function StoreSettings() {
                           if (error) throw error;
                           
                           setProducts(products.map(p => ({ ...p, is_visible_in_store: false })));
-                          setMessage({ type: 'success', text: 'Vitrine limpa com sucesso!' });
+                          addNotification({ type: 'success', title: 'Sucesso', message: 'Vitrine limpa com sucesso!' });
                         } catch (err: any) {
                           console.error('Error clearing showcase:', err);
-                          setMessage({ type: 'error', text: 'Erro ao limpar vitrine: ' + err.message });
+                          addNotification({ type: 'error', title: 'Erro', message: 'Erro ao limpar vitrine: ' + err.message });
                         } finally {
                           setSaving(false);
                         }
@@ -1286,9 +1288,15 @@ export function StoreSettings() {
                         )}
                         <button 
                           onClick={() => {
-                            if (confirm('Deseja excluir permanentemente esta avaliação?')) {
-                              deleteReview(review.id);
-                            }
+                            setConfirmModal({
+                              isOpen: true,
+                              title: 'Excluir Avaliação',
+                              message: 'Deseja excluir permanentemente esta avaliação? Esta ação não pode ser desfeita.',
+                              onConfirm: () => {
+                                setConfirmModal(prev => ({ ...prev, isOpen: false }));
+                                deleteReview(review.id);
+                              }
+                            });
                           }}
                           className="p-2 bg-red-50 text-red-600 rounded-xl hover:bg-red-100 transition-colors"
                           title="Excluir"

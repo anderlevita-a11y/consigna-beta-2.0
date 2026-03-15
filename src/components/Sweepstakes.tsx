@@ -25,15 +25,17 @@ import {
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { Sweepstakes, SweepstakesParticipant } from '../types';
-import { cn } from '../lib/utils';
+import { cn, formatError } from '../lib/utils';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { ConfirmationModal } from './ConfirmationModal';
 import { RafflesManager } from './Raffles';
 import { MysteryBagsManager } from './MysteryBags';
 import { GoalsManager } from './Goals';
+import { useNotifications } from './NotificationCenter';
 
 export function SweepstakesManager() {
+  const { addNotification } = useNotifications();
   const [activeTab, setActiveTab] = useState<'sweepstakes' | 'raffles' | 'mystery_bags' | 'goals'>('sweepstakes');
   const [sweepstakes, setSweepstakes] = useState<Sweepstakes[]>([]);
   const [loading, setLoading] = useState(true);
@@ -116,7 +118,11 @@ export function SweepstakesManager() {
           fetchSweepstakes();
         } catch (err) {
           console.error('Error archiving sweepstakes:', err);
-          alert('Erro ao arquivar sorteio');
+          addNotification({
+            type: 'error',
+            title: 'Erro ao arquivar',
+            message: formatError(err)
+          });
         } finally {
           setConfirmModal(prev => ({ ...prev, isOpen: false }));
         }
@@ -140,7 +146,11 @@ export function SweepstakesManager() {
           fetchSweepstakes();
         } catch (err) {
           console.error('Error unarchiving sweepstakes:', err);
-          alert('Erro ao desarquivar sorteio');
+          addNotification({
+            type: 'error',
+            title: 'Erro ao desarquivar',
+            message: formatError(err)
+          });
         } finally {
           setConfirmModal(prev => ({ ...prev, isOpen: false }));
         }
@@ -162,12 +172,20 @@ export function SweepstakesManager() {
         if ((err as Error).name !== 'AbortError') {
           console.error('Error sharing:', err);
           navigator.clipboard.writeText(url);
-          alert('Link copiado para a área de transferência!');
+          addNotification({
+            type: 'success',
+            title: 'Link copiado',
+            message: 'Link copiado para a área de transferência!'
+          });
         }
       }
     } else {
       navigator.clipboard.writeText(url);
-      alert('Link copiado para a área de transferência!');
+      addNotification({
+        type: 'success',
+        title: 'Link copiado',
+        message: 'Link copiado para a área de transferência!'
+      });
     }
   };
 
@@ -399,6 +417,7 @@ export function SweepstakesManager() {
 }
 
 function SweepstakesForm({ onClose, onSave }: { onClose: () => void; onSave: () => void }) {
+  const { addNotification } = useNotifications();
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
@@ -435,7 +454,11 @@ function SweepstakesForm({ onClose, onSave }: { onClose: () => void; onSave: () 
       onSave();
     } catch (err) {
       console.error('Error saving sweepstakes:', err);
-      alert('Erro ao salvar sorteio');
+      addNotification({
+        type: 'error',
+        title: 'Erro ao salvar',
+        message: formatError(err)
+      });
     } finally {
       setLoading(false);
     }
@@ -559,6 +582,7 @@ function SweepstakesForm({ onClose, onSave }: { onClose: () => void; onSave: () 
 }
 
 function SweepstakesDetails({ sweep, onBack, onDraw }: { sweep: Sweepstakes; onBack: () => void; onDraw: () => void }) {
+  const { addNotification } = useNotifications();
   const [participants, setParticipants] = useState<SweepstakesParticipant[]>([]);
   const [loading, setLoading] = useState(true);
   const [isAdding, setIsAdding] = useState(false);
@@ -723,6 +747,7 @@ function SweepstakesDetails({ sweep, onBack, onDraw }: { sweep: Sweepstakes; onB
 }
 
 function ParticipantModal({ sweepstakesId, onClose, onSave }: { sweepstakesId: string; onClose: () => void; onSave: () => void }) {
+  const { addNotification } = useNotifications();
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [formData, setFormData] = useState({
@@ -778,7 +803,11 @@ function ParticipantModal({ sweepstakesId, onClose, onSave }: { sweepstakesId: s
       }
     } catch (err) {
       console.error('Error uploading receipt:', err);
-      alert('Erro ao carregar comprovante. Verifique se o bucket "payment_proofs" existe.');
+      addNotification({
+        type: 'error',
+        title: 'Erro ao carregar',
+        message: 'Erro ao carregar comprovante. Verifique se o bucket "payment_proofs" existe.'
+      });
     } finally {
       setUploading(false);
     }
@@ -806,7 +835,11 @@ function ParticipantModal({ sweepstakesId, onClose, onSave }: { sweepstakesId: s
       onSave();
     } catch (err) {
       console.error('Error adding participant:', err);
-      alert('Erro ao adicionar participante');
+      addNotification({
+        type: 'error',
+        title: 'Erro ao adicionar',
+        message: formatError(err)
+      });
     } finally {
       setLoading(false);
     }
@@ -919,6 +952,7 @@ function ParticipantModal({ sweepstakesId, onClose, onSave }: { sweepstakesId: s
 }
 
 function SweepstakesDraw({ sweep, onBack }: { sweep: Sweepstakes; onBack: () => void }) {
+  const { addNotification } = useNotifications();
   const [participants, setParticipants] = useState<SweepstakesParticipant[]>([]);
   const [winners, setWinners] = useState<SweepstakesParticipant[]>([]);
   const [drawing, setDrawing] = useState(false);

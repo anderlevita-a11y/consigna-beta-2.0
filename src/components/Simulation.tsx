@@ -18,9 +18,10 @@ import {
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { CommissionSimulation } from '../types';
-import { cn } from '../lib/utils';
+import { cn, formatError } from '../lib/utils';
 import { format } from 'date-fns';
 import { ConfirmationModal } from './ConfirmationModal';
+import { useNotifications } from './NotificationCenter';
 
 export function Simulation() {
   const [description, setDescription] = useState('');
@@ -31,6 +32,7 @@ export function Simulation() {
   const [simulations, setSimulations] = useState<CommissionSimulation[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const { addNotification } = useNotifications();
 
   const value = Number(inputValue.replace(',', '.')) || 0;
   const expenseValue = Number(inputExpenseValue.replace(',', '.')) || 0;
@@ -107,7 +109,11 @@ export function Simulation() {
 
   const handleSave = async () => {
     if (!description || value <= 0) {
-      alert('Preencha a descrição e o valor bruto.');
+      addNotification({
+        type: 'warning',
+        title: 'Campos obrigatórios',
+        message: 'Preencha a descrição e o valor bruto.'
+      });
       return;
     }
 
@@ -135,9 +141,13 @@ export function Simulation() {
       setInputValue('');
       setExpenses([]);
       fetchData();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error saving simulation:', err);
-      alert('Erro ao salvar simulação');
+      addNotification({
+        type: 'error',
+        title: 'Erro ao salvar',
+        message: formatError(err)
+      });
     } finally {
       setSaving(false);
     }
@@ -179,9 +189,13 @@ export function Simulation() {
             .eq('id', id);
           if (error) throw error;
           fetchData();
-        } catch (err) {
+        } catch (err: any) {
           console.error('Error deleting simulation:', err);
-          alert('Erro ao excluir simulação');
+          addNotification({
+            type: 'error',
+            title: 'Erro ao excluir',
+            message: formatError(err)
+          });
         } finally {
           setConfirmModal(prev => ({ ...prev, isOpen: false }));
         }

@@ -36,8 +36,11 @@ serve(async (req) => {
         const { error: profileError } = await supabaseAdmin
           .from('profiles')
           .update({ 
+            status_pagamento: 'PRO',
+            plan: 'Pro',
             plano_tipo: 'pro', 
-            plano_status: 'ativo' 
+            plano_status: 'ativo',
+            vencimento: null
           })
           .eq('id', userId)
 

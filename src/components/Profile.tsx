@@ -20,8 +20,18 @@ import {
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { Profile } from '../types';
-import { cn } from '../lib/utils';
+import { cn, formatError } from '../lib/utils';
 import { loadStripe } from '@stripe/stripe-js';
+import { useNotifications } from './NotificationCenter';
+import { ConfirmationModal } from './ConfirmationModal';
+
+declare module "react" {
+  namespace JSX {
+    interface IntrinsicElements {
+      "stripe-buy-button": any;
+    }
+  }
+}
 
 export function ProfileScreen() {
   const [loading, setLoading] = useState(true);
@@ -33,6 +43,20 @@ export function ProfileScreen() {
   const [legalSettings, setLegalSettings] = useState<any>(null);
   const [showLegalModal, setShowLegalModal] = useState(false);
   const [legalTab, setLegalTab] = useState<'privacy' | 'terms'>('privacy');
+  const { addNotification } = useNotifications();
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    variant: 'danger' | 'warning' | 'info';
+    onConfirm: () => void;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    variant: 'info',
+    onConfirm: () => {}
+  });
 
   useEffect(() => {
     async function fetchProfile() {
@@ -79,33 +103,11 @@ export function ProfileScreen() {
       window.location.href = url.toString();
     } catch (err: any) {
       console.error(err);
-      alert('Erro ao iniciar checkout: ' + (err.message || 'Tente novamente.'));
-    } finally {
-      setUpgrading(false);
-    }
-  };
-
-  const handleCheckout = async () => {
-    setUpgrading(true);
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const user = session?.user;
-      if (!user) throw new Error('Usuário não autenticado');
-
-      // Use the direct Stripe Payment Link provided by the user
-      const paymentLink = 'https://buy.stripe.com/00w9AL9hc7yb5cvcta1sQ00';
-      
-      // Append user ID and email to the payment link so the webhook can identify the user
-      const url = new URL(paymentLink);
-      url.searchParams.append('client_reference_id', user.id);
-      if (user.email) {
-        url.searchParams.append('prefilled_email', user.email);
-      }
-
-      window.location.href = url.toString();
-    } catch (err: any) {
-      console.error(err);
-      alert('Erro ao iniciar checkout: ' + (err.message || 'Tente novamente.'));
+      addNotification({
+        type: 'error',
+        title: 'Erro no checkout',
+        message: formatError(err)
+      });
     } finally {
       setUpgrading(false);
     }
@@ -130,10 +132,18 @@ export function ProfileScreen() {
         .eq('id', profile.id);
       
       if (error) throw error;
-      alert('Cadastro salvo com sucesso!');
+      addNotification({
+        type: 'success',
+        title: 'Sucesso',
+        message: 'Cadastro salvo com sucesso!'
+      });
     } catch (err: any) {
       console.error(err);
-      alert('Erro ao salvar cadastro: ' + (err.message || 'Verifique os dados e tente novamente.'));
+      addNotification({
+        type: 'error',
+        title: 'Erro ao salvar',
+        message: formatError(err)
+      });
     } finally {
       setSaving(false);
     }
@@ -164,10 +174,18 @@ export function ProfileScreen() {
         .getPublicUrl(filePath);
 
       setProfile({ ...profile, documento_url: publicUrl });
-      alert('Documento carregado com sucesso! Não esqueça de salvar o cadastro.');
+      addNotification({
+        type: 'success',
+        title: 'Sucesso',
+        message: 'Documento carregado com sucesso! Não esqueça de salvar o cadastro.'
+      });
     } catch (err: any) {
       console.error(err);
-      alert('Erro ao carregar documento: ' + (err.message || 'Tente novamente.'));
+      addNotification({
+        type: 'error',
+        title: 'Erro no upload',
+        message: formatError(err)
+      });
     } finally {
       setUploading(false);
     }
@@ -176,27 +194,43 @@ export function ProfileScreen() {
   const handleDeleteDocument = async () => {
     if (!profile?.documento_url) return;
     
-    if (!confirm('Deseja realmente excluir a foto do documento?')) return;
+    setConfirmModal({
+      isOpen: true,
+      title: 'Excluir Documento',
+      message: 'Deseja realmente excluir a foto do documento?',
+      variant: 'danger',
+      onConfirm: async () => {
+        try {
+          // Extract path from public URL
+          // Example URL: https://.../storage/v1/object/public/documents/documents/user_id/random.jpg
+          const urlParts = profile.documento_url.split('/object/public/documents/');
+          if (urlParts.length < 2) throw new Error('URL de documento inválida');
+          const filePath = urlParts[1];
 
-    try {
-      // Extract path from public URL
-      // Example URL: https://.../storage/v1/object/public/documents/documents/user_id/random.jpg
-      const urlParts = profile.documento_url.split('/object/public/documents/');
-      if (urlParts.length < 2) throw new Error('URL de documento inválida');
-      const filePath = urlParts[1];
+          const { error } = await supabase.storage
+            .from('documents')
+            .remove([filePath]);
 
-      const { error } = await supabase.storage
-        .from('documents')
-        .remove([filePath]);
+          if (error) throw error;
 
-      if (error) throw error;
-
-      setProfile({ ...profile, documento_url: null });
-      alert('Documento removido. Salve o cadastro para confirmar.');
-    } catch (err: any) {
-      console.error(err);
-      alert('Erro ao remover documento: ' + (err.message || 'Tente novamente.'));
-    }
+          setProfile({ ...profile, documento_url: null });
+          addNotification({
+            type: 'success',
+            title: 'Sucesso',
+            message: 'Documento removido. Salve o cadastro para confirmar.'
+          });
+        } catch (err: any) {
+          console.error(err);
+          addNotification({
+            type: 'error',
+            title: 'Erro ao remover',
+            message: formatError(err)
+          });
+        } finally {
+          setConfirmModal(prev => ({ ...prev, isOpen: false }));
+        }
+      }
+    });
   };
 
   const isTrial = profile?.status_pagamento === 'TRIAL';
@@ -520,8 +554,8 @@ export function ProfileScreen() {
             <div className="space-y-1">
               <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Status do Acesso</p>
               <h4 className="text-lg font-bold text-zinc-800 flex items-center gap-2">
-                {profile?.role === 'admin' ? 'Administrador' : (profile?.plano_tipo === 'pro' ? 'Assinante PRO' : (isTrial ? 'Período de Teste' : (profile?.access_key_code ? 'Acesso PRO Liberado' : 'Aguardando Liberação')))}
-                {(profile?.role === 'admin' || profile?.access_key_code || profile?.plano_tipo === 'pro') && (
+                {profile?.role === 'admin' ? 'Administrador' : (['pro', 'starter'].includes(profile?.plano_tipo) ? 'Assinante Starter' : (isTrial ? 'Período de Teste' : (profile?.access_key_code ? 'Acesso Starter Liberado' : 'Aguardando Liberação')))}
+                {(profile?.role === 'admin' || profile?.access_key_code || ['pro', 'starter'].includes(profile?.plano_tipo)) && (
                   <span className={cn("text-[10px] px-2 py-0.5 rounded-lg uppercase font-bold", isTrial ? "bg-blue-100 text-blue-700" : "bg-emerald-100 text-emerald-700")}>
                     {isTrial ? 'Trial' : 'Ativo'}
                   </span>
@@ -533,7 +567,7 @@ export function ProfileScreen() {
                   {diffDays > 1 ? `Faltam ${diffDays} dias para o fim do teste` : (diffDays === 1 ? 'Termina amanhã' : 'Teste expirado')}
                 </p>
               )}
-              {profile?.plano_tipo === 'pro' && <p className="text-xs text-emerald-600 font-bold">Plano PRO Ativo via Stripe</p>}
+              {['pro', 'starter'].includes(profile?.plano_tipo) && <p className="text-xs text-emerald-600 font-bold">Plano Starter Ativo via Stripe</p>}
             </div>
             <div className="flex-1 max-w-md space-y-2">
               <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest flex items-center gap-2">
@@ -542,63 +576,71 @@ export function ProfileScreen() {
               <input 
                 type="text" 
                 readOnly
-                value={profile?.access_key_code || (profile?.plano_tipo === 'pro' ? 'ASSINATURA_PRO' : 'Acesso não liberado')} 
+                value={profile?.access_key_code || (['pro', 'starter'].includes(profile?.plano_tipo) ? 'ASSINATURA_STARTER' : 'Acesso não liberado')} 
                 className="w-full bg-white border border-zinc-200 rounded-xl px-4 py-3 text-sm text-zinc-500 font-mono outline-none shadow-sm cursor-not-allowed"
               />
-              <p className="text-[10px] text-zinc-400">O seu acesso é liberado manualmente pelo administrador ou via assinatura PRO.</p>
+              <p className="text-[10px] text-zinc-400">O seu acesso é liberado manualmente pelo administrador ou via assinatura Starter (R$ 39,99/mês).</p>
               
-              {false && profile?.role !== 'admin' && profile?.plano_tipo !== 'pro' && (
-                <button 
-                  onClick={handleUpgrade}
-                  disabled={upgrading}
-                  className="w-full mt-4 flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white py-4 rounded-2xl font-bold transition-all shadow-lg shadow-emerald-500/20"
-                >
-                  {upgrading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Crown className="w-5 h-5" />}
-                  Assinar Promo Lançamento (R$ 30,00)
-                </button>
+              {profile?.role !== 'admin' && !['pro', 'starter'].includes(profile?.plano_tipo) && (
+                <div className="mt-4 space-y-6">
+                  <div className="flex justify-center">
+                    <stripe-buy-button
+                      buy-button-id="buy_btn_1TAnyS0js7klPnUOyUiRC4VP"
+                      publishable-key="pk_live_51T5KER0js7klPnUOAaYz29LZPcJuCQTbm8yIhpjJKsTl7pMNOE6th3SptDjB0RqkgCYMcywqJBAK8umAgpK8JVPk00EZZHqUUp"
+                      client-reference-id={profile?.id}
+                    >
+                    </stripe-buy-button>
+                  </div>
+
+                  <div className="relative">
+                    <div className="absolute inset-0 flex items-center">
+                      <div className="w-full border-t border-zinc-200"></div>
+                    </div>
+                    <div className="relative flex justify-center text-[10px] uppercase tracking-widest font-bold">
+                      <span className="bg-zinc-50 px-4 text-zinc-400">Ou Plano Distribuidor</span>
+                    </div>
+                  </div>
+
+                  <div className="bg-purple-50 border border-purple-100 rounded-2xl p-6 space-y-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-purple-100 flex items-center justify-center text-purple-600">
+                        <Crown className="w-6 h-6" />
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-purple-900">Upgrade Pro Distribuidor</h4>
+                        <p className="text-xs text-purple-600">Acesso exclusivo para distribuidores</p>
+                      </div>
+                    </div>
+                    
+                    <div className="flex items-baseline gap-1">
+                      <span className="text-sm font-bold text-purple-900">R$</span>
+                      <span className="text-3xl font-black text-purple-900 tracking-tight">30,00</span>
+                      <span className="text-xs text-purple-500 font-medium">/mês</span>
+                    </div>
+
+                    <a 
+                      href="https://checkout.nubank.com.br/HvwxRsyDz9ir5yh"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-700 text-white w-full py-4 rounded-xl font-bold transition-all shadow-lg shadow-purple-500/20"
+                    >
+                      Pagar com NuBank
+                    </a>
+
+                    <div className="bg-white/50 rounded-xl p-3 border border-purple-100">
+                      <p className="text-[10px] text-purple-700 leading-relaxed text-center">
+                        Após o pagamento, envie o comprovante para <br />
+                        <strong className="text-purple-900">(47) 99762-6121</strong> (Anderson Rodrigues) <br />
+                        para liberar seu acesso imediatamente.
+                      </p>
+                    </div>
+                  </div>
+                </div>
               )}
             </div>
           </div>
         </div>
       </section>
-
-      {/* Promo Lançamento Card */}
-      {false && (!profile?.plano_tipo || profile?.plano_tipo !== 'pro') && profile?.role !== 'admin' && (
-        <section className="bg-gradient-to-br from-[#38a89d] to-[#2d8a81] rounded-3xl p-6 sm:p-8 text-white shadow-xl relative overflow-hidden">
-          <div className="absolute top-0 right-0 p-8 opacity-10">
-            <Crown className="w-32 h-32" />
-          </div>
-          <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-8">
-            <div className="space-y-4 text-center md:text-left">
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/20 backdrop-blur-sm text-sm font-bold uppercase tracking-widest">
-                <Crown className="w-4 h-4" />
-                Promo Lançamento
-              </div>
-              <h3 className="text-3xl md:text-4xl font-bold">Consigna Beauty PRO</h3>
-              <p className="text-emerald-50 max-w-md text-sm md:text-base opacity-90">
-                Tenha acesso ilimitado a todas as ferramentas de gestão, rotas otimizadas e controle financeiro avançado.
-              </p>
-              <div className="flex items-baseline gap-2 justify-center md:justify-start">
-                <span className="text-5xl font-black">R$ 30,00</span>
-                <span className="text-emerald-100 font-medium">/mês</span>
-              </div>
-            </div>
-            <div className="w-full md:w-auto">
-              <button 
-                onClick={handleCheckout}
-                disabled={upgrading}
-                className="w-full md:w-auto px-8 py-4 bg-white text-[#38a89d] hover:bg-zinc-50 rounded-2xl font-black text-lg transition-all shadow-lg hover:shadow-xl hover:-translate-y-1 flex items-center justify-center gap-3 disabled:opacity-70 disabled:hover:translate-y-0"
-              >
-                {upgrading ? <Loader2 className="w-6 h-6 animate-spin" /> : <CreditCard className="w-6 h-6" />}
-                Assinar Agora
-              </button>
-              <p className="text-center text-xs text-emerald-100 mt-3 font-medium">
-                Pagamento seguro via Stripe
-              </p>
-            </div>
-          </div>
-        </section>
-      )}
 
       <div className="flex items-center justify-center gap-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">
         <button 
@@ -681,6 +723,15 @@ export function ProfileScreen() {
           </div>
         </div>
       )}
+      
+      <ConfirmationModal 
+        isOpen={confirmModal.isOpen}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        variant={confirmModal.variant}
+        onConfirm={confirmModal.onConfirm}
+        onCancel={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+      />
     </div>
   );
 }

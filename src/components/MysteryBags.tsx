@@ -20,8 +20,11 @@ import { supabase } from '../lib/supabase';
 import { MysteryBagCampaign, MysteryBag } from '../types';
 import { cn } from '../lib/utils';
 import { format } from 'date-fns';
+import { useNotifications } from './NotificationCenter';
+import { ConfirmationModal } from './ConfirmationModal';
 
 export function MysteryBagsManager() {
+  const { addNotification } = useNotifications();
   const [campaigns, setCampaigns] = useState<MysteryBagCampaign[]>([]);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<'list' | 'create' | 'details'>('list');
@@ -72,12 +75,12 @@ export function MysteryBagsManager() {
         if ((err as Error).name !== 'AbortError') {
           console.error('Error sharing:', err);
           navigator.clipboard.writeText(url);
-          alert('Link copiado para a área de transferência!');
+  addNotification({ type: 'success', title: 'Compartilhar', message: 'Link copiado para a área de transferência!' });
         }
       }
     } else {
       navigator.clipboard.writeText(url);
-      alert('Link copiado para a área de transferência!');
+      addNotification({ type: 'success', title: 'Compartilhar', message: 'Link copiado para a área de transferência!' });
     }
   };
 
@@ -197,6 +200,7 @@ export function MysteryBagsManager() {
 }
 
 function MysteryBagForm({ onClose, onSave }: { onClose: () => void; onSave: () => void }) {
+  const { addNotification } = useNotifications();
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     title: '',
@@ -233,7 +237,7 @@ function MysteryBagForm({ onClose, onSave }: { onClose: () => void; onSave: () =
       const bag_price = Number(bagPriceInput.replace(',', '.')) || 0;
       const validPrizes = formData.prizes.filter(p => p.trim() !== '');
       if (validPrizes.length === 0) {
-        alert('Adicione pelo menos um prêmio/sacola.');
+        addNotification({ type: 'warning', title: 'Aviso', message: 'Adicione pelo menos um prêmio/sacola.' });
         setLoading(false);
         return;
       }
@@ -280,7 +284,7 @@ function MysteryBagForm({ onClose, onSave }: { onClose: () => void; onSave: () =
       onSave();
     } catch (err) {
       console.error('Error saving campaign:', err);
-      alert('Erro ao criar campanha');
+      addNotification({ type: 'error', title: 'Erro', message: 'Erro ao criar campanha' });
     } finally {
       setLoading(false);
     }
@@ -418,9 +422,21 @@ function MysteryBagForm({ onClose, onSave }: { onClose: () => void; onSave: () =
 }
 
 function MysteryBagDetails({ campaign, onBack }: { campaign: MysteryBagCampaign; onBack: () => void }) {
+  const { addNotification } = useNotifications();
   const [bags, setBags] = useState<MysteryBag[]>([]);
   const [loading, setLoading] = useState(true);
   const [finishing, setFinishing] = useState(false);
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {}
+  });
 
   useEffect(() => {
     fetchBags();
@@ -454,7 +470,7 @@ function MysteryBagDetails({ campaign, onBack }: { campaign: MysteryBagCampaign;
       fetchBags();
     } catch (err) {
       console.error('Error approving payment:', err);
-      alert('Erro ao aprovar pagamento');
+      addNotification({ type: 'error', title: 'Erro', message: 'Erro ao aprovar pagamento' });
     }
   };
 
@@ -515,53 +531,69 @@ function MysteryBagDetails({ campaign, onBack }: { campaign: MysteryBagCampaign;
       fetchBags();
     } catch (err) {
       console.error('Error uploading receipt:', err);
-      alert('Erro ao carregar comprovante');
+      addNotification({ type: 'error', title: 'Erro', message: 'Erro ao carregar comprovante' });
     } finally {
       setUploadingId(null);
     }
   };
 
   const handleRejectPayment = async (bagId: string) => {
-    if (!window.confirm('Tem certeza que deseja rejeitar este pagamento e liberar a sacola?')) return;
-    try {
-      const { error } = await supabase
-        .from('mystery_bags')
-        .update({
-          status: 'available',
-          buyer_name: null,
-          buyer_cpf: null,
-          buyer_phone: null,
-          receipt_url: null,
-          reserved_at: null
-        })
-        .eq('id', bagId);
-      
-      if (error) throw error;
-      fetchBags();
-    } catch (err) {
-      console.error('Error rejecting payment:', err);
-      alert('Erro ao rejeitar pagamento');
-    }
+    setConfirmModal({
+      isOpen: true,
+      title: 'Rejeitar Pagamento',
+      message: 'Tem certeza que deseja rejeitar este pagamento e liberar a sacola?',
+      onConfirm: async () => {
+        setConfirmModal(prev => ({ ...prev, isOpen: false }));
+        try {
+          const { error } = await supabase
+            .from('mystery_bags')
+            .update({
+              status: 'available',
+              buyer_name: null,
+              buyer_cpf: null,
+              buyer_phone: null,
+              receipt_url: null,
+              reserved_at: null
+            })
+            .eq('id', bagId);
+          
+          if (error) throw error;
+          addNotification({ type: 'success', title: 'Sucesso', message: 'Pagamento rejeitado e sacola liberada!' });
+          fetchBags();
+        } catch (err) {
+          console.error('Error rejecting payment:', err);
+          addNotification({ type: 'error', title: 'Erro', message: 'Erro ao rejeitar pagamento' });
+        }
+      }
+    });
   };
 
   const handleFinishCampaign = async () => {
-    if (!window.confirm('Tem certeza que deseja finalizar a campanha? Isso revelará os prêmios para todos os compradores.')) return;
-    setFinishing(true);
-    try {
-      const { error } = await supabase
-        .from('mystery_bag_campaigns')
-        .update({ status: 'finished' })
-        .eq('id', campaign.id);
-      
-      if (error) throw error;
-      campaign.status = 'finished'; // Update local state
-      fetchBags(); // Refresh to ensure we have latest data
-    } catch (err) {
-      console.error('Error finishing campaign:', err);
-      alert('Erro ao finalizar campanha');
-    } finally {
-      setFinishing(false);
-    }
+    setConfirmModal({
+      isOpen: true,
+      title: 'Finalizar Campanha',
+      message: 'Tem certeza que deseja finalizar a campanha? Isso revelará os prêmios para todos os compradores.',
+      onConfirm: async () => {
+        setConfirmModal(prev => ({ ...prev, isOpen: false }));
+        setFinishing(true);
+        try {
+          const { error } = await supabase
+            .from('mystery_bag_campaigns')
+            .update({ status: 'finished' })
+            .eq('id', campaign.id);
+          
+          if (error) throw error;
+          addNotification({ type: 'success', title: 'Sucesso', message: 'Campanha finalizada com sucesso!' });
+          campaign.status = 'finished'; // Update local state
+          fetchBags(); // Refresh to ensure we have latest data
+        } catch (err) {
+          console.error('Error finishing campaign:', err);
+          addNotification({ type: 'error', title: 'Erro', message: 'Erro ao finalizar campanha' });
+        } finally {
+          setFinishing(false);
+        }
+      }
+    });
   };
 
   return (
@@ -748,6 +780,14 @@ function MysteryBagDetails({ campaign, onBack }: { campaign: MysteryBagCampaign;
           </table>
         </div>
       </div>
+      <ConfirmationModal
+        isOpen={confirmModal.isOpen}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        onConfirm={confirmModal.onConfirm}
+        onCancel={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+        variant="danger"
+      />
     </div>
   );
 }

@@ -14,8 +14,9 @@ import {
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { Profile, AppLegalSettings } from '../types';
-import { cn } from '../lib/utils';
+import { cn, formatError } from '../lib/utils';
 import { ConfirmationModal } from './ConfirmationModal';
+import { useNotifications } from './NotificationCenter';
 
 export function AdminPanel({ currentProfile }: { currentProfile: Profile | null }) {
   const [users, setUsers] = useState<Profile[]>([]);
@@ -30,6 +31,7 @@ export function AdminPanel({ currentProfile }: { currentProfile: Profile | null 
   // Legal Settings State
   const [legalSettings, setLegalSettings] = useState<AppLegalSettings | null>(null);
   const [savingLegal, setSavingLegal] = useState(false);
+  const { addNotification } = useNotifications();
 
   // Confirmation Modal State
   const [confirmModal, setConfirmModal] = useState<{
@@ -169,10 +171,18 @@ Data da última atualização: 09 de marco. Responsável Legal: Anderson Rodrigu
           updated_at: new Date().toISOString()
         });
       if (error) throw error;
-      alert('Configurações legais inicializadas com sucesso!');
+      addNotification({
+        type: 'success',
+        title: 'Sucesso',
+        message: 'Configurações legais inicializadas com sucesso!'
+      });
       fetchLegalSettings();
     } catch (err: any) {
-      alert('Erro ao inicializar: ' + err.message);
+      addNotification({
+        type: 'error',
+        title: 'Erro ao inicializar',
+        message: formatError(err)
+      });
     } finally {
       setLoading(false);
     }
@@ -222,11 +232,19 @@ Data da última atualização: 09 de marco. Responsável Legal: Anderson Rodrigu
         });
       
       if (error) throw error;
-      alert('Configurações legais atualizadas com sucesso! Todos os usuários serão notificados para aceitar a nova versão.');
+      addNotification({
+        type: 'success',
+        title: 'Sucesso',
+        message: 'Configurações legais atualizadas com sucesso! Todos os usuários serão notificados para aceitar a nova versão.'
+      });
       fetchLegalSettings();
     } catch (err: any) {
       console.error('Error saving legal settings:', err);
-      alert('Erro ao salvar configurações legais: ' + err.message);
+      addNotification({
+        type: 'error',
+        title: 'Erro ao salvar',
+        message: formatError(err)
+      });
     } finally {
       setSavingLegal(false);
     }
@@ -246,9 +264,13 @@ Data da última atualização: 09 de marco. Responsável Legal: Anderson Rodrigu
             .eq('id', id);
           if (error) throw error;
           fetchCentralProducts();
-        } catch (err) {
+        } catch (err: any) {
           console.error('Error deleting central product:', err);
-          alert('Erro ao excluir produto');
+          addNotification({
+            type: 'error',
+            title: 'Erro ao excluir',
+            message: formatError(err)
+          });
         } finally {
           setConfirmModal(prev => ({ ...prev, isOpen: false }));
         }
@@ -275,11 +297,19 @@ Data da última atualização: 09 de marco. Responsável Legal: Anderson Rodrigu
 
           if (error) throw error;
           
-          alert(`Cargo alterado para ${newRole.toUpperCase()} com sucesso!`);
+          addNotification({
+            type: 'success',
+            title: 'Sucesso',
+            message: `Cargo alterado para ${newRole.toUpperCase()} com sucesso!`
+          });
           await fetchData();
-        } catch (err) {
+        } catch (err: any) {
           console.error(err);
-          alert('Erro ao alterar cargo');
+          addNotification({
+            type: 'error',
+            title: 'Erro ao alterar cargo',
+            message: formatError(err)
+          });
         } finally {
           setLoading(false);
         }
@@ -333,11 +363,19 @@ Data da última atualização: 09 de marco. Responsável Legal: Anderson Rodrigu
 
           if (error) throw error;
           
-          alert(`Status alterado para ${status} com sucesso! Acesso liberado.`);
+          addNotification({
+            type: 'success',
+            title: 'Sucesso',
+            message: `Status alterado para ${status} com sucesso! Acesso liberado.`
+          });
           await fetchData();
-        } catch (err) {
+        } catch (err: any) {
           console.error(err);
-          alert('Erro ao alterar status');
+          addNotification({
+            type: 'error',
+            title: 'Erro ao alterar status',
+            message: formatError(err)
+          });
         } finally {
           setLoading(false);
         }
@@ -352,7 +390,11 @@ Data da última atualização: 09 de marco. Responsável Legal: Anderson Rodrigu
       .eq('id', userId);
 
     if (error) {
-      alert('Erro ao alterar status do usuário');
+      addNotification({
+        type: 'error',
+        title: 'Erro ao alterar status',
+        message: formatError(error)
+      });
     } else {
       fetchData();
     }
@@ -360,7 +402,11 @@ Data da última atualização: 09 de marco. Responsável Legal: Anderson Rodrigu
 
   const handleImportProducts = async () => {
     if (!excelData.trim()) {
-      alert('Cole os dados do Excel primeiro.');
+      addNotification({
+        type: 'warning',
+        title: 'Dados ausentes',
+        message: 'Cole os dados do Excel primeiro.'
+      });
       return;
     }
 
@@ -391,7 +437,11 @@ Data da última atualização: 09 de marco. Responsável Legal: Anderson Rodrigu
       });
 
       if (productsToInsert.length === 0) {
-        alert('Nenhum dado válido encontrado.');
+        addNotification({
+          type: 'warning',
+          title: 'Dados inválidos',
+          message: 'Nenhum dado válido encontrado.'
+        });
         setImporting(false);
         return;
       }
@@ -410,12 +460,20 @@ Data da última atualização: 09 de marco. Responsável Legal: Anderson Rodrigu
         payload: { timestamp: Date.now() }
       });
 
-      alert(`${productsToInsert.length} produtos importados com sucesso! Os usuários serão notificados.`);
+      addNotification({
+        type: 'success',
+        title: 'Sucesso',
+        message: `${productsToInsert.length} produtos importados com sucesso! Os usuários serão notificados.`
+      });
       setExcelData('');
       fetchCentralProducts();
     } catch (err: any) {
       console.error('Error importing products:', err);
-      alert('Erro ao importar produtos: ' + (err.message || 'Verifique o formato dos dados.'));
+      addNotification({
+        type: 'error',
+        title: 'Erro na importação',
+        message: formatError(err)
+      });
     } finally {
       setImporting(false);
     }
@@ -435,7 +493,7 @@ Data da última atualização: 09 de marco. Responsável Legal: Anderson Rodrigu
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-zinc-100 shadow-sm">
         <div>
           <h2 className="text-xl font-bold text-[#4a1d33] uppercase tracking-tight">Gestão Administrativa</h2>
-          <p className="text-xs text-zinc-500">Controle de usuários e acessos PRO.</p>
+          <p className="text-xs text-zinc-500">Controle de usuários e acessos Starter.</p>
         </div>
       </div>
        {/* Schema Errors Section */}
@@ -704,16 +762,16 @@ CREATE POLICY "Admins gerenciam comunicados" ON announcements FOR ALL TO authent
                                 PAGO
                               </button>
                               <button 
-                                onClick={() => updateUserStatus(user.id, 'PRO')}
+                                onClick={() => updateUserStatus(user.id, 'STARTER')}
                                 className={cn(
                                   "flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all",
-                                  user.status_pagamento === 'PRO' 
+                                  user.status_pagamento === 'STARTER'
                                     ? "bg-amber-500 text-white" 
                                     : "bg-amber-50 text-amber-600 hover:bg-amber-100"
                                 )}
                               >
                                 <ShieldCheck className="w-3.5 h-3.5" />
-                                PRO
+                                STARTER
                               </button>
                             </>
                           )}

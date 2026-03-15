@@ -21,10 +21,12 @@ import {
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { Route, RouteStop, Customer, Campaign } from '../types';
-import { cn } from '../lib/utils';
+import { cn, formatError } from '../lib/utils';
 import { ConfirmationModal } from './ConfirmationModal';
+import { useNotifications } from './NotificationCenter';
 
 export function Routes() {
+  const { addNotification } = useNotifications();
   const [routes, setRoutes] = useState<Route[]>([]);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<'list' | 'create' | 'view'>('list');
@@ -123,7 +125,11 @@ export function Routes() {
       .sort((a, b) => a.order_index - b.order_index)[0];
       
     if (!nextStop) {
-      alert('Todas as paradas foram concluídas!');
+      addNotification({
+        type: 'success',
+        title: 'Rota concluída',
+        message: 'Todas as paradas foram concluídas!'
+      });
       return;
     }
 
@@ -142,7 +148,11 @@ export function Routes() {
       const url = getNavigateToStopUrl(newNextStop, 'maps');
       if (url) window.open(url, '_blank');
     } else {
-      alert('Última parada concluída! Finalizando rota...');
+      addNotification({
+        type: 'success',
+        title: 'Rota finalizada',
+        message: 'Última parada concluída! Finalizando rota...'
+      });
       handleFinishRoute(activeRoute.id);
     }
   };
@@ -234,7 +244,7 @@ export function Routes() {
 
   const optimizeRoute = () => {
     if (!currentPos) {
-      alert('Localização GPS não disponível. Verifique as permissões do navegador.');
+      addNotification({ type: 'error', title: 'GPS', message: 'Localização GPS não disponível. Verifique as permissões do navegador.' });
       getUserLocation();
       return;
     }
@@ -269,12 +279,12 @@ export function Routes() {
     }
 
     setSelectedCustomers([...optimized, ...withoutGps]);
-    alert('Rota otimizada com a melhor sequência de atendimento!');
+    addNotification({ type: 'success', title: 'Sucesso', message: 'Rota otimizada com a melhor sequência de atendimento!' });
   };
 
   const optimizeActiveRoute = async () => {
     if (!currentPos) {
-      alert('Localização GPS não disponível.');
+      addNotification({ type: 'error', title: 'GPS', message: 'Localização GPS não disponível.' });
       getUserLocation();
       return;
     }
@@ -327,10 +337,10 @@ export function Routes() {
       // Update routes list
       setRoutes(routes.map(r => r.id === activeRoute.id ? { ...r, stops: updatedStops } : r));
       
-      alert('Rota otimizada com a melhor sequência de atendimento!');
+      addNotification({ type: 'success', title: 'Sucesso', message: 'Rota otimizada com a melhor sequência de atendimento!' });
     } catch (err: any) {
       console.error('Error optimizing active route:', err);
-      alert('Erro ao otimizar rota: ' + (err.message || JSON.stringify(err)));
+      addNotification({ type: 'error', title: 'Erro', message: 'Erro ao otimizar rota: ' + (err.message || JSON.stringify(err)) });
     } finally {
       setLoading(false);
     }
@@ -376,7 +386,7 @@ export function Routes() {
       setRoutes(routes.map(r => r.id === activeRoute.id ? { ...r, stops: newStops } : r));
     } catch (err: any) {
       console.error('Error updating order:', err);
-      alert('Erro ao atualizar ordem: ' + (err.message || JSON.stringify(err)));
+      addNotification({ type: 'error', title: 'Erro', message: 'Erro ao atualizar ordem: ' + (err.message || JSON.stringify(err)) });
     }
   };
 
@@ -423,11 +433,19 @@ export function Routes() {
 
   const handleSaveRoute = async () => {
     if (!routeName) {
-      alert('Dê um nome para a rota');
+      addNotification({
+        type: 'warning',
+        title: 'Campo obrigatório',
+        message: 'Dê um nome para a rota'
+      });
       return;
     }
     if (selectedCustomers.length === 0) {
-      alert('Selecione pelo menos um cliente');
+      addNotification({
+        type: 'warning',
+        title: 'Seleção necessária',
+        message: 'Selecione pelo menos um cliente'
+      });
       return;
     }
 
@@ -483,10 +501,18 @@ export function Routes() {
       setRouteName('');
       setSelectedCustomers([]);
       fetchRoutes();
-      alert('Rota salva com sucesso!');
+      addNotification({
+        type: 'success',
+        title: 'Sucesso',
+        message: 'Rota salva com sucesso!'
+      });
     } catch (err: any) {
       console.error('Error saving route:', err);
-      alert('Erro ao salvar rota: ' + (err.message || JSON.stringify(err)));
+      addNotification({
+        type: 'error',
+        title: 'Erro ao salvar',
+        message: formatError(err)
+      });
     } finally {
       setLoading(false);
     }
@@ -497,7 +523,11 @@ export function Routes() {
     
     // Check if customer is already in the route
     if (activeRoute.stops?.some(s => s.customer_id === customer.id)) {
-      alert('Este cliente já está na rota.');
+      addNotification({
+        type: 'warning',
+        title: 'Aviso',
+        message: 'Este cliente já está na rota.'
+      });
       return;
     }
     
@@ -527,11 +557,19 @@ export function Routes() {
       setActiveRoute(updatedRoute);
       setRoutes(routes.map(r => r.id === activeRoute.id ? updatedRoute : r));
       
-      alert('Cliente adicionado à rota com sucesso!');
+      addNotification({
+        type: 'success',
+        title: 'Sucesso',
+        message: 'Cliente adicionado à rota com sucesso!'
+      });
       setCustomerSearch('');
     } catch (err: any) {
       console.error('Error adding customer to route:', err);
-      alert('Erro ao adicionar cliente: ' + (err.message || JSON.stringify(err)));
+      addNotification({
+        type: 'error',
+        title: 'Erro ao adicionar',
+        message: formatError(err)
+      });
     } finally {
       setLoading(false);
     }
@@ -570,7 +608,11 @@ export function Routes() {
       }));
     } catch (err: any) {
       console.error('Error updating stop status:', err);
-      alert('Erro ao atualizar status da parada: ' + (err.message || JSON.stringify(err)));
+      addNotification({
+        type: 'error',
+        title: 'Erro ao atualizar',
+        message: formatError(err)
+      });
     }
   };
 
@@ -597,10 +639,18 @@ export function Routes() {
         setActiveRoute(null);
         setView('list');
       }
-      alert('Rota excluída com sucesso!');
+      addNotification({
+        type: 'success',
+        title: 'Sucesso',
+        message: 'Rota excluída com sucesso!'
+      });
     } catch (err: any) {
       console.error('Error deleting route:', err);
-      alert('Erro ao excluir rota: ' + (err.message || JSON.stringify(err)));
+      addNotification({
+        type: 'error',
+        title: 'Erro ao excluir',
+        message: formatError(err)
+      });
     } finally {
       setLoading(false);
       setDeleteModalOpen(false);
@@ -622,10 +672,18 @@ export function Routes() {
         setActiveRoute({ ...activeRoute, status: 'completed' });
       }
       
-      alert('Rota finalizada com sucesso!');
+      addNotification({
+        type: 'success',
+        title: 'Sucesso',
+        message: 'Rota finalizada com sucesso!'
+      });
     } catch (err) {
       console.error('Error finishing route:', err);
-      alert('Erro ao finalizar rota');
+      addNotification({
+        type: 'error',
+        title: 'Erro ao finalizar',
+        message: 'Erro ao finalizar rota'
+      });
     }
   };
 
@@ -1010,7 +1068,11 @@ export function Routes() {
                         onClick={(e) => {
                           if (!getNavigateToStopUrl(stop, 'maps')) {
                             e.preventDefault();
-                            alert('Cliente sem coordenadas GPS cadastradas.');
+                            addNotification({
+                              type: 'warning',
+                              title: 'Aviso',
+                              message: 'Cliente sem coordenadas GPS cadastradas.'
+                            });
                           }
                         }}
                         className="flex-1 sm:flex-none p-2 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-100 transition-colors flex items-center justify-center"
@@ -1025,7 +1087,11 @@ export function Routes() {
                         onClick={(e) => {
                           if (!getNavigateToStopUrl(stop, 'waze')) {
                             e.preventDefault();
-                            alert('Cliente sem coordenadas GPS cadastradas.');
+                            addNotification({
+                              type: 'warning',
+                              title: 'Aviso',
+                              message: 'Cliente sem coordenadas GPS cadastradas.'
+                            });
                           }
                         }}
                         className="flex-1 sm:flex-none p-2 bg-cyan-50 text-cyan-600 rounded-xl hover:bg-cyan-100 transition-colors flex items-center justify-center"
