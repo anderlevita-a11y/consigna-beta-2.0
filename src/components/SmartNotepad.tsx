@@ -18,12 +18,16 @@ import {
   ChevronRight,
   LayoutDashboard,
   Smartphone,
-  Loader2
+  Loader2,
+  ChevronLeft,
+  Copy
 } from 'lucide-react';
 import { cn, formatError } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { supabase } from '../lib/supabase';
 import { useNotifications } from './NotificationCenter';
+import { WeeklyPlanner } from './WeeklyPlanner';
+import { DailyInsight } from '../types';
 
 interface Task {
   id: string;
@@ -65,7 +69,6 @@ export function SmartNotepad() {
   const [saving, setSaving] = useState(false);
   
   // State for Today
-  const [tasks, setTasks] = useState<Task[]>([]);
   const [habits, setHabits] = useState<Habit[]>([
     { id: '1', name: 'Postar Stories', completed: false },
     { id: '2', name: 'Prospecção (5 leads)', completed: false },
@@ -86,6 +89,10 @@ export function SmartNotepad() {
   // State for Insights
   const [generalNotes, setGeneralNotes] = useState('');
 
+  // Daily Insight State
+  const [currentInsight, setCurrentInsight] = useState<DailyInsight | null>(null);
+  const [insightExhausted, setInsightExhausted] = useState(false);
+
   // Load data from Supabase (with localStorage fallback)
   useEffect(() => {
     const loadData = async () => {
@@ -102,7 +109,6 @@ export function SmartNotepad() {
 
           if (data?.data) {
             const notepadData = data.data;
-            if (notepadData.tasks) setTasks(notepadData.tasks);
             if (notepadData.habits) setHabits(notepadData.habits);
             if (notepadData.inegociaveis) setInegociaveis(notepadData.inegociaveis);
             if (notepadData.insightDoDia) setInsightDoDia(notepadData.insightDoDia);
@@ -112,8 +118,38 @@ export function SmartNotepad() {
             if (notepadData.feedbacks) setFeedbacks(notepadData.feedbacks);
             if (notepadData.scripts) setScripts(notepadData.scripts);
             if (notepadData.generalNotes) setGeneralNotes(notepadData.generalNotes);
+            
+            // Handle Daily Insight
+            const today = new Date().toISOString().split('T')[0];
+            if (notepadData.lastInsightDate === today && notepadData.currentInsight) {
+              setCurrentInsight(notepadData.currentInsight);
+            } else {
+              // New day or first time, fetch next insight
+              const nextIndex = notepadData.lastInsightDate ? (notepadData.lastInsightIndex + 1) : 0;
+              
+              const { data: nextInsight, error: insightError } = await supabase
+                .from('daily_insights')
+                .select('*')
+                .eq('order_index', nextIndex)
+                .single();
+
+              if (nextInsight) {
+                setCurrentInsight(nextInsight);
+                // We don't save yet, we'll save on the next auto-save or manual save
+                // But we should update the state so it's consistent
+              } else {
+                // Check if we are out of insights
+                const { count } = await supabase
+                  .from('daily_insights')
+                  .select('*', { count: 'exact', head: true });
+                
+                if (count && nextIndex >= count) {
+                  setInsightExhausted(true);
+                }
+              }
+            }
+
             setLoading(false);
-            return;
           }
         }
       } catch (err) {
@@ -129,7 +165,6 @@ export function SmartNotepad() {
       const saved = localStorage.getItem('smart_notepad_data');
       if (saved) {
         const data = JSON.parse(saved);
-        if (data.tasks) setTasks(data.tasks);
         if (data.habits) setHabits(data.habits);
         if (data.inegociaveis) setInegociaveis(data.inegociaveis);
         if (data.insightDoDia) setInsightDoDia(data.insightDoDia);
@@ -150,7 +185,6 @@ export function SmartNotepad() {
   useEffect(() => {
     if (loading) return;
     const data = {
-      tasks,
       habits,
       inegociaveis,
       insightDoDia,
@@ -159,10 +193,13 @@ export function SmartNotepad() {
       leads,
       feedbacks,
       scripts,
-      generalNotes
+      generalNotes,
+      currentInsight,
+      lastInsightDate: currentInsight ? new Date().toISOString().split('T')[0] : null,
+      lastInsightIndex: currentInsight ? currentInsight.order_index : 0
     };
     localStorage.setItem('smart_notepad_data', JSON.stringify(data));
-  }, [tasks, habits, inegociaveis, insightDoDia, contentIdeas, captions, leads, feedbacks, scripts, generalNotes, loading]);
+  }, [habits, inegociaveis, insightDoDia, contentIdeas, captions, leads, feedbacks, scripts, generalNotes, currentInsight, loading]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -171,8 +208,15 @@ export function SmartNotepad() {
     const user = session?.user;
       if (!user) throw new Error('Usuário não autenticado');
 
+      // Fetch existing data to merge (preserve weekly_schedule)
+      const { data: existingData } = await supabase
+        .from('smart_notepad')
+        .select('data')
+        .eq('user_id', user.id)
+        .single();
+
       const data = {
-        tasks,
+        ...(existingData?.data || {}),
         habits,
         inegociaveis,
         insightDoDia,
@@ -181,7 +225,10 @@ export function SmartNotepad() {
         leads,
         feedbacks,
         scripts,
-        generalNotes
+        generalNotes,
+        currentInsight,
+        lastInsightDate: currentInsight ? new Date().toISOString().split('T')[0] : null,
+        lastInsightIndex: currentInsight ? currentInsight.order_index : 0
       };
 
       const { error } = await supabase
@@ -208,28 +255,6 @@ export function SmartNotepad() {
     } finally {
       setSaving(false);
     }
-  };
-
-  const addTask = (period: 'morning' | 'afternoon' | 'night') => {
-    const newTask: Task = {
-      id: Date.now().toString(),
-      text: '',
-      completed: false,
-      period
-    };
-    setTasks([...tasks, newTask]);
-  };
-
-  const updateTask = (id: string, text: string) => {
-    setTasks(tasks.map(t => t.id === id ? { ...t, text } : t));
-  };
-
-  const toggleTask = (id: string) => {
-    setTasks(tasks.map(t => t.id === id ? { ...t, completed: !t.completed } : t));
-  };
-
-  const removeTask = (id: string) => {
-    setTasks(tasks.filter(t => t.id !== id));
   };
 
   const addLead = () => {
@@ -371,62 +396,69 @@ export function SmartNotepad() {
               </div>
             </div>
 
-            {/* Middle Column: Time Blocking */}
+            {/* Middle Column: Weekly Planner */}
             <div className="lg:col-span-2 space-y-8">
-              <div className="bg-white p-8 rounded-[32px] border border-zinc-100 shadow-sm">
-                <div className="flex items-center justify-between mb-8">
-                  <div className="flex items-center gap-3">
-                    <Clock className="w-5 h-5 text-indigo-500" />
-                    <h3 className="font-bold text-zinc-800 uppercase tracking-wider text-xs">Agenda (Time Blocking)</h3>
-                  </div>
-                  <div className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">
-                    {new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}
-                  </div>
-                </div>
-
-                <div className="space-y-8">
-                  <PeriodSection 
-                    title="Manhã" 
-                    tasks={tasks.filter(t => t.period === 'morning')} 
-                    onAdd={() => addTask('morning')}
-                    onUpdate={updateTask}
-                    onToggle={toggleTask}
-                    onRemove={removeTask}
-                    color="amber"
-                  />
-                  <PeriodSection 
-                    title="Tarde" 
-                    tasks={tasks.filter(t => t.period === 'afternoon')} 
-                    onAdd={() => addTask('afternoon')}
-                    onUpdate={updateTask}
-                    onToggle={toggleTask}
-                    onRemove={removeTask}
-                    color="blue"
-                  />
-                  <PeriodSection 
-                    title="Noite" 
-                    tasks={tasks.filter(t => t.period === 'night')} 
-                    onAdd={() => addTask('night')}
-                    onUpdate={updateTask}
-                    onToggle={toggleTask}
-                    onRemove={removeTask}
-                    color="indigo"
-                  />
-                </div>
-              </div>
+              <WeeklyPlanner embedded={true} />
 
               {/* Insight do Dia */}
               <div className="bg-[#fdf8e1] p-8 rounded-[32px] border border-[#f1e4a1] shadow-sm space-y-4">
-                <div className="flex items-center gap-3">
-                  <Star className="w-5 h-5 text-amber-500" />
-                  <h3 className="font-bold text-amber-900 uppercase tracking-wider text-xs">Insight do Dia</h3>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <Lightbulb className="w-5 h-5 text-amber-500" />
+                    <h3 className="font-bold text-amber-900 uppercase tracking-wider text-xs">Dica de Publicação do Dia</h3>
+                  </div>
+                  {currentInsight && (
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(currentInsight.content);
+                        addNotification({
+                          type: 'success',
+                          title: 'Copiado',
+                          message: 'Dica copiada para a área de transferência!'
+                        });
+                      }}
+                      className="p-2 hover:bg-amber-100 rounded-xl text-amber-600 transition-all"
+                      title="Copiar Dica"
+                    >
+                      <Copy className="w-4 h-4" />
+                    </button>
+                  )}
                 </div>
-                <textarea 
-                  value={insightDoDia}
-                  onChange={(e) => setInsightDoDia(e.target.value)}
-                  placeholder="Qual foi o maior aprendizado de hoje?"
-                  className="w-full bg-transparent border-none p-0 text-amber-900/70 text-sm italic focus:ring-0 resize-none h-20"
-                />
+                
+                {insightExhausted ? (
+                  <div className="bg-amber-50/50 p-4 rounded-2xl border border-dashed border-amber-200">
+                    <p className="text-xs text-amber-800 font-medium text-center italic">
+                      ⚠️ Dicas esgotadas! Por favor, avise o administrador para renovar o banco de dados.
+                    </p>
+                  </div>
+                ) : currentInsight ? (
+                  <div className="space-y-3">
+                    <div className="max-h-48 overflow-y-auto pr-2 custom-scrollbar">
+                      <pre className="text-amber-900/80 text-xs italic whitespace-pre-wrap font-sans leading-relaxed">
+                        {currentInsight.content}
+                      </pre>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="animate-pulse flex space-y-2 flex-col">
+                    <div className="h-2 bg-amber-200 rounded w-3/4"></div>
+                    <div className="h-2 bg-amber-200 rounded w-1/2"></div>
+                    <div className="h-2 bg-amber-200 rounded w-5/6"></div>
+                  </div>
+                )}
+
+                <div className="pt-4 border-t border-amber-200/50">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Star className="w-4 h-4 text-amber-500" />
+                    <h4 className="text-[10px] font-bold text-amber-900 uppercase tracking-wider">Meu Insight Pessoal</h4>
+                  </div>
+                  <textarea 
+                    value={insightDoDia}
+                    onChange={(e) => setInsightDoDia(e.target.value)}
+                    placeholder="Qual foi o seu maior aprendizado de hoje?"
+                    className="w-full bg-transparent border-none p-0 text-amber-900/70 text-sm italic focus:ring-0 resize-none h-16"
+                  />
+                </div>
               </div>
             </div>
           </motion.div>
@@ -707,70 +739,6 @@ function TabButton({ active, onClick, icon: Icon, label }: { active: boolean, on
       <Icon className={cn("w-4 h-4", active ? "text-[#38a89d]" : "text-zinc-400")} />
       {label}
     </button>
-  );
-}
-
-function PeriodSection({ title, tasks, onAdd, onUpdate, onToggle, onRemove, color }: any) {
-  const colors: any = {
-    amber: "text-amber-500 bg-amber-50",
-    blue: "text-blue-500 bg-blue-50",
-    indigo: "text-indigo-500 bg-indigo-50"
-  };
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className={cn("w-2 h-2 rounded-full", color === 'amber' ? "bg-amber-500" : color === 'blue' ? "bg-blue-500" : "bg-indigo-500")} />
-          <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-widest">{title}</h4>
-        </div>
-        <button 
-          onClick={onAdd}
-          className="p-1 hover:bg-zinc-50 rounded-lg transition-all"
-        >
-          <Plus className="w-4 h-4 text-zinc-300" />
-        </button>
-      </div>
-      <div className="space-y-2">
-        {tasks.map((task: any) => (
-          <div key={task.id} className="flex items-center gap-3 group">
-            <button 
-              onClick={() => onToggle(task.id)}
-              className={cn(
-                "w-5 h-5 rounded-lg border-2 flex items-center justify-center transition-all",
-                task.completed ? "bg-emerald-500 border-emerald-500" : "border-zinc-200"
-              )}
-            >
-              {task.completed && <CheckSquare className="w-3 h-3 text-white" />}
-            </button>
-            <input 
-              type="text"
-              value={task.text}
-              onChange={(e) => onUpdate(task.id, e.target.value)}
-              placeholder="O que fazer?"
-              className={cn(
-                "flex-1 bg-transparent border-none text-sm focus:ring-0 p-0 transition-all w-full",
-                task.completed ? "text-zinc-300 line-through" : "text-zinc-600"
-              )}
-            />
-            <button 
-              onClick={() => onRemove(task.id)}
-              className="opacity-100 sm:opacity-0 group-hover:opacity-100 p-1 hover:bg-red-50 text-red-500 rounded-lg transition-all flex-shrink-0"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
-          </div>
-        ))}
-        {tasks.length === 0 && (
-          <button 
-            onClick={onAdd}
-            className="w-full py-3 border-2 border-dashed border-zinc-100 rounded-2xl text-[10px] font-bold text-zinc-300 uppercase tracking-widest hover:border-zinc-200 hover:text-zinc-400 transition-all"
-          >
-            Adicionar tarefa para {title.toLowerCase()}
-          </button>
-        )}
-      </div>
-    </div>
   );
 }
 

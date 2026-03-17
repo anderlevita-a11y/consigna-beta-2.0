@@ -10,10 +10,18 @@ import {
   AlertCircle,
   FileText,
   Save,
-  Shield
+  Shield,
+  Lightbulb,
+  Trash2,
+  Calendar,
+  X,
+  Eye,
+  Check,
+  XCircle,
+  Clock
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { Profile, AppLegalSettings } from '../types';
+import { Profile, AppLegalSettings, DailyInsight, PaymentReceipt } from '../types';
 import { cn, formatError } from '../lib/utils';
 import { ConfirmationModal } from './ConfirmationModal';
 import { useNotifications } from './NotificationCenter';
@@ -26,11 +34,29 @@ export function AdminPanel({ currentProfile }: { currentProfile: Profile | null 
   const [centralProducts, setCentralProducts] = useState<any[]>([]);
   const [loadingCentral, setLoadingCentral] = useState(false);
   const [schemaErrors, setSchemaErrors] = useState<string[]>([]);
-  const [activeSection, setActiveSection] = useState<'users' | 'legal'>('users');
+  const [activeSection, setActiveSection] = useState<'users' | 'legal' | 'insights' | 'receipts'>('users');
   
-  // Legal Settings State
+  // Receipts State
+  const [receipts, setReceipts] = useState<PaymentReceipt[]>([]);
+  const [loadingReceipts, setLoadingReceipts] = useState(false);
   const [legalSettings, setLegalSettings] = useState<AppLegalSettings | null>(null);
   const [savingLegal, setSavingLegal] = useState(false);
+
+  // Daily Insights State
+  const [dailyInsights, setDailyInsights] = useState<DailyInsight[]>([]);
+  const [insightText, setInsightText] = useState('');
+  const [savingInsights, setSavingInsights] = useState(false);
+  const [expirationModal, setExpirationModal] = useState<{
+    isOpen: boolean;
+    userId: string;
+    userName: string;
+    paymentDate: string;
+  }>({
+    isOpen: false,
+    userId: '',
+    userName: '',
+    paymentDate: new Date().toISOString().split('T')[0]
+  });
   const { addNotification } = useNotifications();
 
   // Confirmation Modal State
@@ -52,6 +78,8 @@ export function AdminPanel({ currentProfile }: { currentProfile: Profile | null 
     fetchData();
     fetchCentralProducts();
     fetchLegalSettings();
+    fetchDailyInsights();
+    fetchReceipts();
 
     // Real-time subscriptions for immediate updates
     const profilesSubscription = supabase
@@ -63,6 +91,39 @@ export function AdminPanel({ currentProfile }: { currentProfile: Profile | null 
       profilesSubscription.unsubscribe();
     };
   }, []);
+
+  async function fetchReceipts() {
+    setLoadingReceipts(true);
+    const { data, error } = await supabase
+      .from('payment_receipts')
+      .select('*')
+      .order('created_at', { ascending: false });
+    
+    if (data) setReceipts(data);
+    setLoadingReceipts(false);
+  }
+
+  async function handleUpdateReceiptStatus(id: string, status: 'approved' | 'rejected') {
+    const { error } = await supabase
+      .from('payment_receipts')
+      .update({ status })
+      .eq('id', id);
+
+    if (error) {
+      addNotification({
+        type: 'error',
+        title: 'Erro ao atualizar',
+        message: formatError(error)
+      });
+    } else {
+      addNotification({
+        type: 'success',
+        title: 'Status Atualizado',
+        message: `Comprovante ${status === 'approved' ? 'aprovado' : 'recusado'} com sucesso.`
+      });
+      fetchReceipts();
+    }
+  }
 
   async function fetchData() {
     const { data, error } = await supabase.from('profiles').select('*').order('nome');
@@ -98,6 +159,106 @@ export function AdminPanel({ currentProfile }: { currentProfile: Profile | null 
     setSchemaErrors(errors);
     setLoading(false);
   }
+
+  async function fetchDailyInsights() {
+    try {
+      const { data, error } = await supabase
+        .from('daily_insights')
+        .select('*')
+        .order('order_index', { ascending: true });
+      
+      if (error) throw error;
+      setDailyInsights(data || []);
+    } catch (err) {
+      console.error('Error fetching daily insights:', err);
+    }
+  }
+
+  const handleSaveInsights = async () => {
+    if (!insightText.trim()) {
+      addNotification({
+        type: 'error',
+        title: 'Erro',
+        message: 'Por favor, insira o texto das dicas.'
+      });
+      return;
+    }
+
+    setSavingInsights(true);
+    try {
+      // Parse the text into items
+      // Regex to match items starting with emoji numbers
+      const items = insightText.match(/\d+️⃣[\s\S]*?(?=\d+️⃣|$)/g);
+      
+      if (!items || items.length === 0) {
+        throw new Error('Nenhum item válido encontrado. Certifique-se de usar o formato correto (ex: 1️⃣ Título...)');
+      }
+
+      const parsedInsights = items.map((content, index) => ({
+        content: content.trim(),
+        order_index: index
+      }));
+
+      // Insert into database
+      const { error } = await supabase
+        .from('daily_insights')
+        .insert(parsedInsights);
+
+      if (error) throw error;
+
+      addNotification({
+        type: 'success',
+        title: 'Sucesso',
+        message: `${parsedInsights.length} dicas adicionadas com sucesso!`
+      });
+      setInsightText('');
+      fetchDailyInsights();
+    } catch (err: any) {
+      console.error('Error saving insights:', err);
+      addNotification({
+        type: 'error',
+        title: 'Erro ao salvar dicas',
+        message: formatError(err)
+      });
+    } finally {
+      setSavingInsights(false);
+    }
+  };
+
+  const handleClearInsights = () => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Limpar Dicas',
+      message: 'Deseja excluir todas as dicas do banco de dados? Esta ação não pode ser desfeita.',
+      variant: 'danger',
+      onConfirm: async () => {
+        try {
+          const { error } = await supabase
+            .from('daily_insights')
+            .delete()
+            .neq('id', '00000000-0000-0000-0000-000000000000'); // Delete all
+
+          if (error) throw error;
+
+          addNotification({
+            type: 'success',
+            title: 'Sucesso',
+            message: 'Banco de dicas limpo com sucesso!'
+          });
+          fetchDailyInsights();
+        } catch (err: any) {
+          console.error('Error clearing insights:', err);
+          addNotification({
+            type: 'error',
+            title: 'Erro ao limpar dicas',
+            message: formatError(err)
+          });
+        } finally {
+          setConfirmModal(prev => ({ ...prev, isOpen: false }));
+        }
+      }
+    });
+  };
 
   async function initializeLegalSettings() {
     const defaultPrivacy = `Política de Privacidade | Consigna Beauty (Versão Beta)
@@ -383,6 +544,64 @@ Data da última atualização: 09 de marco. Responsável Legal: Anderson Rodrigu
     });
   };
 
+  const handleUpdateExpiration = async () => {
+    if (!expirationModal.userId) return;
+    
+    setLoading(true);
+    try {
+      const payDate = new Date(expirationModal.paymentDate + 'T12:00:00');
+      let next8th = new Date(payDate.getFullYear(), payDate.getMonth(), 8, 12, 0, 0);
+      
+      if (payDate.getDate() >= 8) {
+        next8th.setMonth(next8th.getMonth() + 1);
+      }
+      
+      const { error } = await supabase
+        .from('profiles')
+        .update({ 
+          vencimento: next8th.toISOString(),
+          status_pagamento: 'PAGO' // Assume it becomes PAGO when expiration is set
+        })
+        .eq('id', expirationModal.userId);
+
+      if (error) throw error;
+      
+      addNotification({
+        type: 'success',
+        title: 'Vencimento Atualizado',
+        message: `Vencimento de ${expirationModal.userName} definido para ${next8th.toLocaleDateString()}.`
+      });
+      
+      setExpirationModal(prev => ({ ...prev, isOpen: false }));
+      await fetchData();
+    } catch (err: any) {
+      console.error(err);
+      addNotification({
+        type: 'error',
+        title: 'Erro ao atualizar vencimento',
+        message: formatError(err)
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const calculateProRated = (planPrice: number, paymentDate: string) => {
+    const payDate = new Date(paymentDate + 'T12:00:00');
+    let next8th = new Date(payDate.getFullYear(), payDate.getMonth(), 8, 12, 0, 0);
+    
+    if (payDate.getDate() >= 8) {
+      next8th.setMonth(next8th.getMonth() + 1);
+    }
+    
+    const diffTime = next8th.getTime() - payDate.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    
+    // Standard month is 30 days for calculation
+    const dailyRate = planPrice / 30;
+    return (dailyRate * diffDays).toFixed(2);
+  };
+
   const toggleBlockUser = async (userId: string, currentStatus: boolean) => {
     const { error } = await supabase
       .from('profiles')
@@ -533,6 +752,20 @@ CREATE TABLE IF NOT EXISTS app_legal_settings (
   updated_at TIMESTAMPTZ DEFAULT now()
 );
 
+-- Criar tabela smart_notepad se não existir
+CREATE TABLE IF NOT EXISTS smart_notepad (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  data JSONB NOT NULL DEFAULT '{}'::jsonb,
+  updated_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE(user_id)
+);
+
+-- Habilitar RLS para smart_notepad
+ALTER TABLE smart_notepad ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Usuários gerenciam seu próprio notepad" ON smart_notepad;
+CREATE POLICY "Usuários gerenciam seu próprio notepad" ON smart_notepad FOR ALL TO authenticated USING (auth.uid() = user_id);
+
 -- Habilitar RLS e criar políticas para app_legal_settings
 ALTER TABLE app_legal_settings ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Permitir leitura para todos" ON app_legal_settings;
@@ -605,6 +838,23 @@ CREATE POLICY "Qualquer um pode ler comunicados" ON announcements FOR SELECT TO 
 DROP POLICY IF EXISTS "Admins gerenciam comunicados" ON announcements;
 CREATE POLICY "Admins gerenciam comunicados" ON announcements FOR ALL TO authenticated USING (
   EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND (role = 'admin' OR email IN ('anderlevita@gmail.com')))
+);
+
+-- Criar tabela daily_insights se não existir
+CREATE TABLE IF NOT EXISTS daily_insights (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  content TEXT NOT NULL,
+  order_index INTEGER NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- Habilitar RLS e criar políticas
+ALTER TABLE daily_insights ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Permitir leitura para todos" ON daily_insights;
+CREATE POLICY "Permitir leitura para todos" ON daily_insights FOR SELECT TO authenticated USING (true);
+DROP POLICY IF EXISTS "Permitir tudo para admins" ON daily_insights;
+CREATE POLICY "Permitir tudo para admins" ON daily_insights FOR ALL TO authenticated USING (
+  EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND (role = 'admin' OR email IN ('anderlevita@gmail.com')))
 );`}
             </pre>
           </div>
@@ -633,9 +883,207 @@ CREATE POLICY "Admins gerenciam comunicados" ON announcements FOR ALL TO authent
           <FileText className="w-4 h-4" />
           Termos e Privacidade
         </button>
+        <button
+          onClick={() => setActiveSection('insights')}
+          className={cn(
+            "flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-xs font-bold uppercase tracking-widest transition-all",
+            activeSection === 'insights' ? "bg-emerald-600 text-white shadow-lg shadow-emerald-500/20" : "text-zinc-400 hover:text-zinc-600"
+          )}
+        >
+          <Lightbulb className="w-4 h-4" />
+          Insights
+        </button>
+        <button
+          onClick={() => setActiveSection('receipts')}
+          className={cn(
+            "flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-xs font-bold uppercase tracking-widest transition-all",
+            activeSection === 'receipts' ? "bg-emerald-600 text-white shadow-lg shadow-emerald-500/20" : "text-zinc-400 hover:text-zinc-600"
+          )}
+        >
+          <FileText className="w-4 h-4" />
+          Comprovantes
+        </button>
       </div>
 
-      {activeSection === 'users' ? (
+      {activeSection === 'receipts' && (
+        <div className="space-y-6">
+          <div className="flex items-center justify-between px-2">
+            <div className="flex items-center gap-2">
+              <FileText className="w-4 h-4 text-emerald-600" />
+              <h3 className="font-bold text-zinc-800 text-sm uppercase tracking-wider">Central de Comprovantes</h3>
+            </div>
+            <button 
+              onClick={fetchReceipts}
+              className="p-2 hover:bg-zinc-100 rounded-lg text-zinc-400 transition-colors"
+            >
+              <Loader2 className={cn("w-4 h-4", loadingReceipts && "animate-spin")} />
+            </button>
+          </div>
+
+          <div className="bg-white border border-zinc-100 rounded-2xl overflow-hidden shadow-sm">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse min-w-[800px]">
+                <thead>
+                  <tr className="bg-zinc-50/50 border-b border-zinc-100">
+                    <th className="px-6 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Usuário</th>
+                    <th className="px-6 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Data de Envio</th>
+                    <th className="px-6 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest text-center">Status</th>
+                    <th className="px-6 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest text-right">Ações</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-50">
+                  {receipts.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="px-6 py-12 text-center">
+                        <div className="flex flex-col items-center gap-2 text-zinc-400">
+                          <Clock className="w-8 h-8 opacity-20" />
+                          <p className="text-xs font-medium">Nenhum comprovante recebido ainda.</p>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : (
+                    receipts.map((receipt) => (
+                      <tr key={receipt.id} className="hover:bg-zinc-50/30 transition-colors">
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-full bg-zinc-100 flex items-center justify-center text-[10px] font-bold text-zinc-400">
+                              {receipt.user_name?.substring(0, 2).toUpperCase() || '??'}
+                            </div>
+                            <span className="text-sm font-bold text-zinc-800">{receipt.user_name}</span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className="text-xs text-zinc-600">
+                            {new Date(receipt.created_at).toLocaleDateString()} às {new Date(receipt.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-center">
+                          <span className={cn(
+                            "text-[9px] px-2 py-1 rounded-lg uppercase font-bold tracking-widest",
+                            receipt.status === 'approved' ? "bg-emerald-100 text-emerald-700" :
+                            receipt.status === 'rejected' ? "bg-red-100 text-red-700" :
+                            "bg-amber-100 text-amber-700"
+                          )}>
+                            {receipt.status === 'approved' ? 'Aprovado' : 
+                             receipt.status === 'rejected' ? 'Recusado' : 
+                             'Pendente'}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex items-center justify-end gap-2">
+                            <a 
+                              href={receipt.receipt_url} 
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              className="p-2 bg-zinc-50 text-zinc-600 hover:bg-zinc-100 rounded-lg transition-all"
+                              title="Visualizar Comprovante"
+                            >
+                              <Eye className="w-4 h-4" />
+                            </a>
+                            {receipt.status === 'pending' && (
+                              <>
+                                <button
+                                  onClick={() => handleUpdateReceiptStatus(receipt.id, 'approved')}
+                                  className="p-2 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 rounded-lg transition-all"
+                                  title="Aprovar"
+                                >
+                                  <Check className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={() => handleUpdateReceiptStatus(receipt.id, 'rejected')}
+                                  className="p-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg transition-all"
+                                  title="Recusar"
+                                >
+                                  <XCircle className="w-4 h-4" />
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeSection === 'insights' && (
+        <div className="space-y-6">
+          <div className="flex items-center justify-between px-2">
+            <div className="flex items-center gap-2">
+              <Lightbulb className="w-4 h-4 text-emerald-600" />
+              <h3 className="font-bold text-zinc-800 text-sm uppercase tracking-wider">Insights Diários</h3>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-zinc-500 bg-zinc-100 px-3 py-1 rounded-full">
+                {dailyInsights.length} Dicas no Banco
+              </span>
+              {dailyInsights.length > 0 && (
+                <button
+                  onClick={handleClearInsights}
+                  className="flex items-center gap-2 px-3 py-1.5 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg text-[10px] font-bold transition-all"
+                >
+                  <Trash2 className="w-3 h-3" />
+                  LIMPAR TUDO
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="bg-white border border-zinc-100 rounded-2xl p-6 shadow-sm space-y-4">
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider">Adicionar Novas Dicas</label>
+              <p className="text-[10px] text-zinc-400">Cole a lista de dicas abaixo. Cada item deve começar com um número emoji (ex: 1️⃣).</p>
+              <textarea
+                value={insightText}
+                onChange={(e) => setInsightText(e.target.value)}
+                placeholder="Cole aqui a lista de dicas..."
+                className="w-full h-64 bg-zinc-50 border border-zinc-100 rounded-xl p-4 text-sm focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all resize-none font-mono"
+              />
+            </div>
+
+            <button
+              onClick={handleSaveInsights}
+              disabled={savingInsights || !insightText.trim()}
+              className="w-full flex items-center justify-center gap-2 py-4 bg-emerald-600 text-white rounded-xl font-bold uppercase tracking-widest text-xs hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-500/20 disabled:opacity-50 disabled:shadow-none"
+            >
+              {savingInsights ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Save className="w-4 h-4" />
+              )}
+              Processar e Salvar Dicas
+            </button>
+          </div>
+
+          {dailyInsights.length > 0 && (
+            <div className="bg-white border border-zinc-100 rounded-2xl overflow-hidden shadow-sm">
+              <div className="p-4 bg-zinc-50/50 border-b border-zinc-100">
+                <h4 className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Visualização das Dicas</h4>
+              </div>
+              <div className="divide-y divide-zinc-50 max-h-[400px] overflow-y-auto">
+                {dailyInsights.map((insight) => (
+                  <div key={insight.id} className="p-4 hover:bg-zinc-50/30 transition-colors">
+                    <div className="flex items-start gap-3">
+                      <span className="flex-shrink-0 w-6 h-6 bg-emerald-50 text-emerald-600 rounded-lg flex items-center justify-center text-[10px] font-bold">
+                        {insight.order_index + 1}
+                      </span>
+                      <pre className="text-xs text-zinc-600 whitespace-pre-wrap font-sans">
+                        {insight.content}
+                      </pre>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {activeSection === 'users' && (
         /* Users Section */
         <div className="space-y-4">
           <div className="flex items-center gap-2 px-2">
@@ -721,9 +1169,14 @@ CREATE POLICY "Admins gerenciam comunicados" ON announcements FOR ALL TO authent
                             <>
                               {user.status_pagamento !== 'PENDENTE' && (
                                 <button 
-                                  onClick={() => updateUserStatus(user.id, 'PENDENTE')}
+                                  onClick={() => setExpirationModal({
+                                    isOpen: true,
+                                    userId: user.id,
+                                    userName: user.nome || user.email || '',
+                                    paymentDate: new Date().toISOString().split('T')[0]
+                                  })}
                                   className="flex items-center gap-2 px-3 py-1.5 bg-zinc-50 text-zinc-400 hover:bg-zinc-100 rounded-lg text-[10px] font-bold transition-all"
-                                  title="Resetar para Pendente"
+                                  title="Gerenciar Vencimento"
                                 >
                                   RESET
                                 </button>
@@ -762,16 +1215,16 @@ CREATE POLICY "Admins gerenciam comunicados" ON announcements FOR ALL TO authent
                                 PAGO
                               </button>
                               <button 
-                                onClick={() => updateUserStatus(user.id, 'STARTER')}
+                                onClick={() => updateUserStatus(user.id, 'PRO')}
                                 className={cn(
                                   "flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all",
-                                  user.status_pagamento === 'STARTER'
-                                    ? "bg-amber-500 text-white" 
-                                    : "bg-amber-50 text-amber-600 hover:bg-amber-100"
+                                  user.status_pagamento === 'PRO'
+                                    ? "bg-orange-500 text-white" 
+                                    : "bg-orange-50 text-orange-600 hover:bg-orange-100"
                                 )}
                               >
                                 <ShieldCheck className="w-3.5 h-3.5" />
-                                STARTER
+                                PRO
                               </button>
                             </>
                           )}
@@ -796,7 +1249,9 @@ CREATE POLICY "Admins gerenciam comunicados" ON announcements FOR ALL TO authent
             </div>
           </div>
         </div>
-      ) : (
+      )}
+
+      {activeSection === 'legal' && (
         /* Legal Section */
         <div className="space-y-6">
           <div className="flex items-center justify-between px-2">
@@ -865,6 +1320,75 @@ CREATE POLICY "Admins gerenciam comunicados" ON announcements FOR ALL TO authent
         onConfirm={confirmModal.onConfirm}
         onCancel={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
       />
+
+      {/* Expiration Management Modal */}
+      {expirationModal.isOpen && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="bg-white w-full max-w-md rounded-[32px] shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-300">
+            <div className="p-6 border-b border-zinc-100 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-3 rounded-2xl bg-emerald-50 text-emerald-500">
+                  <Calendar className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-zinc-800 tracking-tight">Gerenciar Vencimento</h3>
+                  <p className="text-sm text-zinc-500">{expirationModal.userName}</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setExpirationModal(prev => ({ ...prev, isOpen: false }))}
+                className="p-2 hover:bg-zinc-100 rounded-xl transition-colors text-zinc-400"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+            
+            <div className="p-6 space-y-6">
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-zinc-400 uppercase tracking-widest">Data de Pagamento</label>
+                <input 
+                  type="date"
+                  value={expirationModal.paymentDate}
+                  onChange={(e) => setExpirationModal(prev => ({ ...prev, paymentDate: e.target.value }))}
+                  className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3 text-zinc-800 focus:border-emerald-500 outline-none transition-colors"
+                />
+              </div>
+
+              <div className="bg-zinc-50 rounded-2xl p-4 border border-zinc-100 space-y-4">
+                <h4 className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Cálculo Proporcional (Vencimento dia 08)</h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-white p-3 rounded-xl border border-zinc-100">
+                    <p className="text-[10px] text-zinc-400 font-bold uppercase">Plano Starter</p>
+                    <p className="text-lg font-black text-purple-600">R$ {calculateProRated(39.99, expirationModal.paymentDate)}</p>
+                  </div>
+                  <div className="bg-white p-3 rounded-xl border border-zinc-100">
+                    <p className="text-[10px] text-zinc-400 font-bold uppercase">Plano Pro</p>
+                    <p className="text-lg font-black text-orange-600">R$ {calculateProRated(79.99, expirationModal.paymentDate)}</p>
+                  </div>
+                </div>
+                <p className="text-[10px] text-zinc-400 italic">
+                  * O vencimento será definido automaticamente para o próximo dia 08.
+                </p>
+              </div>
+            </div>
+            
+            <div className="p-6 border-t border-zinc-100 flex gap-3">
+              <button
+                onClick={() => setExpirationModal(prev => ({ ...prev, isOpen: false }))}
+                className="flex-1 py-3 rounded-xl font-bold text-zinc-500 hover:bg-zinc-100 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleUpdateExpiration}
+                className="flex-1 py-3 bg-emerald-600 text-white rounded-xl font-bold shadow-lg shadow-emerald-500/20 hover:bg-emerald-700 transition-all"
+              >
+                Confirmar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

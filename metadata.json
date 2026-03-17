@@ -1,5 +1,5 @@
 {
   "name": "Consigna Pro",
-  "description": "Sistema avançado de gestão de vendas consignadas com integração Supabase.",
+  "description": "Sistema avançado de gestão de vendas consignadas com SmartNotepad, Insights Diários e integração Supabase.",
   "requestFramePermissions": ["geolocation"]
 }

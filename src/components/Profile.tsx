@@ -16,10 +16,12 @@ import {
   Eye,
   Trash2,
   X,
-  ShieldAlert
+  ShieldAlert,
+  Sparkles,
+  Send
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { Profile } from '../types';
+import { Profile, PaymentReceipt } from '../types';
 import { cn, formatError } from '../lib/utils';
 import { loadStripe } from '@stripe/stripe-js';
 import { useNotifications } from './NotificationCenter';
@@ -39,6 +41,8 @@ export function ProfileScreen() {
   const [uploading, setUploading] = useState(false);
   const [showViewer, setShowViewer] = useState(false);
   const [profile, setProfile] = useState<any>(null);
+  const [receipts, setReceipts] = useState<PaymentReceipt[]>([]);
+  const [uploadingReceipt, setUploadingReceipt] = useState(false);
   const [upgrading, setUpgrading] = useState(false);
   const [legalSettings, setLegalSettings] = useState<any>(null);
   const [showLegalModal, setShowLegalModal] = useState(false);
@@ -59,6 +63,16 @@ export function ProfileScreen() {
   });
 
   useEffect(() => {
+    async function fetchReceipts(userId: string) {
+      const { data, error } = await supabase
+        .from('payment_receipts')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false });
+      
+      if (data) setReceipts(data);
+    }
+
     async function fetchProfile() {
       const { data: { session } } = await supabase.auth.getSession();
     const user = session?.user;
@@ -69,7 +83,10 @@ export function ProfileScreen() {
           .eq('id', user.id)
           .single();
         
-        if (data) setProfile(data);
+        if (data) {
+          setProfile(data);
+          fetchReceipts(user.id);
+        }
 
         // Fetch legal settings for the footer links
         const { data: legalData } = await supabase
@@ -82,6 +99,60 @@ export function ProfileScreen() {
     }
     fetchProfile();
   }, []);
+
+  const handleUploadReceipt = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !profile) return;
+
+    setUploadingReceipt(true);
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${profile.id}/${Date.now()}.${fileExt}`;
+      const { error: uploadError } = await supabase.storage
+        .from('receipts')
+        .upload(fileName, file);
+
+      if (uploadError) throw uploadError;
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('receipts')
+        .getPublicUrl(fileName);
+
+      const { error: insertError } = await supabase
+        .from('payment_receipts')
+        .insert({
+          user_id: profile.id,
+          user_name: profile.nome || profile.email,
+          receipt_url: publicUrl,
+          status: 'pending'
+        });
+
+      if (insertError) throw insertError;
+
+      addNotification({
+        type: 'success',
+        title: 'Comprovante Enviado',
+        message: 'Seu comprovante foi enviado com sucesso e será analisado pelo administrador.'
+      });
+
+      // Refresh receipts
+      const { data } = await supabase
+        .from('payment_receipts')
+        .select('*')
+        .eq('user_id', profile.id)
+        .order('created_at', { ascending: false });
+      if (data) setReceipts(data);
+    } catch (err: any) {
+      console.error('Error uploading receipt:', err);
+      addNotification({
+        type: 'error',
+        title: 'Erro no upload',
+        message: formatError(err)
+      });
+    } finally {
+      setUploadingReceipt(false);
+    }
+  };
 
   const handleUpgrade = async () => {
     setUpgrading(true);
@@ -561,7 +632,156 @@ export function ProfileScreen() {
                   </span>
                 )}
               </h4>
-              {profile?.vencimento && <p className="text-xs text-zinc-500">Vencimento: {new Date(profile.vencimento).toLocaleDateString()}</p>}
+              {profile?.vencimento && (
+                <div className="mt-2 p-3 bg-white border border-zinc-100 rounded-xl shadow-sm">
+                  <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Data de Vencimento</p>
+                  <p className="text-sm font-bold text-zinc-800">{new Date(profile.vencimento).toLocaleDateString()}</p>
+                </div>
+              )}
+
+              {/* Pro-rated Table */}
+              <div className="mt-4 p-4 bg-white border border-zinc-100 rounded-2xl shadow-sm space-y-3">
+                <h5 className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Valor Proporcional (Até dia 08)</h5>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="p-2 bg-purple-50 rounded-lg border border-purple-100">
+                    <p className="text-[9px] text-purple-600 font-bold uppercase">Starter</p>
+                    <p className="text-sm font-black text-purple-900">R$ {(() => {
+                      const payDate = new Date();
+                      let next8th = new Date(payDate.getFullYear(), payDate.getMonth(), 8, 12, 0, 0);
+                      if (payDate.getDate() >= 8) next8th.setMonth(next8th.getMonth() + 1);
+                      const diffTime = next8th.getTime() - payDate.getTime();
+                      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                      return ((39.99 / 30) * diffDays).toFixed(2);
+                    })()}</p>
+                  </div>
+                  <div className="p-2 bg-orange-50 rounded-lg border border-orange-100">
+                    <p className="text-[9px] text-orange-600 font-bold uppercase">Pro</p>
+                    <p className="text-sm font-black text-orange-900">R$ {(() => {
+                      const payDate = new Date();
+                      let next8th = new Date(payDate.getFullYear(), payDate.getMonth(), 8, 12, 0, 0);
+                      if (payDate.getDate() >= 8) next8th.setMonth(next8th.getMonth() + 1);
+                      const diffTime = next8th.getTime() - payDate.getTime();
+                      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                      return ((79.99 / 30) * diffDays).toFixed(2);
+                    })()}</p>
+                  </div>
+                </div>
+                <p className="text-[9px] text-zinc-400 italic">
+                  * Valores calculados com base no uso proporcional até o próximo fechamento (dia 08).
+                </p>
+              </div>
+
+              {/* Receipt Upload Section */}
+              <div className="mt-6 space-y-4">
+                <div className="relative">
+                  <div className="absolute inset-0 flex items-center">
+                    <div className="w-full border-t border-zinc-200"></div>
+                  </div>
+                  <div className="relative flex justify-center text-[10px] uppercase tracking-widest font-bold">
+                    <span className="bg-zinc-50 px-4 text-zinc-400">Pagamento e Comprovante</span>
+                  </div>
+                </div>
+
+                <div className="bg-white border border-zinc-100 rounded-2xl p-6 shadow-sm space-y-6">
+                  <div className="flex flex-col items-center text-center space-y-4">
+                    <div className="w-full max-w-[280px] aspect-[3/4] bg-zinc-50 rounded-2xl border border-zinc-100 overflow-hidden flex items-center justify-center relative group">
+                      <img 
+                        src="https://hxvgjlyibrksarogqoge.supabase.co/storage/v1/object/public/receipts/pague%20pix.png" 
+                        alt="QR Code PIX NuBank" 
+                        className="w-full h-full object-contain p-4"
+                        referrerPolicy="no-referrer"
+                      />
+                      <div className="absolute inset-0 bg-black/5 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                        <p className="text-[10px] font-bold text-zinc-500 bg-white/90 px-3 py-1.5 rounded-full shadow-sm">Escaneie para Pagar</p>
+                      </div>
+                    </div>
+                    
+                    <div className="space-y-1">
+                      <p className="text-sm font-bold text-zinc-800">Pague via PIX</p>
+                      <p className="text-[10px] text-zinc-500 uppercase tracking-widest leading-relaxed">
+                        Escaneie o código acima ou use a chave CNPJ:<br/>
+                        <strong className="text-zinc-800">26.384.051/0001-58</strong>
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    <label className="block">
+                      <span className="sr-only">Escolher arquivo</span>
+                      <div className={cn(
+                        "w-full flex flex-col items-center justify-center gap-3 py-8 border-2 border-dashed rounded-2xl transition-all cursor-pointer",
+                        uploadingReceipt ? "bg-zinc-50 border-zinc-200" : "bg-emerald-50/30 border-emerald-200 hover:bg-emerald-50/50 hover:border-emerald-300"
+                      )}>
+                        {uploadingReceipt ? (
+                          <Loader2 className="w-8 h-8 text-emerald-500 animate-spin" />
+                        ) : (
+                          <Upload className="w-8 h-8 text-emerald-500" />
+                        )}
+                        <div className="text-center">
+                          <p className="text-sm font-bold text-emerald-700">
+                            {uploadingReceipt ? 'Enviando...' : 'Enviar Comprovante'}
+                          </p>
+                          <p className="text-[10px] text-emerald-600 font-medium">PNG, JPG ou PDF até 5MB</p>
+                        </div>
+                        <input 
+                          type="file" 
+                          className="hidden" 
+                          accept="image/*,.pdf"
+                          onChange={handleUploadReceipt}
+                          disabled={uploadingReceipt}
+                        />
+                      </div>
+                    </label>
+                  </div>
+                </div>
+
+                {/* List of Receipts */}
+                {receipts.length > 0 && (
+                  <div className="space-y-3">
+                    <h5 className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest px-2">Meus Comprovantes Enviados</h5>
+                    <div className="grid grid-cols-1 gap-2">
+                      {receipts.map((receipt) => (
+                        <div key={receipt.id} className="bg-white border border-zinc-100 rounded-xl p-3 flex items-center justify-between shadow-sm">
+                          <div className="flex items-center gap-3">
+                            <div className={cn(
+                              "w-8 h-8 rounded-lg flex items-center justify-center",
+                              receipt.status === 'approved' ? "bg-emerald-50 text-emerald-600" :
+                              receipt.status === 'rejected' ? "bg-red-50 text-red-600" :
+                              "bg-amber-50 text-amber-600"
+                            )}>
+                              <FileText className="w-4 h-4" />
+                            </div>
+                            <div>
+                              <p className="text-xs font-bold text-zinc-800">
+                                {new Date(receipt.created_at).toLocaleDateString()} às {new Date(receipt.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </p>
+                              <p className={cn(
+                                "text-[9px] font-bold uppercase tracking-widest",
+                                receipt.status === 'approved' ? "text-emerald-500" :
+                                receipt.status === 'rejected' ? "text-red-500" :
+                                "text-amber-500"
+                              )}>
+                                {receipt.status === 'approved' ? 'Aprovado' : 
+                                 receipt.status === 'rejected' ? 'Recusado' : 
+                                 'Em Análise'}
+                              </p>
+                            </div>
+                          </div>
+                          <a 
+                            href={receipt.receipt_url} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="p-2 hover:bg-zinc-50 rounded-lg text-zinc-400 transition-colors"
+                          >
+                            <Eye className="w-4 h-4" />
+                          </a>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {isTrial && (
                 <p className={cn("text-xs font-bold mt-1", diffDays > 1 ? "text-blue-600" : (diffDays === 1 ? "text-amber-600" : "text-red-600"))}>
                   {diffDays > 1 ? `Faltam ${diffDays} dias para o fim do teste` : (diffDays === 1 ? 'Termina amanhã' : 'Teste expirado')}
@@ -581,58 +801,98 @@ export function ProfileScreen() {
               />
               <p className="text-[10px] text-zinc-400">O seu acesso é liberado manualmente pelo administrador ou via assinatura Starter (R$ 39,99/mês).</p>
               
-              {profile?.role !== 'admin' && !['pro', 'starter'].includes(profile?.plano_tipo) && (
-                <div className="mt-4 space-y-6">
-                  <div className="flex justify-center">
-                    <stripe-buy-button
-                      buy-button-id="buy_btn_1TAnyS0js7klPnUOyUiRC4VP"
-                      publishable-key="pk_live_51T5KER0js7klPnUOAaYz29LZPcJuCQTbm8yIhpjJKsTl7pMNOE6th3SptDjB0RqkgCYMcywqJBAK8umAgpK8JVPk00EZZHqUUp"
-                      client-reference-id={profile?.id}
-                    >
-                    </stripe-buy-button>
-                  </div>
-
+              {(profile?.role === 'admin' || !['pro', 'starter'].includes(profile?.plano_tipo)) && (
+                <div className="mt-8 space-y-8">
                   <div className="relative">
                     <div className="absolute inset-0 flex items-center">
                       <div className="w-full border-t border-zinc-200"></div>
                     </div>
                     <div className="relative flex justify-center text-[10px] uppercase tracking-widest font-bold">
-                      <span className="bg-zinc-50 px-4 text-zinc-400">Ou Plano Distribuidor</span>
+                      <span className="bg-zinc-50 px-4 text-zinc-400">Escolha seu Plano</span>
                     </div>
                   </div>
 
-                  <div className="bg-purple-50 border border-purple-100 rounded-2xl p-6 space-y-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-xl bg-purple-100 flex items-center justify-center text-purple-600">
-                        <Crown className="w-6 h-6" />
-                      </div>
-                      <div>
-                        <h4 className="font-bold text-purple-900">Upgrade Pro Distribuidor</h4>
-                        <p className="text-xs text-purple-600">Acesso exclusivo para distribuidores</p>
-                      </div>
-                    </div>
-                    
-                    <div className="flex items-baseline gap-1">
-                      <span className="text-sm font-bold text-purple-900">R$</span>
-                      <span className="text-3xl font-black text-purple-900 tracking-tight">30,00</span>
-                      <span className="text-xs text-purple-500 font-medium">/mês</span>
-                    </div>
+                  <div className="grid grid-cols-1 gap-6">
+                    {/* Plano Starter - Purple */}
+                    {profile?.role === 'admin' && (
+                      <div className="bg-purple-50 border border-purple-100 rounded-[32px] p-8 space-y-6 shadow-sm transition-all hover:shadow-md">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <div className="w-12 h-12 rounded-2xl bg-purple-100 flex items-center justify-center text-purple-600">
+                              <Sparkles className="w-6 h-6" />
+                            </div>
+                            <div>
+                              <h4 className="font-bold text-purple-900">Plano Starter</h4>
+                              <p className="text-xs text-purple-600">Liberação automática via Stripe</p>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <div className="flex items-baseline justify-end gap-1">
+                              <span className="text-sm font-bold text-purple-900">R$</span>
+                              <span className="text-3xl font-black text-purple-900 tracking-tight">39,99</span>
+                            </div>
+                            <span className="text-[10px] text-purple-500 font-bold uppercase tracking-widest">/mês</span>
+                          </div>
+                        </div>
 
-                    <a 
-                      href="https://checkout.nubank.com.br/HvwxRsyDz9ir5yh"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-700 text-white w-full py-4 rounded-xl font-bold transition-all shadow-lg shadow-purple-500/20"
-                    >
-                      Pagar com NuBank
-                    </a>
+                        <div className="flex justify-center">
+                          <stripe-buy-button
+                            buy-button-id="buy_btn_1TAnyS0js7klPnUOyUiRC4VP"
+                            publishable-key="pk_live_51T5KER0js7klPnUOAaYz29LZPcJuCQTbm8yIhpjJKsTl7pMNOE6th3SptDjB0RqkgCYMcywqJBAK8umAgpK8JVPk00EZZHqUUp"
+                            client-reference-id={profile?.id}
+                          >
+                          </stripe-buy-button>
+                        </div>
+                        
+                        <p className="text-[10px] text-purple-700 text-center font-medium">
+                          Ideal para quem está começando e quer praticidade no pagamento.
+                        </p>
+                      </div>
+                    )}
 
-                    <div className="bg-white/50 rounded-xl p-3 border border-purple-100">
-                      <p className="text-[10px] text-purple-700 leading-relaxed text-center">
-                        Após o pagamento, envie o comprovante para <br />
-                        <strong className="text-purple-900">(47) 99762-6121</strong> (Anderson Rodrigues) <br />
-                        para liberar seu acesso imediatamente.
-                      </p>
+                    {/* Plano Pro - Orange */}
+                    <div className="bg-orange-50 border border-orange-100 rounded-[32px] p-8 space-y-6 shadow-sm transition-all hover:shadow-md">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="w-12 h-12 rounded-2xl bg-orange-100 flex items-center justify-center text-orange-600">
+                            <Crown className="w-6 h-6" />
+                          </div>
+                          <div>
+                            <h4 className="font-bold text-orange-900">Plano Pro Distribuidor</h4>
+                            <p className="text-xs text-orange-600">Libera todas as funções do sistema</p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div className="flex items-baseline justify-end gap-1">
+                            <span className="text-sm font-bold text-orange-900">R$</span>
+                            <span className="text-3xl font-black text-orange-900 tracking-tight">30,00</span>
+                          </div>
+                          <span className="text-[10px] text-orange-500 font-bold uppercase tracking-widest">/mês</span>
+                        </div>
+                      </div>
+
+                      <div className="space-y-4">
+                        <a 
+                          href="https://checkout.nubank.com.br/HvwxRsyDz9ir5yh"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-600 text-white w-full py-4 rounded-2xl font-bold transition-all shadow-lg shadow-orange-500/20"
+                        >
+                          Pagar com NuBank
+                        </a>
+
+                        <div className="bg-white/50 rounded-2xl p-4 border border-orange-100">
+                          <div className="flex items-start gap-3">
+                            <div className="w-8 h-8 rounded-lg bg-orange-100 flex items-center justify-center text-orange-600 shrink-0">
+                              <Send className="w-4 h-4" />
+                            </div>
+                            <p className="text-[11px] text-orange-700 leading-relaxed">
+                              <strong>Liberação Manual:</strong> Após o pagamento, envie o comprovante para 
+                              <strong className="text-orange-900 block mt-1">(47) 99762-6121 (Anderson Rodrigues)</strong>
+                            </p>
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>

@@ -362,3 +362,20 @@ export interface GoalParticipant {
   message?: string;
   created_at: string;
 }
+
+export interface DailyInsight {
+  id: string;
+  content: string;
+  order_index: number;
+  created_at: string;
+}
+
+export interface PaymentReceipt {
+  id: string;
+  user_id: string;
+  user_name: string;
+  receipt_url: string;
+  status: 'pending' | 'approved' | 'rejected';
+  created_at: string;
+  profile?: Profile;
+}
