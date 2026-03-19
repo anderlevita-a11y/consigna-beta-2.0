@@ -14,7 +14,8 @@ export function Dashboard() {
     totalSales: 0,
     activeBags: 0,
     totalCustomers: 0,
-    totalProducts: 0
+    totalProducts: 0,
+    totalStockValue: 0
   });
 
   useEffect(() => {
@@ -24,15 +25,38 @@ export function Dashboard() {
     const user = session?.user;
         if (!user) return;
 
-        const { count: productsCount } = await supabase.from('products').select('*', { count: 'exact', head: true }).eq('user_id', user.id);
+        const { data: productsData } = await supabase
+          .from('products')
+          .select('sale_price, current_stock')
+          .eq('user_id', user.id);
+
         const { count: customersCount } = await supabase.from('customers').select('*', { count: 'exact', head: true }).eq('user_id', user.id);
         const { count: bagsCount } = await supabase.from('bags').select('*', { count: 'exact', head: true }).eq('user_id', user.id);
+        const { data: salesData } = await supabase.from('bags').select('total_value').eq('user_id', user.id).eq('status', 'closed');
+
+        let totalProducts = 0;
+        let totalStockValue = 0;
+        let totalSales = 0;
+
+        if (productsData) {
+          totalProducts = productsData.length;
+          totalStockValue = productsData.reduce((acc, p) => {
+            const price = typeof p.sale_price === 'string' ? parseFloat(p.sale_price.replace(',', '.')) : p.sale_price;
+            const stock = typeof p.current_stock === 'string' ? parseInt(p.current_stock) : p.current_stock;
+            return acc + ((price || 0) * (stock || 0));
+          }, 0);
+        }
+
+        if (salesData) {
+          totalSales = salesData.reduce((acc, b) => acc + (b.total_value || 0), 0);
+        }
 
         setStats({
-          totalSales: 12450.80, // Mocked for now
+          totalSales: totalSales,
           activeBags: bagsCount || 0,
           totalCustomers: customersCount || 0,
-          totalProducts: productsCount || 0
+          totalProducts: totalProducts,
+          totalStockValue: totalStockValue
         });
       } catch (err) {
         console.error('Error fetching dashboard stats:', err);
@@ -52,7 +76,8 @@ export function Dashboard() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <StatCard 
           title="Vendas Totais" 
-          value={`R$ ${stats.totalSales.toLocaleString('pt-BR')}`} 
+          value={`R$ ${stats.totalSales.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`} 
+          subValue={`Estoque: R$ ${stats.totalStockValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`}
           icon={TrendingUp} 
           trend="+12.5%" 
           trendUp={true} 
@@ -74,6 +99,7 @@ export function Dashboard() {
         <StatCard 
           title="Produtos" 
           value={stats.totalProducts.toString()} 
+          subValue={`Estoque: R$ ${stats.totalStockValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`}
           icon={Package} 
           trend="Estável" 
           trendUp={true} 
@@ -154,7 +180,7 @@ export function Dashboard() {
   );
 }
 
-function StatCard({ title, value, icon: Icon, trend, trendUp }: any) {
+function StatCard({ title, value, subValue, icon: Icon, trend, trendUp }: any) {
   return (
     <div className="bg-white border border-zinc-100 rounded-2xl p-6 hover:border-[#38a89d]/30 transition-all shadow-sm group">
       <div className="flex items-center justify-between mb-4">
@@ -172,6 +198,9 @@ function StatCard({ title, value, icon: Icon, trend, trendUp }: any) {
       <div>
         <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-1">{title}</p>
         <h4 className="text-2xl font-bold text-[#4a1d33]">{value}</h4>
+        {subValue && (
+          <p className="text-xs font-bold text-[#38a89d] mt-1">{subValue}</p>
+        )}
       </div>
     </div>
   );

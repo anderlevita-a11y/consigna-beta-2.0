@@ -70,7 +70,7 @@ export function Reports() {
       // 1. Stock Stats
       const { data: products } = await supabase
         .from('products')
-        .select('id, name, current_stock, cost_price')
+        .select('id, name, current_stock, cost_price, sale_price')
         .eq('user_id', user.id)
         .limit(30000);
       
@@ -112,7 +112,7 @@ export function Reports() {
         const consigned = consignedMap.get(p.id) || 0;
         const currentStock = Number(p.current_stock || 0);
         const totalQty = currentStock + consigned;
-        return acc + (totalQty * Number(p.cost_price || 0));
+        return acc + (totalQty * Number(p.sale_price || 0));
       }, 0) || 0;
 
       const stockDetails = products?.map(p => {
@@ -122,7 +122,7 @@ export function Reports() {
         return {
           name: (p as any).name || 'Sem nome',
           stock: totalQty,
-          value: totalQty * Number(p.cost_price || 0)
+          value: totalQty * Number(p.sale_price || 0)
         };
       }).filter(p => p.stock > 0).sort((a, b) => b.value - a.value) || [];
 
@@ -137,14 +137,30 @@ export function Reports() {
       const consignedValue = openBags?.reduce((acc, b) => acc + (b.total_value || 0), 0) || 0;
 
       // 3. Sold and Received Value (Closed Bags)
-      // In a real app, we'd filter by period here
-      const { data: closedBags } = await supabase
+      let startDate: string | null = null;
+      if (period === 'week') {
+        const date = new Date();
+        date.setDate(date.getDate() - 7);
+        startDate = date.toISOString();
+      } else if (period === 'month') {
+        const date = new Date();
+        date.setMonth(date.getMonth() - 1);
+        startDate = date.toISOString();
+      }
+
+      let closedBagsQuery = supabase
         .from('bags')
         .select('*, customer:customers(nome)')
         .eq('user_id', user.id)
         .eq('status', 'closed')
         .order('created_at', { ascending: false })
         .limit(30000);
+
+      if (startDate) {
+        closedBagsQuery = closedBagsQuery.gte('created_at', startDate);
+      }
+
+      const { data: closedBags } = await closedBagsQuery;
 
       const soldValue = closedBags?.reduce((acc, b) => acc + (b.total_value || 0), 0) || 0;
       const receivedValue = closedBags?.reduce((acc, b) => acc + (b.received_amount || 0), 0) || 0;
@@ -198,14 +214,25 @@ export function Reports() {
         topProducts.sort((a, b) => b.quantity - a.quantity).slice(0, 10);
       }
 
-      // 4. Delinquents (Closed Bags with pending or partial payment status)
+      // 4. Delinquents (Closed Bags with pending or partial payment status + Overdue Open Bags)
       const { data: pendingBags } = await supabase
         .from('bags')
-        .select('*, customer:customers(nome), campaign:campaigns(name)')
+        .select('*, customer:customers(nome), campaign:campaigns(name, return_date)')
         .eq('user_id', user.id)
-        .eq('status', 'closed')
-        .in('payment_status', ['pending', 'partial'])
-        .limit(10);
+        .or('status.eq.closed,status.eq.open')
+        .limit(30000);
+
+      const today = new Date().toISOString().split('T')[0];
+      const filteredDelinquents = (pendingBags || []).filter(bag => {
+        if (bag.status === 'closed') {
+          return ['pending', 'partial'].includes(bag.payment_status);
+        }
+        if (bag.status === 'open') {
+          const returnDate = bag.campaign?.return_date;
+          return returnDate && returnDate < today;
+        }
+        return false;
+      }).slice(0, 10);
 
       setStats({
         totalStock,
@@ -218,7 +245,7 @@ export function Reports() {
         topProducts,
         stockDetails
       });
-      setDelinquents(pendingBags || []);
+      setDelinquents(filteredDelinquents);
       setFinalizedSales(closedBags || []);
 
     } catch (err) {
@@ -489,6 +516,7 @@ export function Reports() {
         <ReportCard 
           title="Estoque Total"
           value={`${stats.totalStock} un.`}
+          extraValue={`R$ ${stats.stockValue.toFixed(2)}`}
           subtitle={`Físico: ${stats.warehouseStock} | Consig: ${stats.consignedStock}`}
           icon={Package}
           color="blue"
@@ -848,7 +876,7 @@ export function Reports() {
   );
 }
 
-function ReportCard({ title, value, subtitle, icon: Icon, color }: any) {
+function ReportCard({ title, value, subtitle, icon: Icon, color, extraValue }: any) {
   const colors: any = {
     blue: "bg-blue-50 text-blue-600",
     emerald: "bg-emerald-50 text-emerald-600",
@@ -863,9 +891,22 @@ function ReportCard({ title, value, subtitle, icon: Icon, color }: any) {
       </div>
       <div className="space-y-1">
         <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">{title}</p>
-        <h4 className={cn("text-3xl font-bold tracking-tight", color === 'emerald' ? "text-emerald-600" : color === 'amber' ? "text-amber-600" : color === 'indigo' ? "text-indigo-600" : "text-zinc-800")}>
-          {value}
-        </h4>
+        <div className="flex flex-col">
+          <h4 className={cn("text-3xl font-bold tracking-tight", color === 'emerald' ? "text-emerald-600" : color === 'amber' ? "text-amber-600" : color === 'indigo' ? "text-indigo-600" : "text-zinc-800")}>
+            {value}
+          </h4>
+          {extraValue && (
+            <p className={cn("text-lg font-bold mt-1", 
+              color === 'blue' ? "text-blue-600" : 
+              color === 'emerald' ? "text-emerald-600" : 
+              color === 'amber' ? "text-amber-600" : 
+              color === 'indigo' ? "text-indigo-600" : 
+              "text-zinc-600"
+            )}>
+              {extraValue}
+            </p>
+          )}
+        </div>
         <p className="text-xs text-zinc-400 font-medium">{subtitle}</p>
       </div>
     </div>

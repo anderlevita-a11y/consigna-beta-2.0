@@ -91,13 +91,30 @@ export function Bags() {
 
       const { data, error } = await supabase
         .from('bags')
-        .select('*, customer:customers(nome)')
+        .select('*, customer:customers(nome), campaign:campaigns(return_date)')
         .eq('user_id', user.id)
         .order('created_at', { ascending: false })
         .limit(30000);
 
       if (error) throw error;
-      setBags(data || []);
+      const fetchedBags = data || [];
+      setBags(fetchedBags);
+
+      // Check for overdue open bags
+      const today = new Date().toISOString().split('T')[0];
+      const overdueBags = fetchedBags.filter(b => 
+        b.status === 'open' && 
+        (b as any).campaign?.return_date && 
+        (b as any).campaign.return_date < today
+      );
+
+      if (overdueBags.length > 0) {
+        addNotification({
+          type: 'warning',
+          title: 'Sacolas Vencidas',
+          message: `Existem ${overdueBags.length} sacolas abertas com prazo de acerto vencido.`
+        });
+      }
     } catch (err) {
       console.error('Error fetching bags:', err);
     } finally {
@@ -105,7 +122,13 @@ export function Bags() {
     }
   }
 
-  const getStatusInfo = (status: string) => {
+  const getStatusInfo = (status: string, returnDate?: string) => {
+    const isOverdue = status === 'open' && returnDate && new Date(returnDate) < new Date(new Date().setHours(0, 0, 0, 0));
+
+    if (isOverdue) {
+      return { label: 'Vencida', color: 'text-red-400', bg: 'bg-red-500/10', icon: AlertCircle };
+    }
+
     switch (status) {
       case 'sent':
         return { label: 'Enviada', color: 'text-blue-400', bg: 'bg-blue-500/10', icon: Clock };
@@ -179,7 +202,7 @@ export function Bags() {
         ) : (
           <>
             {displayedBags.map((bag) => {
-              const status = getStatusInfo(bag.status);
+              const status = getStatusInfo(bag.status, (bag as any).campaign?.return_date);
               const StatusIcon = status.icon;
               
               return (

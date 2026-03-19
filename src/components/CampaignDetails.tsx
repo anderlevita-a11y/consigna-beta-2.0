@@ -188,7 +188,22 @@ export function CampaignDetails({ campaign, onBack, onAddBag, onEditBag }: Campa
         .limit(30000);
 
       if (error) throw error;
-      setBags(data || []);
+      const fetchedBags = data || [];
+      setBags(fetchedBags);
+
+      // Check for overdue open bags
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      if (campaign.return_date && new Date(campaign.return_date) < today) {
+        const overdueBags = fetchedBags.filter(b => b.status === 'open');
+        if (overdueBags.length > 0) {
+          addNotification({
+            type: 'warning',
+            title: 'Sacolas Vencidas',
+            message: `Existem ${overdueBags.length} sacolas abertas com prazo de acerto vencido nesta campanha.`
+          });
+        }
+      }
     } catch (err) {
       console.error('Error fetching bags for campaign:', err);
     } finally {
@@ -445,7 +460,13 @@ export function CampaignDetails({ campaign, onBack, onAddBag, onEditBag }: Campa
     });
   };
 
-  const getStatusBadge = (status: string) => {
+  const getStatusBadge = (status: string, returnDate?: string) => {
+    const isOverdue = returnDate && new Date(returnDate) < new Date(new Date().setHours(0, 0, 0, 0)) && status === 'open';
+
+    if (isOverdue) {
+      return <span className="bg-red-100 text-red-700 px-3 py-1 rounded-lg text-[10px] font-bold uppercase">Vencida</span>;
+    }
+
     switch (status) {
       case 'closed':
         return <span className="bg-emerald-100 text-emerald-700 px-3 py-1 rounded-lg text-[10px] font-bold uppercase">Acertada</span>;
@@ -587,7 +608,7 @@ export function CampaignDetails({ campaign, onBack, onAddBag, onEditBag }: Campa
                         </div>
                       </td>
                       <td className="px-8 py-6">
-                        {getStatusBadge(bag.status)}
+                        {getStatusBadge(bag.status, campaign.return_date)}
                       </td>
                       <td className="px-8 py-6">
                         <div className="flex items-center justify-end gap-2">

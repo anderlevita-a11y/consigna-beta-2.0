@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { 
   Plus, 
   Search, 
@@ -19,7 +19,8 @@ import {
   Tag,
   Printer,
   Eye,
-  Lock
+  Lock,
+  Link as LinkIcon
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { Product, PriceSuggestion } from '../types';
@@ -28,6 +29,7 @@ import { PrintPreview } from './PrintPreview';
 import { LabelCenter } from './LabelCenter';
 import { cn, printFallback, formatError } from '../lib/utils';
 import { useNotifications } from './NotificationCenter';
+import { detectUserDuplicates, resolveDuplicates, getLinkedProductIds } from '../lib/syncCatalog';
 
 export function Products() {
   const { addNotification } = useNotifications();
@@ -45,6 +47,7 @@ export function Products() {
     size?: string;
   }[]>([]);
   const [quickEntrySearch, setQuickEntrySearch] = useState('');
+  const [quickEntryQuantity, setQuickEntryQuantity] = useState('1');
   const [quickEntryLoading, setQuickEntryLoading] = useState(false);
   const [isQuickEntryGridModalOpen, setIsQuickEntryGridModalOpen] = useState(false);
   const [selectedProductForQuickEntryGrid, setSelectedProductForQuickEntryGrid] = useState<Product | null>(null);
@@ -86,6 +89,9 @@ export function Products() {
   });
   const [priceHistory, setPriceHistory] = useState<PriceSuggestion[]>([]);
   const [selectedProductForLabels, setSelectedProductForLabels] = useState<Product | null>(null);
+  const [isDuplicateModalOpen, setIsDuplicateModalOpen] = useState(false);
+  const [selectedDuplicateIds, setSelectedDuplicateIds] = useState<Set<string>>(new Set());
+  const [linkedProductIds, setLinkedProductIds] = useState<Set<string>>(new Set());
 
   // Form State
   const [formData, setFormData] = useState<{
@@ -133,10 +139,8 @@ export function Products() {
   useEffect(() => {
     fetchProfile();
     fetchStoreSettings();
-    if (view === 'list' || view === 'import') {
+    if (view === 'list' || view === 'import' || view === 'quick_entry') {
       fetchProducts();
-    }
-    if (view === 'import') {
       fetchCentralProducts();
       fetchPriceSuggestions();
     }
@@ -200,9 +204,13 @@ export function Products() {
       const { data, error } = await supabase
         .from('central_products')
         .select('*')
-        .order('name');
+        .order('name', { ascending: true })
+        .order('id', { ascending: true });
       if (error) throw error;
-      setCentralProducts(data || []);
+      
+      // Ensure unique products by ID to avoid React key warnings
+      const uniqueProducts = Array.from(new Map((data || []).map(p => [p.id, p])).values());
+      setCentralProducts(uniqueProducts);
     } catch (err) {
       console.error('Error fetching central products:', err);
     } finally {
@@ -391,6 +399,10 @@ export function Products() {
     const user = session?.user;
       if (!user) return;
 
+      // Fetch linked product IDs
+      const linkedIds = await getLinkedProductIds(user.id);
+      setLinkedProductIds(linkedIds);
+
       let allProducts: Product[] = [];
       let from = 0;
       let to = 999;
@@ -402,6 +414,7 @@ export function Products() {
           .select('*')
           .eq('user_id', user.id)
           .order('name', { ascending: true })
+          .order('id', { ascending: true })
           .range(from, to);
 
         if (error) throw error;
@@ -415,7 +428,9 @@ export function Products() {
         }
         if (allProducts.length >= 50000) hasMore = false;
       }
-      setProducts(allProducts);
+      // Ensure unique products by ID to avoid React key warnings
+      const uniqueProducts = Array.from(new Map(allProducts.map(p => [p.id, p])).values());
+      setProducts(uniqueProducts);
     } catch (err) {
       console.error('Error fetching products:', err);
       addNotification({
@@ -596,7 +611,7 @@ export function Products() {
         sale_price: Number(formData.sale_price.toString().replace(',', '.')) || 0,
         current_stock: formData.has_grid 
           ? formData.grid_data.reduce((sum, item) => sum + item.quantity, 0)
-          : (parseInt(formData.current_stock.toString()) || 0)
+          : (Number(formData.current_stock.toString().replace(',', '.')) || 0)
       };
 
       if (editingProduct) {
@@ -788,6 +803,27 @@ export function Products() {
     }
   };
 
+  const getPendingSuggestion = (product: Product) => {
+    const key = (product.ean && product.ean !== '0' && product.ean !== '') 
+      ? product.ean 
+      : product.name.toLowerCase().trim();
+    
+    const centralProduct = centralProducts.find(cp => {
+      const cpKey = (cp.ean && cp.ean !== '0' && cp.ean !== '') ? cp.ean : cp.name.toLowerCase().trim();
+      return cpKey === key;
+    });
+
+    if (!centralProduct) return null;
+
+    const suggestion = priceSuggestions.find(s => s.central_product_id === centralProduct.id);
+    if (!suggestion) return null;
+
+    const isOutOfSync = product.cost_price !== suggestion.suggested_cost_price || 
+                        product.sale_price !== suggestion.suggested_sale_price;
+    
+    return isOutOfSync ? suggestion : null;
+  };
+
   const handlePrintLabel = (product: Product) => {
     setSelectedProductForLabels(product);
     setView('labels');
@@ -832,7 +868,97 @@ export function Products() {
     });
   };
 
-  const addToQuickEntry = (product: Product, color?: string, size?: string) => {
+  const pendingPriceCount = useMemo(() => {
+    return products.filter(p => getPendingSuggestion(p)).length;
+  }, [products, priceSuggestions, centralProducts]);
+
+  const duplicateGroups = useMemo(() => {
+    return detectUserDuplicates(products);
+  }, [products]);
+
+  const handleResolveDuplicates = async () => {
+    if (selectedDuplicateIds.size === 0) return;
+    
+    setSyncing(true);
+    try {
+      await resolveDuplicates(Array.from(selectedDuplicateIds));
+      addNotification({
+        type: 'success',
+        title: 'Duplicados Resolvidos',
+        message: `${selectedDuplicateIds.size} produtos removidos com sucesso.`
+      });
+      setIsDuplicateModalOpen(false);
+      setSelectedDuplicateIds(new Set());
+      fetchProducts();
+    } catch (err) {
+      console.error('Error resolving duplicates:', err);
+      addNotification({
+        type: 'error',
+        title: 'Erro ao resolver duplicados',
+        message: formatError(err)
+      });
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const handleSyncAllPrices = async () => {
+    const pendingProducts = products.filter(p => getPendingSuggestion(p));
+    if (pendingProducts.length === 0) {
+      addNotification({
+        type: 'info',
+        title: 'Tudo em dia',
+        message: 'Não há preços pendentes para sincronizar.'
+      });
+      return;
+    }
+
+    setConfirmModal({
+      isOpen: true,
+      title: 'Sincronizar Todos os Preços',
+      message: `Deseja atualizar os preços de ${pendingProducts.length} produtos que possuem sugestões da Central?`,
+      variant: 'info',
+      onConfirm: async () => {
+        try {
+          setSyncing(true);
+          setConfirmModal(prev => ({ ...prev, isOpen: false }));
+          
+          let updatedCount = 0;
+          for (const product of pendingProducts) {
+            const suggestion = getPendingSuggestion(product);
+            if (suggestion) {
+              const { error } = await supabase
+                .from('products')
+                .update({
+                  cost_price: suggestion.suggested_cost_price,
+                  sale_price: suggestion.suggested_sale_price
+                })
+                .eq('id', product.id);
+              if (!error) updatedCount++;
+            }
+          }
+          
+          addNotification({
+            type: 'success',
+            title: 'Sincronização Concluída',
+            message: `${updatedCount} produtos atualizados com sucesso!`
+          });
+          fetchProducts();
+        } catch (err) {
+          console.error('Error syncing all prices:', err);
+          addNotification({
+            type: 'error',
+            title: 'Erro na sincronização',
+            message: formatError(err)
+          });
+        } finally {
+          setSyncing(false);
+        }
+      }
+    });
+  };
+
+  const addToQuickEntry = (product: Product, color?: string, size?: string, quantity: number = 1) => {
     if (product.has_grid && !color && !size) {
       setSelectedProductForQuickEntryGrid(product);
       setQuickEntryGridForm({ color: '', size: '' });
@@ -849,13 +975,14 @@ export function Products() {
       if (existing) {
         return prev.map(item => 
           (item.product.id === product.id && item.color === color && item.size === size)
-            ? { ...item, quantity: item.quantity + 1 } 
+            ? { ...item, quantity: item.quantity + quantity } 
             : item
         );
       }
-      return [...prev, { product, quantity: 1, color, size }];
+      return [...prev, { product, quantity, color, size }];
     });
     setQuickEntrySearch('');
+    setQuickEntryQuantity('1');
     setIsQuickEntryGridModalOpen(false);
     addNotification({
       type: 'success',
@@ -874,7 +1001,7 @@ export function Products() {
     );
 
     if (product) {
-      addToQuickEntry(product);
+      addToQuickEntry(product, undefined, undefined, Number(quickEntryQuantity.toString().replace(',', '.')) || 1);
     } else {
       // Try partial match if no exact match
       const searchTerm = quickEntrySearch.trim().toLowerCase();
@@ -884,11 +1011,11 @@ export function Products() {
       );
       
       if (partialMatches.length === 1) {
-        addToQuickEntry(partialMatches[0]);
+        addToQuickEntry(partialMatches[0], undefined, undefined, Number(quickEntryQuantity.toString().replace(',', '.')) || 1);
       } else if (partialMatches.length > 1) {
         // If multiple matches, pick the one that starts with the search term or just the first one
         const startsWithMatch = partialMatches.find(p => p.name.toLowerCase().startsWith(searchTerm));
-        addToQuickEntry(startsWithMatch || partialMatches[0]);
+        addToQuickEntry(startsWithMatch || partialMatches[0], undefined, undefined, Number(quickEntryQuantity.toString().replace(',', '.')) || 1);
       } else {
         addNotification({
           type: 'error',
@@ -1088,10 +1215,10 @@ export function Products() {
                 <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Estoque Atual</label>
                 <input 
                   type="text" 
-                  inputMode="numeric"
+                  inputMode="decimal"
                   value={formData.current_stock}
                   onChange={e => {
-                    const val = e.target.value.replace(/\D/g, '');
+                    const val = e.target.value.replace(/[^0-9.,]/g, '');
                     setFormData({...formData, current_stock: val});
                   }}
                   className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm focus:border-emerald-500 outline-none transition-all"
@@ -1347,9 +1474,9 @@ export function Products() {
                   <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Qtd</label>
                   <input 
                     type="text"
-                    inputMode="numeric"
+                    inputMode="decimal"
                     value={gridForm.quantity}
-                    onChange={e => setGridForm({...gridForm, quantity: e.target.value.replace(/\D/g, '')})}
+                    onChange={e => setGridForm({...gridForm, quantity: e.target.value.replace(/[^0-9.,]/g, '')})}
                     placeholder="0"
                     className="w-full bg-zinc-50 border border-zinc-100 rounded-xl px-4 py-3 text-sm focus:border-emerald-500 outline-none transition-all"
                   />
@@ -1364,7 +1491,7 @@ export function Products() {
                     ...formData,
                     grid_data: [
                       ...formData.grid_data,
-                      { color: gridForm.color, size: gridForm.size, quantity: parseInt(gridForm.quantity) }
+                      { color: gridForm.color, size: gridForm.size, quantity: Number(gridForm.quantity.toString().replace(',', '.')) || 0 }
                     ]
                   });
                   setGridForm({ color: '', size: '', quantity: '' });
@@ -1478,6 +1605,19 @@ export function Products() {
                     onChange={e => setQuickEntrySearch(e.target.value)}
                     placeholder="Escaneie o código de barras ou digite o nome..."
                     className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl pl-12 pr-6 py-4 text-sm focus:border-emerald-500 outline-none transition-all"
+                  />
+                </div>
+                <div className="w-24">
+                  <input 
+                    type="text"
+                    inputMode="decimal"
+                    value={quickEntryQuantity}
+                    onChange={e => {
+                      const val = e.target.value.replace(/[^0-9.,]/g, '');
+                      setQuickEntryQuantity(val);
+                    }}
+                    className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl px-4 py-4 text-sm font-bold text-center focus:border-emerald-500 outline-none transition-all"
+                    placeholder="Qtd"
                   />
                 </div>
                 <button 
@@ -1600,10 +1740,11 @@ export function Products() {
                               -
                             </button>
                             <input 
-                              type="number"
+                              type="text"
+                              inputMode="decimal"
                               value={item.quantity}
                               onChange={e => {
-                                const val = parseInt(e.target.value) || 1;
+                                const val = Number(e.target.value.replace(',', '.')) || 0;
                                 setQuickEntryList(prev => prev.map((it, i) => 
                                   i === index ? { ...it, quantity: val } : it
                                 ));
@@ -1715,7 +1856,7 @@ export function Products() {
 
                 <button
                   disabled={!quickEntryGridForm.color || !quickEntryGridForm.size}
-                  onClick={() => addToQuickEntry(selectedProductForQuickEntryGrid, quickEntryGridForm.color, quickEntryGridForm.size)}
+                  onClick={() => addToQuickEntry(selectedProductForQuickEntryGrid, quickEntryGridForm.color, quickEntryGridForm.size, Number(quickEntryQuantity.toString().replace(',', '.')) || 1)}
                   className="w-full bg-zinc-900 text-white py-4 rounded-2xl text-sm font-bold shadow-xl hover:bg-emerald-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Adicionar à Lista
@@ -2138,6 +2279,29 @@ export function Products() {
           </div>
         </div>
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full sm:w-auto">
+          {duplicateGroups.length > 0 && (
+            <button 
+              onClick={() => {
+                setSelectedDuplicateIds(new Set());
+                setIsDuplicateModalOpen(true);
+              }}
+              disabled={syncing}
+              className="flex items-center justify-center gap-2 bg-red-50 hover:bg-red-100 text-red-600 px-4 py-3 sm:py-2.5 rounded-xl font-bold transition-all border border-red-100 w-full sm:w-auto disabled:opacity-50"
+            >
+              <AlertCircle className="w-5 h-5" />
+              Limpar Duplicados ({duplicateGroups.length})
+            </button>
+          )}
+          {pendingPriceCount > 0 && (
+            <button 
+              onClick={handleSyncAllPrices}
+              disabled={syncing}
+              className="flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-4 py-3 sm:py-2.5 rounded-xl font-bold transition-all shadow-lg shadow-purple-500/20 w-full sm:w-auto disabled:opacity-50"
+            >
+              {syncing ? <Loader2 className="w-5 h-5 animate-spin" /> : <TrendingUp className="w-5 h-5" />}
+              Sincronizar Preços ({pendingPriceCount})
+            </button>
+          )}
           <button 
             onClick={() => setView('quick_entry')}
             className="flex items-center justify-center gap-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 px-4 py-3 sm:py-2.5 rounded-xl font-bold transition-all shadow-sm w-full sm:w-auto"
@@ -2330,6 +2494,22 @@ export function Products() {
                       </td>
                       <td className="px-6 py-4 text-right">
                         <div className="flex items-center justify-end gap-2">
+                          {(() => {
+                            const suggestion = getPendingSuggestion(product);
+                            if (suggestion) {
+                              return (
+                                <button 
+                                  onClick={() => handleApplyPriceSuggestion(product, suggestion)}
+                                  className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-[10px] font-bold uppercase transition-all shadow-sm animate-pulse"
+                                  title="Atualizar para preço sugerido"
+                                >
+                                  <TrendingUp className="w-3 h-3" />
+                                  Preço
+                                </button>
+                              );
+                            }
+                            return null;
+                          })()}
                           <button 
                             onClick={() => handlePrintLabel(product)}
                             className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-600 rounded-lg text-[10px] font-bold uppercase transition-all"
@@ -2480,6 +2660,142 @@ export function Products() {
           tipo={previewType} 
           onClose={() => setShowPreview(false)} 
         />
+      )}
+      {/* Duplicate Resolution Modal */}
+      {isDuplicateModalOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="bg-white w-full max-w-2xl max-h-[90vh] rounded-[32px] shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-300">
+            <div className="p-6 border-b border-zinc-100 flex items-center justify-between bg-white sticky top-0 z-10">
+              <div className="flex items-center gap-3">
+                <div className="p-3 rounded-2xl bg-red-50 text-red-500">
+                  <AlertCircle className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-zinc-800 tracking-tight">Resolver Duplicidades</h3>
+                  <p className="text-sm text-zinc-500">Selecione os produtos que deseja <strong className="text-red-600">EXCLUIR</strong>.</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setIsDuplicateModalOpen(false)}
+                className="p-2 hover:bg-zinc-100 rounded-xl transition-colors text-zinc-400 hover:text-zinc-600"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+            
+            <div className="p-6 overflow-y-auto flex-1 bg-zinc-50/50 space-y-6">
+              {duplicateGroups.map((group, idx) => (
+                <div key={idx} className="bg-white border border-red-100 rounded-2xl overflow-hidden shadow-sm">
+                  <div className="bg-red-50/50 px-4 py-2 border-b border-red-100 flex items-center justify-between">
+                    <span className="text-xs font-bold text-red-700 uppercase tracking-wider">
+                      {group.type === 'ean' ? 'EAN' : 'Nome'}: {group.key}
+                    </span>
+                    <span className="text-[10px] text-red-500 font-medium italic">
+                      {group.products.length} clones detectados
+                    </span>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                      <tbody className="divide-y divide-zinc-100">
+                        {group.products.map((p) => {
+                          const isSelected = selectedDuplicateIds.has(p.id);
+                          const isLinked = linkedProductIds.has(p.id);
+                          return (
+                            <tr 
+                              key={`${idx}-${p.id}`} 
+                              className={cn(
+                                "transition-colors cursor-pointer",
+                                isSelected ? "bg-red-50" : "hover:bg-zinc-50/50",
+                                isLinked && "opacity-60 grayscale-[0.5]"
+                              )}
+                              onClick={() => {
+                                if (isLinked) {
+                                  addNotification({
+                                    type: 'warning',
+                                    title: 'Produto Vinculado',
+                                    message: 'Este produto está vinculado a uma campanha ou sacola e não pode ser excluído.'
+                                  });
+                                  return;
+                                }
+                                const newSelected = new Set(selectedDuplicateIds);
+                                if (isSelected) {
+                                  newSelected.delete(p.id);
+                                } else {
+                                  // Don't allow selecting ALL products in a group
+                                  const selectedInGroup = group.products.filter(gp => newSelected.has(gp.id)).length;
+                                  if (selectedInGroup < group.products.length - 1) {
+                                    newSelected.add(p.id);
+                                  } else {
+                                    addNotification({
+                                      type: 'warning',
+                                      title: 'Ação não permitida',
+                                      message: 'Você deve manter pelo menos um produto do grupo.'
+                                    });
+                                  }
+                                }
+                                setSelectedDuplicateIds(newSelected);
+                              }}
+                            >
+                              <td className="px-4 py-3 w-10">
+                                <div className={cn(
+                                  "w-5 h-5 rounded border flex items-center justify-center transition-colors",
+                                  isSelected ? "bg-red-500 border-red-500 text-white" : "border-zinc-300 bg-white"
+                                )}>
+                                  {isSelected && <X className="w-3.5 h-3.5" />}
+                                </div>
+                              </td>
+                              <td className="px-4 py-3">
+                                <div className="flex flex-col">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-sm font-medium text-zinc-800">{p.name}</span>
+                                    {isLinked && (
+                                      <span className="bg-amber-100 text-amber-700 text-[8px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider flex items-center gap-1">
+                                        <LinkIcon className="w-2 h-2" /> Vinculado
+                                      </span>
+                                    )}
+                                  </div>
+                                  <span className="text-[10px] text-zinc-400 font-mono">ID: {p.id}</span>
+                                </div>
+                              </td>
+                              <td className="px-4 py-3 text-xs text-zinc-500">
+                                Estoque: {p.current_stock}
+                              </td>
+                              <td className="px-4 py-3 text-right">
+                                <span className={cn(
+                                  "text-xs font-bold",
+                                  isSelected ? "text-red-600" : "text-zinc-400"
+                                )}>
+                                  {isSelected ? 'EXCLUIR' : 'MANTER'}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ))}
+            </div>
+            
+            <div className="p-6 border-t border-zinc-100 bg-white flex justify-end gap-3 sticky bottom-0">
+              <button
+                onClick={() => setIsDuplicateModalOpen(false)}
+                className="px-6 py-3 rounded-xl font-bold text-zinc-600 hover:bg-zinc-100 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleResolveDuplicates}
+                disabled={syncing || selectedDuplicateIds.size === 0}
+                className="bg-red-500 hover:bg-red-600 text-white px-8 py-3 rounded-xl font-bold transition-all shadow-lg shadow-red-500/20 flex items-center gap-2 disabled:opacity-50"
+              >
+                {syncing ? <Loader2 className="w-5 h-5 animate-spin" /> : <Trash2 className="w-5 h-5" />}
+                Excluir Selecionados ({selectedDuplicateIds.size})
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

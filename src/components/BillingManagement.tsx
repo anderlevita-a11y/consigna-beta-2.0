@@ -372,9 +372,11 @@ ANEXOS:
 ${acaoData.anexos.map(a => `- ${a.name}`).join('\n') || '[NENHUM ANEXO ADICIONADO]'}`;
       }
 
+      const disclaimer = `\n\n---\nAVISO LEGAL: Esta minuta foi gerada por inteligência artificial e possui caráter meramente informativo e auxiliar. NÃO SUBSTITUI A REVISÃO E ASSINATURA DE UM ADVOGADO HABILITADO. O uso deste documento é de inteira responsabilidade do usuário. O teto do Juizado Especial Cível (JEC) — popularmente conhecido como Pequenas Causas — foi atualizado para R$ 64.840,00 em 2026. Este é o valor máximo da causa para quem deseja utilizar a justiça gratuita, não é necessário estar assinado por advogado, porém se possível obtenha auxilio profissional.`;
+
       setLegalDraft({
         json: {},
-        text: template
+        text: template + disclaimer
       });
       
       addNotification({
@@ -444,6 +446,8 @@ ${acaoData.anexos.map(a => `- ${a.name}`).join('\n') || '[NENHUM ANEXO ADICIONAD
       if (paymentInfo) paymentSection += `${paymentInfo}\n`;
     }
 
+    const disclaimer = `\n\n---\nAVISO LEGAL: Esta minuta foi gerada por inteligência artificial e possui caráter meramente informativo e auxiliar. NÃO SUBSTITUI A REVISÃO E ASSINATURA DE UM ADVOGADO HABILITADO. O uso deste documento é de inteira responsabilidade do usuário. O teto do Juizado Especial Cível (JEC) — popularmente conhecido como Pequenas Causas — foi atualizado para R$ 64.840,00 em 2026. Este é o valor máximo da causa para quem deseja utilizar a justiça gratuita, não é necessário estar assinado por advogado, porém se possível obtenha auxilio profissional.`;
+
     return `NOTIFICAÇÃO EXTRAJUDICIAL DE COBRANÇA
 
 À(o) Sr(a). ${debtorName || '[Nome da Cliente/Devedora]'}
@@ -471,7 +475,7 @@ Certos de sua compreensão e colaboração para a rápida solução desta pendê
 Atenciosamente,
 
 ${creditorName || '[Seu Nome/Nome da Empresa]'}
-${new Date().toLocaleDateString('pt-BR')}`;
+${new Date().toLocaleDateString('pt-BR')}` + disclaimer;
   };
 
   const handleShareWhatsApp = () => {
@@ -1217,7 +1221,7 @@ ${new Date().toLocaleDateString('pt-BR')}`;
                   <p className="text-[10px] text-red-700 font-medium leading-relaxed">
                     <strong>AVISO LEGAL:</strong> Esta minuta foi gerada por inteligência artificial e possui caráter meramente informativo e auxiliar. 
                     <strong> NÃO SUBSTITUI A REVISÃO E ASSINATURA DE UM ADVOGADO HABILITADO.</strong> 
-                    O uso deste documento é de inteira responsabilidade do usuário.
+                    O uso deste documento é de inteira responsabilidade do usuário. O teto do Juizado Especial Cível (JEC) — popularmente conhecido como Pequenas Causas — foi atualizado para R$ 64.840,00 em 2026. Este é o valor máximo da causa para quem deseja utilizar a justiça gratuita, não é necessário estar assinado por advogado, porém se possível obtenha auxilio profissional.
                   </p>
                 </div>
               </div>

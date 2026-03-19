@@ -44,6 +44,9 @@ interface Transaction {
   type: 'income' | 'expense';
   category: string;
   date: string;
+  due_date?: string;
+  reminder_enabled?: boolean;
+  status?: 'paid' | 'pending';
 }
 
 interface CategoryState {
@@ -67,7 +70,7 @@ export function FinancialControl() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isAddingCategory, setIsAddingCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
-  const [filterType, setFilterType] = useState<'all' | 'income' | 'expense'>('all');
+  const [filterType, setFilterType] = useState<'all' | 'income' | 'expense' | 'pending'>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [confirmModal, setConfirmModal] = useState<{
     isOpen: boolean;
@@ -81,11 +84,16 @@ export function FinancialControl() {
     onConfirm: () => {}
   });
 
+  const [dueReminders, setDueReminders] = useState<Transaction[]>([]);
+  const [isDueModalOpen, setIsDueModalOpen] = useState(false);
+
   // Form State
   const [newTransaction, setNewTransaction] = useState<Partial<Transaction>>({
     type: 'expense',
     date: new Date().toISOString().split('T')[0],
-    category: DEFAULT_CATEGORIES.expense[0]
+    category: DEFAULT_CATEGORIES.expense[0],
+    status: 'paid',
+    reminder_enabled: false
   });
 
   // Load data from Supabase
@@ -104,7 +112,10 @@ export function FinancialControl() {
             .order('date', { ascending: false });
 
           if (transError) throw transError;
-          if (transData) setTransactions(transData);
+          if (transData) {
+            setTransactions(transData);
+            checkReminders(transData);
+          }
 
           // Load categories
           const { data: catData, error: catError } = await supabase
@@ -152,11 +163,15 @@ export function FinancialControl() {
       .filter(t => t.type === 'income')
       .reduce((acc, t) => acc + t.amount, 0);
     const expenses = transactions
-      .filter(t => t.type === 'expense')
+      .filter(t => t.type === 'expense' && t.status !== 'pending')
+      .reduce((acc, t) => acc + t.amount, 0);
+    const pendingExpenses = transactions
+      .filter(t => t.type === 'expense' && t.status === 'pending')
       .reduce((acc, t) => acc + t.amount, 0);
     return {
       income,
       expenses,
+      pendingExpenses,
       balance: income - expenses
     };
   }, [transactions]);
@@ -191,12 +206,53 @@ export function FinancialControl() {
 
   const filteredTransactions = transactions
     .filter(t => {
-      const matchesType = filterType === 'all' || t.type === filterType;
+      const matchesType = 
+        filterType === 'all' ? true : 
+        filterType === 'income' ? t.type === 'income' : 
+        filterType === 'expense' ? t.type === 'expense' :
+        filterType === 'pending' ? t.status === 'pending' : true;
+      
       const matchesSearch = t.description.toLowerCase().includes(searchTerm.toLowerCase()) || 
                            t.category.toLowerCase().includes(searchTerm.toLowerCase());
       return matchesType && matchesSearch;
     })
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+  const checkReminders = (data: Transaction[]) => {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const tomorrowDate = new Date();
+    tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+    const tomorrowStr = tomorrowDate.toISOString().split('T')[0];
+
+    const dueToday: Transaction[] = [];
+
+    data.forEach(t => {
+      if (t.type === 'expense' && t.status === 'pending' && t.due_date && t.reminder_enabled) {
+        // Check if due today
+        if (t.due_date === todayStr) {
+          dueToday.push(t);
+          addNotification({
+            type: 'warning',
+            title: 'Vencimento Hoje',
+            message: `A conta "${t.description}" vence hoje! Valor: R$ ${t.amount.toLocaleString('pt-BR')}`
+          });
+        }
+        // Check if due tomorrow
+        else if (t.due_date === tomorrowStr) {
+          addNotification({
+            type: 'info',
+            title: 'Vencimento Amanhã',
+            message: `A conta "${t.description}" vence amanhã. Valor: R$ ${t.amount.toLocaleString('pt-BR')}`
+          });
+        }
+      }
+    });
+
+    if (dueToday.length > 0) {
+      setDueReminders(dueToday);
+      setIsDueModalOpen(true);
+    }
+  };
 
   const handleAddTransaction = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -214,7 +270,10 @@ export function FinancialControl() {
         amount: Number(newTransaction.amount),
         type: newTransaction.type as 'income' | 'expense',
         category: newTransaction.category as string,
-        date: newTransaction.date as string
+        date: newTransaction.date as string,
+        due_date: newTransaction.status === 'pending' ? newTransaction.due_date : null,
+        reminder_enabled: newTransaction.reminder_enabled || false,
+        status: newTransaction.status || 'paid'
       };
 
       const { data, error } = await supabase
@@ -226,11 +285,38 @@ export function FinancialControl() {
       if (error) throw error;
 
       setTransactions([data, ...transactions]);
+      
+      // Check for reminders if it's a pending expense
+      if (data.type === 'expense' && data.status === 'pending' && data.due_date && data.reminder_enabled) {
+        const todayStr = new Date().toISOString().split('T')[0];
+        const tomorrowDate = new Date();
+        tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+        const tomorrowStr = tomorrowDate.toISOString().split('T')[0];
+
+        if (data.due_date === todayStr) {
+          setDueReminders(prev => [data, ...prev]);
+          setIsDueModalOpen(true);
+          addNotification({
+            type: 'warning',
+            title: 'Vencimento Hoje',
+            message: `A conta "${data.description}" vence hoje! Valor: R$ ${data.amount.toLocaleString('pt-BR')}`
+          });
+        } else if (data.due_date === tomorrowStr) {
+          addNotification({
+            type: 'info',
+            title: 'Vencimento Amanhã',
+            message: `A conta "${data.description}" vence amanhã. Valor: R$ ${data.amount.toLocaleString('pt-BR')}`
+          });
+        }
+      }
+
       setIsModalOpen(false);
       setNewTransaction({
         type: 'expense',
         date: new Date().toISOString().split('T')[0],
-        category: categories.expense[0]
+        category: categories.expense[0],
+        status: 'paid',
+        reminder_enabled: false
       });
       
       // Also save categories to Supabase if they changed (added new one)
@@ -251,6 +337,33 @@ export function FinancialControl() {
       });
     } finally {
       setSaving(false);
+    }
+  };
+
+  const markAsPaid = async (id: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('financial_transactions')
+        .update({ status: 'paid', date: new Date().toISOString().split('T')[0] })
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      setTransactions(transactions.map(t => t.id === id ? data : t));
+      addNotification({
+        type: 'success',
+        title: 'Pagamento Confirmado',
+        message: 'A conta foi marcada como paga e o saldo atualizado.'
+      });
+    } catch (err: any) {
+      console.error('Error marking as paid:', err);
+      addNotification({
+        type: 'error',
+        title: 'Erro ao atualizar',
+        message: formatError(err)
+      });
     }
   };
 
@@ -321,7 +434,7 @@ export function FinancialControl() {
       </div>
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
         <StatCard 
           title="Saldo Geral" 
           value={stats.balance} 
@@ -342,6 +455,13 @@ export function FinancialControl() {
           icon={ArrowDownRight} 
           color="rose" 
           trend="down"
+        />
+        <StatCard 
+          title="Contas a Pagar" 
+          value={stats.pendingExpenses} 
+          icon={Calendar} 
+          color="amber" 
+          trend="none"
         />
       </div>
 
@@ -466,6 +586,7 @@ export function FinancialControl() {
               <FilterButton active={filterType === 'all'} onClick={() => setFilterType('all')} label="Todos" />
               <FilterButton active={filterType === 'income'} onClick={() => setFilterType('income')} label="Receitas" />
               <FilterButton active={filterType === 'expense'} onClick={() => setFilterType('expense')} label="Despesas" />
+              <FilterButton active={filterType === 'pending'} onClick={() => setFilterType('pending')} label="Pendentes" />
             </div>
           </div>
         </div>
@@ -477,6 +598,7 @@ export function FinancialControl() {
                 <th className="px-8 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Data</th>
                 <th className="px-8 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Descrição</th>
                 <th className="px-8 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Categoria</th>
+                <th className="px-8 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest text-right">Vencimento</th>
                 <th className="px-8 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest text-right">Valor</th>
                 <th className="px-8 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest text-right">Ações</th>
               </tr>
@@ -497,7 +619,12 @@ export function FinancialControl() {
                       )}>
                         {t.type === 'income' ? <ArrowUpRight className="w-4 h-4" /> : <ArrowDownRight className="w-4 h-4" />}
                       </div>
-                      <span className="text-sm font-bold text-zinc-700">{t.description}</span>
+                      <div>
+                        <span className="text-sm font-bold text-zinc-700 block">{t.description}</span>
+                        {t.status === 'pending' && (
+                          <span className="text-[10px] font-bold text-amber-600 uppercase">Pendente</span>
+                        )}
+                      </div>
                     </div>
                   </td>
                   <td className="px-8 py-4">
@@ -505,6 +632,20 @@ export function FinancialControl() {
                       <Tag className="w-3 h-3 text-zinc-300" />
                       <span className="text-xs font-semibold text-zinc-500">{t.category}</span>
                     </div>
+                  </td>
+                  <td className="px-8 py-4 text-right">
+                    {t.due_date ? (
+                      <div className="flex flex-col items-end">
+                        <span className="text-xs font-bold text-zinc-500">
+                          {new Date(t.due_date).toLocaleDateString('pt-BR')}
+                        </span>
+                        {t.reminder_enabled && (
+                          <Calendar className="w-3 h-3 text-[#38a89d]" />
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-xs text-zinc-300">-</span>
+                    )}
                   </td>
                   <td className="px-8 py-4 text-right">
                     <span className={cn(
@@ -515,12 +656,24 @@ export function FinancialControl() {
                     </span>
                   </td>
                   <td className="px-8 py-4 text-right">
-                    <button 
-                      onClick={() => removeTransaction(t.id)}
-                      className="p-2 hover:bg-red-50 text-red-500 rounded-lg opacity-0 group-hover:opacity-100 transition-all"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    <div className="flex items-center justify-end gap-2">
+                      {t.status === 'pending' && (
+                        <button 
+                          onClick={() => markAsPaid(t.id)}
+                          className="p-2 hover:bg-emerald-50 text-emerald-600 rounded-lg opacity-0 group-hover:opacity-100 transition-all flex items-center gap-1"
+                          title="Marcar como Pago"
+                        >
+                          <DollarSign className="w-4 h-4" />
+                          <span className="text-[10px] font-bold uppercase">Pagar</span>
+                        </button>
+                      )}
+                      <button 
+                        onClick={() => removeTransaction(t.id)}
+                        className="p-2 hover:bg-red-50 text-red-500 rounded-lg opacity-0 group-hover:opacity-100 transition-all"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -621,7 +774,7 @@ export function FinancialControl() {
                       />
                     </div>
                     <div className="space-y-2">
-                      <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest ml-1">Data</label>
+                      <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest ml-1">Data do Lançamento</label>
                       <input 
                         required
                         type="date"
@@ -631,6 +784,60 @@ export function FinancialControl() {
                       />
                     </div>
                   </div>
+
+                  {newTransaction.type === 'expense' && (
+                    <div className="p-4 bg-zinc-50 rounded-2xl border border-zinc-100 space-y-4">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-bold text-zinc-700">Conta a Pagar?</label>
+                        <button 
+                          type="button"
+                          onClick={() => setNewTransaction({ 
+                            ...newTransaction, 
+                            status: newTransaction.status === 'pending' ? 'paid' : 'pending',
+                            due_date: newTransaction.status === 'pending' ? undefined : newTransaction.date
+                          })}
+                          className={cn(
+                            "w-12 h-6 rounded-full transition-all relative",
+                            newTransaction.status === 'pending' ? "bg-[#38a89d]" : "bg-zinc-300"
+                          )}
+                        >
+                          <div className={cn(
+                            "absolute top-1 w-4 h-4 bg-white rounded-full transition-all",
+                            newTransaction.status === 'pending' ? "right-1" : "left-1"
+                          )} />
+                        </button>
+                      </div>
+
+                      {newTransaction.status === 'pending' && (
+                        <motion.div 
+                          initial={{ opacity: 0, height: 0 }}
+                          animate={{ opacity: 1, height: 'auto' }}
+                          className="space-y-4 pt-2 border-t border-zinc-200"
+                        >
+                          <div className="space-y-2">
+                            <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest ml-1">Data de Vencimento</label>
+                            <input 
+                              required
+                              type="date"
+                              value={newTransaction.due_date || ''}
+                              onChange={(e) => setNewTransaction({ ...newTransaction, due_date: e.target.value })}
+                              className="w-full bg-white border border-zinc-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-[#38a89d]/10 focus:border-[#38a89d] outline-none transition-all"
+                            />
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <input 
+                              type="checkbox"
+                              id="reminder"
+                              checked={newTransaction.reminder_enabled}
+                              onChange={(e) => setNewTransaction({ ...newTransaction, reminder_enabled: e.target.checked })}
+                              className="w-4 h-4 rounded border-zinc-300 text-[#38a89d] focus:ring-[#38a89d]"
+                            />
+                            <label htmlFor="reminder" className="text-xs font-medium text-zinc-600">Criar lembrete de vencimento</label>
+                          </div>
+                        </motion.div>
+                      )}
+                    </div>
+                  )}
 
                   <div className="space-y-2">
                     <div className="flex items-center justify-between ml-1">
@@ -705,6 +912,54 @@ export function FinancialControl() {
         )}
       </AnimatePresence>
 
+      {/* Due Date Reminder Modal */}
+      <AnimatePresence>
+        {isDueModalOpen && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-zinc-900/60 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="relative bg-white w-full max-w-md rounded-[32px] shadow-2xl overflow-hidden p-8 text-center space-y-6"
+            >
+              <div className="w-20 h-20 bg-amber-50 rounded-full flex items-center justify-center mx-auto">
+                <Calendar className="w-10 h-10 text-amber-500" />
+              </div>
+              
+              <div className="space-y-2">
+                <h3 className="text-xl font-bold text-zinc-800">Contas a Vencer Hoje</h3>
+                <p className="text-sm text-zinc-500">Você possui pagamentos agendados para hoje.</p>
+              </div>
+
+              <div className="bg-zinc-50 rounded-2xl p-4 space-y-3 text-left max-h-[200px] overflow-y-auto">
+                {dueReminders.map(t => (
+                  <div key={t.id} className="flex items-center justify-between p-3 bg-white rounded-xl border border-zinc-100">
+                    <div>
+                      <p className="text-sm font-bold text-zinc-700">{t.description}</p>
+                      <p className="text-[10px] text-zinc-400 uppercase font-bold">{t.category}</p>
+                    </div>
+                    <p className="text-sm font-bold text-rose-600">R$ {t.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                  </div>
+                ))}
+              </div>
+
+              <button 
+                onClick={() => setIsDueModalOpen(false)}
+                className="w-full bg-zinc-900 text-white py-4 rounded-2xl font-bold hover:bg-zinc-800 transition-all shadow-lg"
+              >
+                Estou Ciente
+              </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* Confirmation Modal */}
       <ConfirmationModal
         isOpen={confirmModal.isOpen}
@@ -721,7 +976,8 @@ function StatCard({ title, value, icon: Icon, color, trend }: any) {
   const colors: any = {
     indigo: "bg-indigo-50 text-indigo-600",
     emerald: "bg-emerald-50 text-emerald-600",
-    rose: "bg-rose-50 text-rose-600"
+    rose: "bg-rose-50 text-rose-600",
+    amber: "bg-amber-50 text-amber-600"
   };
 
   return (
@@ -730,12 +986,14 @@ function StatCard({ title, value, icon: Icon, color, trend }: any) {
         <div className={cn("w-12 h-12 rounded-2xl flex items-center justify-center", colors[color])}>
           <Icon className="w-6 h-6" />
         </div>
-        <div className={cn(
-          "px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider",
-          trend === 'up' ? "bg-emerald-50 text-emerald-600" : "bg-rose-50 text-rose-600"
-        )}>
-          {trend === 'up' ? '+12%' : '-5%'}
-        </div>
+        {trend !== 'none' && (
+          <div className={cn(
+            "px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider",
+            trend === 'up' ? "bg-emerald-50 text-emerald-600" : "bg-rose-50 text-rose-600"
+          )}>
+            {trend === 'up' ? '+12%' : '-5%'}
+          </div>
+        )}
       </div>
       <div>
         <h4 className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">{title}</h4>

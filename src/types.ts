@@ -110,6 +110,7 @@ export interface Bag {
   payment_status: string;
   received_amount?: number;
   created_at: string;
+  closed_at?: string;
   customer?: Customer;
 }
 

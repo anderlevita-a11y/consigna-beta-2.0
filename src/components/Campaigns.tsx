@@ -52,6 +52,27 @@ export function Campaigns() {
     }
   }, [view, showArchived]);
 
+  useEffect(() => {
+    if (view === 'list' && campaigns.length > 0) {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      const overdueCampaigns = campaigns.filter(c => 
+        c.status === 'active' && 
+        c.return_date && 
+        new Date(c.return_date) < today
+      );
+
+      if (overdueCampaigns.length > 0) {
+        addNotification({
+          type: 'warning',
+          title: 'Campanhas Vencidas',
+          message: `Você possui ${overdueCampaigns.length} campanhas com prazo de acerto vencido. Verifique as sacolas em aberto.`
+        });
+      }
+    }
+  }, [campaigns, view]);
+
   async function fetchCampaigns() {
     setLoading(true);
     try {
@@ -336,11 +357,16 @@ function CampaignCard({ campaign, isArchived, onAddBag, onEdit, onArchive, onUna
         </span>
       </div>
 
-      <div className="flex items-center justify-between text-xs text-zinc-400 font-medium">
-        <div className="flex items-center gap-1.5">
+      <div className="flex items-center justify-between text-xs font-medium">
+        <div className={cn(
+          "flex items-center gap-1.5",
+          campaign.return_date && new Date(campaign.return_date) < new Date(new Date().setHours(0, 0, 0, 0))
+            ? "text-red-600 font-bold"
+            : "text-zinc-400"
+        )}>
           <span>Retorno: {format(new Date(campaign.return_date || ''), "dd/MM/yyyy")}</span>
         </div>
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 text-zinc-400">
           <span>Criada em: {format(new Date(campaign.created_at), "dd/MM/yyyy")}</span>
         </div>
       </div>

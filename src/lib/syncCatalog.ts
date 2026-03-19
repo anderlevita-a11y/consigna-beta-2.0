@@ -2,34 +2,68 @@ import { supabase } from './supabase';
 
 export async function syncCatalog(previewOnly: boolean = false) {
   const { data: { session } } = await supabase.auth.getSession();
-    const user = session?.user;
+  const user = session?.user;
   if (!user) throw new Error('Usuário não autenticado');
 
-  // Fetch central products
-  const { data: centralProductsData, error: centralError } = await supabase
-    .from('central_products')
-    .select('*');
+  // Helper to fetch all rows from a table (bypassing 1000 row limit)
+  async function fetchAll(table: string, userId?: string) {
+    let allData: any[] = [];
+    let from = 0;
+    const step = 1000;
+    let finished = false;
 
-  if (centralError) throw centralError;
+    while (!finished) {
+      let query = supabase
+        .from(table)
+        .select('*')
+        .order('id', { ascending: true })
+        .range(from, from + step - 1);
+        
+      if (userId) {
+        query = query.eq('user_id', userId);
+      }
+      
+      const { data, error } = await query;
+      if (error) {
+        console.error(`Error fetching ${table}:`, error);
+        throw error;
+      }
+      
+      if (!data || data.length === 0) {
+        finished = true;
+      } else {
+        allData = allData.concat(data);
+        if (data.length < step) {
+          finished = true;
+        } else {
+          from += step;
+        }
+      }
+    }
+    // Ensure unique records by ID in case of any pagination overlap
+    return Array.from(new Map(allData.map(item => [item.id, item])).values());
+  }
+
+  // Fetch central products
+  const centralProductsData = await fetchAll('central_products');
   if (!centralProductsData || centralProductsData.length === 0) {
     throw new Error('A Central de Produtos está vazia.');
   }
 
   // Fetch user products
-  const { data: userProducts, error: userProdError } = await supabase
-    .from('products')
-    .select('*')
-    .eq('user_id', user.id);
+  const userProducts = await fetchAll('products', user.id);
 
-  if (userProdError) throw userProdError;
+  // Detect duplicates in user's own products
+  const userDuplicates = detectUserDuplicates(userProducts);
 
   // Create maps for efficient lookup
   const userEanMap = new Map();
   const userNameMap = new Map();
   
   (userProducts || []).forEach(p => {
-    if (p.ean && p.ean !== '0' && p.ean !== '') {
-      userEanMap.set(p.ean, p);
+    const trimmedEan = p.ean?.trim();
+    if (trimmedEan && trimmedEan !== '0' && trimmedEan !== '') {
+      userEanMap.set(trimmedEan, p);
     }
     userNameMap.set(p.name.toLowerCase().trim(), p);
   });
@@ -41,12 +75,13 @@ export async function syncCatalog(previewOnly: boolean = false) {
   const processedUserProductIds = new Set();
 
   for (const centralProduct of centralProductsData) {
-    const isValidEan = centralProduct.ean && centralProduct.ean !== '0' && centralProduct.ean !== '';
+    const rawEan = centralProduct.ean?.trim();
+    const isValidEan = rawEan && rawEan !== '0' && rawEan !== '';
     const normalizedName = centralProduct.name.toLowerCase().trim();
 
     if (isValidEan) {
-      if (processedEans.has(centralProduct.ean)) continue;
-      processedEans.add(centralProduct.ean);
+      if (processedEans.has(rawEan)) continue;
+      processedEans.add(rawEan);
     } else {
       if (processedNames.has(normalizedName)) continue;
       processedNames.add(normalizedName);
@@ -55,7 +90,7 @@ export async function syncCatalog(previewOnly: boolean = false) {
     let existingProduct = null;
     
     if (isValidEan) {
-      existingProduct = userEanMap.get(centralProduct.ean);
+      existingProduct = userEanMap.get(rawEan);
     }
     
     if (!existingProduct) {
@@ -70,7 +105,9 @@ export async function syncCatalog(previewOnly: boolean = false) {
         existingProduct.name !== centralProduct.name ||
         existingProduct.sale_price !== centralProduct.sale_price ||
         existingProduct.cost_price !== centralProduct.cost_price ||
-        existingProduct.label_name !== centralProduct.label_name;
+        existingProduct.label_name !== centralProduct.label_name ||
+        existingProduct.photo_url !== centralProduct.photo_url ||
+        existingProduct.has_grid !== centralProduct.has_grid;
 
       if (hasChanged) {
         productsToUpdate.push({
@@ -78,7 +115,7 @@ export async function syncCatalog(previewOnly: boolean = false) {
           payload: {
             name: centralProduct.name,
             label_name: centralProduct.label_name,
-            ean: isValidEan ? centralProduct.ean : null,
+            ean: isValidEan ? rawEan : existingProduct.ean,
             cost_price: centralProduct.cost_price,
             sale_price: centralProduct.sale_price,
             photo_url: centralProduct.photo_url || existingProduct.photo_url,
@@ -92,7 +129,7 @@ export async function syncCatalog(previewOnly: boolean = false) {
         user_id: user.id,
         name: centralProduct.name,
         label_name: centralProduct.label_name,
-        ean: isValidEan ? centralProduct.ean : null,
+        ean: isValidEan ? rawEan : null,
         cost_price: centralProduct.cost_price,
         sale_price: centralProduct.sale_price,
         current_stock: 0,
@@ -106,7 +143,8 @@ export async function syncCatalog(previewOnly: boolean = false) {
   if (previewOnly) {
     return {
       inserted: productsToInsert,
-      updated: productsToUpdate
+      updated: productsToUpdate,
+      duplicates: userDuplicates
     };
   }
 
@@ -115,7 +153,10 @@ export async function syncCatalog(previewOnly: boolean = false) {
     for (let i = 0; i < productsToInsert.length; i += chunkSize) {
       const chunk = productsToInsert.slice(i, i + chunkSize);
       const { error: insertError } = await supabase.from('products').insert(chunk);
-      if (insertError) throw insertError;
+      if (insertError) {
+        console.error('Error inserting products in sync:', insertError);
+        throw new Error(`Erro ao inserir produtos: ${insertError.message || JSON.stringify(insertError)}`);
+      }
     }
   }
 
@@ -127,10 +168,102 @@ export async function syncCatalog(previewOnly: boolean = false) {
         supabase.from('products').update(p.payload).eq('id', p.id)
       ));
       
-      const firstError = results.find(r => r.error)?.error;
-      if (firstError) throw firstError;
+      const errorResult = results.find(r => r.error);
+      if (errorResult?.error) {
+        console.error('Error updating product in sync:', errorResult.error);
+        throw new Error(`Erro ao atualizar produto: ${errorResult.error.message || JSON.stringify(errorResult.error)}`);
+      }
     }
   }
 
-  return { inserted: productsToInsert.length, updated: productsToUpdate.length };
+  return { 
+    inserted: productsToInsert.length, 
+    updated: productsToUpdate.length,
+    duplicates: userDuplicates.length
+  };
+}
+
+export function detectUserDuplicates(products: any[]) {
+  const duplicates: { key: string; type: 'ean' | 'name'; products: any[] }[] = [];
+  const eanGroups = new Map<string, any[]>();
+  const nameGroups = new Map<string, any[]>();
+
+  products.forEach(p => {
+    const ean = p.ean?.trim();
+    if (ean && ean !== '0' && ean !== '') {
+      if (!eanGroups.has(ean)) eanGroups.set(ean, []);
+      eanGroups.get(ean)!.push(p);
+    }
+    const name = p.name.toLowerCase().trim();
+    if (!nameGroups.has(name)) nameGroups.set(name, []);
+    nameGroups.get(name)!.push(p);
+  });
+
+  eanGroups.forEach((group, ean) => {
+    if (group.length > 1) {
+      duplicates.push({ key: ean, type: 'ean', products: group });
+    }
+  });
+
+  nameGroups.forEach((group, name) => {
+    if (group.length > 1) {
+      // Only add as name duplicate if not already in an EAN duplicate group
+      // to avoid double counting
+      const alreadyInEanGroup = group.some(p => {
+        const ean = p.ean?.trim();
+        return ean && ean !== '0' && ean !== '' && eanGroups.get(ean)!.length > 1;
+      });
+      if (!alreadyInEanGroup) {
+        duplicates.push({ key: name, type: 'name', products: group });
+      }
+    }
+  });
+
+  return duplicates;
+}
+
+export async function getLinkedProductIds(userId: string): Promise<Set<string>> {
+  try {
+    const { data, error } = await supabase
+      .from('bag_items')
+      .select('product_id, bags!inner(user_id)')
+      .eq('bags.user_id', userId);
+    
+    if (error) throw error;
+    
+    const linkedIds = new Set(
+      (data || [])
+        .map(item => item.product_id)
+        .filter((id): id is string => !!id)
+    );
+    
+    return linkedIds;
+  } catch (err) {
+    console.error('Error fetching linked product IDs:', err);
+    return new Set();
+  }
+}
+
+export async function resolveDuplicates(duplicateIdsToDelete: string[]) {
+  if (duplicateIdsToDelete.length === 0) return;
+
+  const { data: { session } } = await supabase.auth.getSession();
+  const user = session?.user;
+  if (!user) throw new Error('Usuário não autenticado');
+
+  // Safety check: Don't allow deleting linked products even if requested
+  const linkedIds = await getLinkedProductIds(user.id);
+  const safeToDelete = duplicateIdsToDelete.filter(id => !linkedIds.has(id));
+
+  if (safeToDelete.length === 0) return;
+
+  const chunkSize = 50;
+  for (let i = 0; i < safeToDelete.length; i += chunkSize) {
+    const chunk = safeToDelete.slice(i, i + chunkSize);
+    const { error } = await supabase.from('products').delete().in('id', chunk);
+    if (error) {
+      console.error('Error deleting duplicates:', error);
+      throw new Error(`Erro ao excluir duplicados: ${error.message}`);
+    }
+  }
 }

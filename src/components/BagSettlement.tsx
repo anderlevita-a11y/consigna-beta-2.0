@@ -164,11 +164,12 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
   const numericReceivedAmount = parseFloat(receivedAmount.replace(',', '.')) || 0;
 
   const handleAddExpense = () => {
-    const numericValue = Number(expenseValue.replace(',', '.')) || 0;
-    if (!expenseDesc || numericValue <= 0) return;
-    setExpenses([...expenses, { description: expenseDesc, value: numericValue }]);
+    const numericValue = parseFloat(expenseValue.replace(',', '.')) || 0;
+    if (numericValue <= 0) return;
+    const desc = expenseDesc.trim() || 'Despesa';
+    setExpenses([...expenses, { description: desc, value: numericValue }]);
     setExpenseDesc('');
-    setExpenseValue('0');
+    setExpenseValue('');
   };
 
   const handleRemoveExpense = (index: number) => {
@@ -294,7 +295,8 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
           status: 'closed',
           total_value: amountToPay,
           received_amount: numericReceivedAmount,
-          payment_status: paymentStatus
+          payment_status: paymentStatus,
+          closed_at: new Date().toISOString()
         })
         .eq('id', bag.id);
 
@@ -618,39 +620,45 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
 
               <div className="space-y-4">
                 <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Despesas Adicionais (Opcional)</label>
-                <div className="flex gap-2">
+                <div className="space-y-2">
                   <input 
                     type="text" 
-                    placeholder="Descrição"
+                    placeholder="Descrição da despesa..."
                     value={expenseDesc}
                     disabled={bag.status === 'closed'}
                     onChange={e => setExpenseDesc(e.target.value)}
                     onKeyDown={e => e.key === 'Enter' && handleAddExpense()}
-                    className="flex-[2] bg-zinc-50 border border-zinc-100 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-emerald-500 disabled:opacity-50"
+                    className="w-full bg-zinc-50 border border-zinc-100 rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-emerald-500 disabled:opacity-50"
                   />
-                  <input 
-                    type="text" 
-                    inputMode="decimal"
-                    placeholder="R$"
-                    value={expenseValue === '0' ? '' : expenseValue}
-                    disabled={bag.status === 'closed'}
-                    onChange={e => {
-                      const val = e.target.value;
-                      if (val === '' || /^\d*([.,]\d*)?$/.test(val)) {
-                        setExpenseValue(val);
-                      }
-                    }}
-                    onKeyDown={e => e.key === 'Enter' && handleAddExpense()}
-                    className="flex-1 bg-zinc-50 border border-zinc-100 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-emerald-500 disabled:opacity-50"
-                  />
-                  <button 
-                    type="button"
-                    onClick={handleAddExpense}
-                    disabled={bag.status === 'closed'}
-                    className="bg-zinc-100 hover:bg-zinc-200 text-zinc-600 p-2 rounded-xl transition-all disabled:opacity-50"
-                  >
-                    <Plus className="w-4 h-4" />
-                  </button>
+                  <div className="relative">
+                    <div className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400 font-bold text-xs">R$</div>
+                    <input 
+                      type="text" 
+                      inputMode="decimal"
+                      placeholder="0,00"
+                      value={expenseValue}
+                      disabled={bag.status === 'closed'}
+                      onChange={e => {
+                        const val = e.target.value;
+                        if (val === '' || /^\d*([.,]\d*)?$/.test(val)) {
+                          setExpenseValue(val);
+                        }
+                      }}
+                      onKeyDown={e => e.key === 'Enter' && handleAddExpense()}
+                      className="w-full bg-zinc-50 border border-zinc-100 rounded-xl pl-10 pr-16 py-3 text-sm font-bold text-zinc-800 focus:outline-none focus:border-emerald-500 disabled:opacity-50"
+                    />
+                    <div className="absolute right-2 top-1/2 -translate-y-1/2">
+                      <button 
+                        type="button"
+                        onClick={handleAddExpense}
+                        disabled={bag.status === 'closed' || !expenseValue}
+                        className="bg-emerald-500 hover:bg-emerald-600 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase transition-all shadow-sm disabled:opacity-50 flex items-center gap-1"
+                      >
+                        <Plus className="w-3 h-3" />
+                        Add
+                      </button>
+                    </div>
+                  </div>
                 </div>
                 
                 {expenses.length > 0 && (
