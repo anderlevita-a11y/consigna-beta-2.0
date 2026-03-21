@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { 
   X, 
   Save, 
@@ -7,10 +7,14 @@ import {
   Upload, 
   Loader2,
   ChevronLeft,
-  CheckCircle2
+  CheckCircle2,
+  History,
+  ShoppingBag,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { Customer } from '../types';
+import { Customer, Bag, BagItem } from '../types';
 import { cn } from '../lib/utils';
 import { useNotifications } from './NotificationCenter';
 
@@ -23,10 +27,41 @@ interface CustomerFormProps {
 export function CustomerForm({ customer, onClose, onSave }: CustomerFormProps) {
   const { addNotification } = useNotifications();
   const [loading, setLoading] = useState(false);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [history, setHistory] = useState<(Bag & { campaign?: { name: string }, items?: BagItem[] })[]>([]);
+  const [expandedBag, setExpandedBag] = useState<string | null>(null);
   const [uploadingDoc, setUploadingDoc] = useState(false);
   const [uploadingProof, setUploadingProof] = useState(false);
   const docInputRef = useRef<HTMLInputElement>(null);
   const proofInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (customer?.id) {
+      fetchHistory();
+    }
+  }, [customer?.id]);
+
+  const fetchHistory = async () => {
+    setLoadingHistory(true);
+    try {
+      const { data, error } = await supabase
+        .from('bags')
+        .select(`
+          *,
+          campaign:campaigns(name),
+          items:bag_items(*)
+        `)
+        .eq('customer_id', customer?.id)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      setHistory(data || []);
+    } catch (err) {
+      console.error('Error fetching customer history:', err);
+    } finally {
+      setLoadingHistory(false);
+    }
+  };
 
   const [creditLimitInput, setCreditLimitInput] = useState(customer?.credit_limit?.toString() || '0');
   const [formData, setFormData] = useState<Partial<Customer>>(customer || {
@@ -507,6 +542,118 @@ export function CustomerForm({ customer, onClose, onSave }: CustomerFormProps) {
               </div>
             </div>
           </div>
+
+          {/* Histórico do Cliente */}
+          {customer?.id && (
+            <div className="mt-12 pt-12 border-t border-zinc-200 space-y-8">
+              <div className="flex items-center gap-3">
+                <History className="w-6 h-6 text-emerald-600" />
+                <h3 className="text-lg font-serif italic text-zinc-700">Histórico de Movimentações</h3>
+              </div>
+
+              {loadingHistory ? (
+                <div className="flex items-center justify-center py-12 text-zinc-400 gap-2">
+                  <Loader2 className="w-5 h-5 animate-spin text-emerald-500" />
+                  Carregando histórico...
+                </div>
+              ) : history.length === 0 ? (
+                <div className="bg-white border border-dashed border-zinc-200 rounded-3xl p-12 text-center text-zinc-500">
+                  Nenhuma sacola ou movimentação encontrada para este cliente.
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {history.map((bag) => (
+                    <div key={bag.id} className="bg-white border border-zinc-200 rounded-2xl overflow-hidden shadow-sm hover:border-emerald-500/30 transition-all">
+                      <button 
+                        type="button"
+                        onClick={() => setExpandedBag(expandedBag === bag.id ? null : bag.id)}
+                        className="w-full px-6 py-4 flex items-center justify-between hover:bg-zinc-50 transition-colors"
+                      >
+                        <div className="flex items-center gap-4">
+                          <div className="w-10 h-10 rounded-full bg-emerald-50 flex items-center justify-center">
+                            <ShoppingBag className="w-5 h-5 text-emerald-600" />
+                          </div>
+                          <div className="text-left">
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-zinc-800">Sacola #{bag.bag_number}</span>
+                              <span className={cn(
+                                "text-[10px] font-bold uppercase px-2 py-0.5 rounded",
+                                bag.status === 'closed' ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
+                              )}>
+                                {bag.status === 'closed' ? 'Finalizada' : 'Aberta'}
+                              </span>
+                            </div>
+                            <p className="text-xs text-zinc-500">
+                              {bag.campaign?.name || 'Sem Campanha'} • {new Date(bag.created_at).toLocaleDateString('pt-BR')}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-6">
+                          <div className="text-right hidden sm:block">
+                            <p className="text-xs font-bold text-zinc-400 uppercase tracking-widest">Total</p>
+                            <p className="font-bold text-zinc-800">R$ {bag.total_value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                          </div>
+                          {expandedBag === bag.id ? <ChevronUp className="w-5 h-5 text-zinc-400" /> : <ChevronDown className="w-5 h-5 text-zinc-400" />}
+                        </div>
+                      </button>
+
+                      {expandedBag === bag.id && (
+                        <div className="px-6 pb-6 pt-2 border-t border-zinc-50 animate-in slide-in-from-top-2 duration-200">
+                          <div className="space-y-4">
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                              <div className="bg-zinc-50 rounded-xl p-3">
+                                <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-1">Status Pagamento</p>
+                                <span className={cn(
+                                  "text-xs font-bold uppercase",
+                                  bag.payment_status === 'paid' ? "text-emerald-600" : "text-amber-600"
+                                )}>
+                                  {bag.payment_status === 'paid' ? 'Pago' : 'Pendente'}
+                                </span>
+                              </div>
+                              <div className="bg-zinc-50 rounded-xl p-3">
+                                <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-1">Valor Recebido</p>
+                                <p className="text-xs font-bold text-zinc-800">R$ {(bag.received_amount || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                              </div>
+                              <div className="bg-zinc-50 rounded-xl p-3">
+                                <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-1">Data Fechamento</p>
+                                <p className="text-xs font-bold text-zinc-800">{bag.closed_at ? new Date(bag.closed_at).toLocaleDateString('pt-BR') : '-'}</p>
+                              </div>
+                            </div>
+
+                            <div className="space-y-2">
+                              <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Produtos na Sacola</p>
+                              <div className="border border-zinc-100 rounded-xl overflow-hidden">
+                                <table className="w-full text-xs text-left">
+                                  <thead className="bg-zinc-50 text-zinc-500 font-bold uppercase tracking-wider">
+                                    <tr>
+                                      <th className="px-4 py-2">Produto</th>
+                                      <th className="px-4 py-2 text-center">Qtd</th>
+                                      <th className="px-4 py-2 text-center">Ret</th>
+                                      <th className="px-4 py-2 text-right">Preço</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-zinc-50">
+                                    {bag.items?.map((item: any) => (
+                                      <tr key={item.id}>
+                                        <td className="px-4 py-2 font-medium text-zinc-700">{item.product_name}</td>
+                                        <td className="px-4 py-2 text-center">{item.quantity}</td>
+                                        <td className="px-4 py-2 text-center text-rose-500 font-bold">{item.returned_quantity}</td>
+                                        <td className="px-4 py-2 text-right font-bold">R$ {item.unit_price.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </form>
       </div>
     </div>

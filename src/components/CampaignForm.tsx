@@ -3,7 +3,7 @@ import { Save, X, Calendar, Percent, FileText } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { Campaign } from '../types';
 import { useNotifications } from './NotificationCenter';
-import { formatError } from '../lib/utils';
+import { cn, formatError } from '../lib/utils';
 
 interface CampaignFormProps {
   onClose: () => void;
@@ -19,6 +19,11 @@ export function CampaignForm({ onClose, onSave, initialData }: CampaignFormProps
     name: initialData?.name || '',
     return_date: initialData?.return_date ? new Date(initialData.return_date).toISOString().split('T')[0] : '2026-04-15',
   });
+
+  const today = new Date().toISOString().split('T')[0];
+  const isNewCampaign = !initialData;
+  const isReturnDayOrLater = initialData?.return_date ? new Date(initialData.return_date).toISOString().split('T')[0] <= today : false;
+  const canEditReturnDate = isNewCampaign || isReturnDayOrLater;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -137,15 +142,22 @@ export function CampaignForm({ onClose, onSave, initialData }: CampaignFormProps
               </div>
 
               <div className="space-y-2">
-                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">
-                  Data para Retorno
+                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest flex items-center justify-between">
+                  <span>Data para Retorno</span>
+                  {!canEditReturnDate && (
+                    <span className="text-amber-500 normal-case font-medium">Editar somente a partir do dia agendado</span>
+                  )}
                 </label>
                 <div className="relative">
                   <input 
                     type="date" 
                     value={formData.return_date}
                     onChange={(e) => setFormData({ ...formData, return_date: e.target.value })}
-                    className="w-full bg-white border border-zinc-200 rounded-xl px-4 py-4 text-zinc-800 focus:border-emerald-500 outline-none transition-all"
+                    disabled={!canEditReturnDate}
+                    className={cn(
+                      "w-full bg-white border border-zinc-200 rounded-xl px-4 py-4 text-zinc-800 focus:border-emerald-500 outline-none transition-all",
+                      !canEditReturnDate && "opacity-60 cursor-not-allowed bg-zinc-50"
+                    )}
                   />
                   <Calendar className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-300 pointer-events-none" />
                 </div>

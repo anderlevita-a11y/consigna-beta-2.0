@@ -45,9 +45,9 @@ interface SidebarProps {
 
 const menuItems = [
   { id: 'profile', label: 'Meu Cadastro', icon: UserCircle, public: true },
-  { id: 'notepad', label: 'Bloco de Notas', icon: StickyNote, public: true },
-  { id: 'financial', label: 'Financeiro', icon: DollarSign, public: true },
-  { id: 'billing', label: 'Gestão de Cobrança', icon: FileText, public: true },
+  { id: 'notepad', label: 'Bloco de Notas', icon: StickyNote },
+  { id: 'financial', label: 'Financeiro', icon: DollarSign },
+  { id: 'billing', label: 'Gestão de Cobrança', icon: FileText },
   { id: 'campaigns', label: 'Campanhas', icon: Megaphone },
   { id: 'routes', label: 'Rotas', icon: Map, restrictedForStarter: true },
   { id: 'customers', label: 'Clientes', icon: Users },

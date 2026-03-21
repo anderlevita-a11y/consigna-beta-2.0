@@ -19,7 +19,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { generatePixPayload } from '../lib/pix';
 import { supabase } from '../lib/supabase';
 import { Bag, BagItem, Product, Profile } from '../types';
-import { cn, printFallback, formatError } from '../lib/utils';
+import { cn, printFallback, formatError, formatMoney, formatMoneyInput, parseMoney } from '../lib/utils';
 import { format } from 'date-fns';
 import { PrintPreview } from './PrintPreview';
 import { useNotifications } from './NotificationCenter';
@@ -42,16 +42,13 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
   const [saving, setSaving] = useState(false);
   const [items, setItems] = useState<SettlementItem[]>([]);
   const [paymentMethod, setPaymentMethod] = useState<'dinheiro' | 'pix' | 'cartao'>('pix');
-  const [receivedAmount, setReceivedAmount] = useState<string>('0');
+  const [receivedAmount, setReceivedAmount] = useState<string>('0,00');
   const [searchProduct, setSearchProduct] = useState('');
   const [userProfile, setUserProfile] = useState<Profile | null>(null);
   const [showPreview, setShowPreview] = useState(false);
   const [pdfUrl, setPdfUrl] = useState('');
   const [campaignDiscount, setCampaignDiscount] = useState(30);
   const [previewType, setPreviewType] = useState<'termica' | 'a4' | 'etiqueta'>('termica');
-  const [expenses, setExpenses] = useState<{ description: string; value: number }[]>([]);
-  const [expenseDesc, setExpenseDesc] = useState('');
-  const [expenseValue, setExpenseValue] = useState<string>('0');
   const [confirmModal, setConfirmModal] = useState<{
     isOpen: boolean;
     title: string;
@@ -134,7 +131,7 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
         return acc + (sold * item.unit_price);
       }, 0);
       
-      setReceivedAmount(bag.received_amount?.toString() || '0');
+      setReceivedAmount(formatMoney(bag.received_amount || 0));
     } catch (err) {
       console.error('Error fetching data:', err);
     } finally {
@@ -159,22 +156,9 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
   }, 0);
   
   const commission = totalSold * (campaignDiscount / 100);
-  const totalExpenses = expenses.reduce((acc, e) => acc + e.value, 0);
-  const amountToPay = totalSold - commission - totalExpenses;
-  const numericReceivedAmount = parseFloat(receivedAmount.replace(',', '.')) || 0;
+  const amountToPay = totalSold - commission;
+  const numericReceivedAmount = parseMoney(receivedAmount);
 
-  const handleAddExpense = () => {
-    const numericValue = parseFloat(expenseValue.replace(',', '.')) || 0;
-    if (numericValue <= 0) return;
-    const desc = expenseDesc.trim() || 'Despesa';
-    setExpenses([...expenses, { description: desc, value: numericValue }]);
-    setExpenseDesc('');
-    setExpenseValue('');
-  };
-
-  const handleRemoveExpense = (index: number) => {
-    setExpenses(expenses.filter((_, i) => i !== index));
-  };
 
   const handleReopen = async () => {
     setConfirmModal({
@@ -350,11 +334,15 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
 
   const handleWhatsAppShare = async () => {
     try {
-      const numericReceivedAmount = parseFloat(receivedAmount.replace(',', '.')) || 0;
+      const numericReceivedAmount = parseMoney(receivedAmount);
       const customerName = bag.customer?.nome || 'Cliente';
+      const customerCPF = bag.customer?.cpf || '---';
       let message = `*Resumo da Sacola #${bag.bag_number.replace(/\D/g, '')}*\n`;
-      message += `Cliente: ${customerName}\n\n`;
-      message += `*Itens:*\n`;
+      message += `Cliente: ${customerName}\n`;
+      if (customerCPF !== '---') {
+        message += `CPF: ${customerCPF}\n`;
+      }
+      message += `\n*Itens:*\n`;
       
       items.forEach(item => {
         const sold = item.quantity - item.returned_quantity;
@@ -368,14 +356,6 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
         message += `\nDesconto Campanha (${campaignDiscount}%): R$ ${commission.toFixed(2)}`;
       }
       
-      if (totalExpenses > 0) {
-        message += `\n*Despesas Adicionais:*\n`;
-        expenses.forEach(e => {
-          message += `- ${e.description}: - R$ ${e.value.toFixed(2)}\n`;
-        });
-        message += `Total Despesas: - R$ ${totalExpenses.toFixed(2)}`;
-      }
-
       message += `\n*Total a Pagar: R$ ${amountToPay.toFixed(2)}*`;
       
       if (numericReceivedAmount > 0) {
@@ -385,6 +365,8 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
           message += `\n*Saldo Devedor: R$ ${debt.toFixed(2)}*`;
         }
       }
+
+      message += `\n\n__________________________\nAssinatura: ${customerName}`;
       
       const encodedMessage = encodeURIComponent(message);
       window.open(`https://wa.me/?text=${encodedMessage}`, '_blank');
@@ -487,13 +469,13 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
                   </button>
                   <h3 className="text-lg sm:text-xl font-bold text-zinc-700 italic">Acerto da Sacola #{bag.bag_number.replace(/\D/g, '')}</h3>
                 </div>
-                <div className="flex flex-col gap-1">
+                <div className="flex flex-col gap-1 w-full sm:w-auto">
                   <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Bipar Devolução</label>
-                  <div className="relative">
+                  <div className="relative w-full sm:w-64">
                     <input 
                       type="text" 
                       placeholder="Nome ou Código..."
-                      className="bg-zinc-50 border border-zinc-100 rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-emerald-500 w-64 disabled:opacity-50"
+                      className="bg-zinc-50 border border-zinc-100 rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-emerald-500 w-full disabled:opacity-50"
                       value={searchProduct}
                       disabled={bag.status === 'closed'}
                       onChange={(e) => setSearchProduct(e.target.value)}
@@ -504,7 +486,7 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
                       }}
                     />
                     {filteredItems.length > 0 && (
-                      <div className="absolute z-20 top-full right-0 mt-1 bg-white border border-zinc-200 rounded-xl shadow-xl max-h-60 overflow-y-auto w-80">
+                      <div className="absolute z-20 top-full right-0 mt-1 bg-white border border-zinc-200 rounded-xl shadow-xl max-h-60 overflow-y-auto w-full sm:w-80">
                         {filteredItems.map(item => (
                           <button 
                             key={item.id}
@@ -529,7 +511,8 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
                 </div>
               </div>
 
-              <div className="border border-zinc-100 rounded-2xl overflow-hidden">
+              {/* Desktop Table View */}
+              <div className="hidden md:block border border-zinc-100 rounded-2xl overflow-hidden">
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="bg-zinc-50/50 border-b border-zinc-100">
@@ -577,12 +560,59 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
                   </tbody>
                 </table>
               </div>
+
+              {/* Mobile Card View */}
+              <div className="md:hidden space-y-4">
+                {items.map((item) => {
+                  const sold = item.quantity - item.returned_quantity;
+                  return (
+                    <div key={item.id} className="bg-zinc-50/50 border border-zinc-100 rounded-2xl p-4 space-y-4">
+                      <div className="flex justify-between items-start gap-2">
+                        <div className="min-w-0">
+                          <p className="text-xs font-bold text-zinc-700 uppercase truncate">{item.product.name}</p>
+                          <p className="text-[10px] text-zinc-400">{item.product.label_name || 'Sem etiqueta'}</p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="text-[10px] text-zinc-400 uppercase font-bold">Total</p>
+                          <p className="text-sm font-black text-zinc-800">R$ {(sold * item.unit_price).toFixed(2)}</p>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-4 pt-4 border-t border-zinc-100">
+                        <div className="text-center">
+                          <p className="text-[10px] text-zinc-400 uppercase font-bold mb-1">Enviado</p>
+                          <p className="text-sm font-bold text-zinc-800">{item.quantity}</p>
+                        </div>
+                        <div className="text-center">
+                          <p className="text-[10px] text-zinc-400 uppercase font-bold mb-1">Devolvido</p>
+                          <input 
+                            type="text" 
+                            inputMode="numeric"
+                            className="w-full bg-white border border-zinc-200 rounded-lg px-2 py-1 text-center text-sm font-bold focus:outline-none focus:border-emerald-500 disabled:opacity-50 disabled:bg-zinc-100"
+                            value={item.returned_quantity === 0 ? '' : item.returned_quantity}
+                            disabled={bag.status === 'closed'}
+                            onChange={(e) => {
+                              const val = parseInt(e.target.value) || 0;
+                              updateReturnedQuantity(item.id, val);
+                            }}
+                            placeholder="0"
+                          />
+                        </div>
+                        <div className="text-center">
+                          <p className="text-[10px] text-zinc-400 uppercase font-bold mb-1">Vendido</p>
+                          <p className="text-sm font-bold text-emerald-600">{sold}</p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </div>
 
           {/* Sidebar Summary */}
           <div className="space-y-6">
-            <div className="bg-white border border-zinc-200 rounded-3xl p-8 shadow-sm space-y-8">
+            <div className="bg-white border border-zinc-200 rounded-3xl p-4 sm:p-8 shadow-sm space-y-8">
               <div>
                 <h4 className="text-lg font-bold text-zinc-700 italic mb-6">Resumo do Acerto</h4>
                 <div className="space-y-4">
@@ -594,13 +624,6 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
                     <span className="text-zinc-500">Comissão ({campaignDiscount}%)</span>
                     <span className="font-bold text-red-500">- R$ {commission.toFixed(2)}</span>
                   </div>
-
-                  {totalExpenses > 0 && (
-                    <div className="flex justify-between items-center text-sm">
-                      <span className="text-zinc-500">Total Despesas</span>
-                      <span className="font-bold text-red-500">- R$ {totalExpenses.toFixed(2)}</span>
-                    </div>
-                  )}
 
                   <div className="pt-4 border-t border-zinc-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-0">
                     <span className="text-lg font-bold text-zinc-800">A Pagar</span>
@@ -619,100 +642,26 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
               </div>
 
               <div className="space-y-4">
-                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Despesas Adicionais (Opcional)</label>
-                <div className="space-y-2">
-                  <input 
-                    type="text" 
-                    placeholder="Descrição da despesa..."
-                    value={expenseDesc}
-                    disabled={bag.status === 'closed'}
-                    onChange={e => setExpenseDesc(e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && handleAddExpense()}
-                    className="w-full bg-zinc-50 border border-zinc-100 rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-emerald-500 disabled:opacity-50"
-                  />
-                  <div className="relative">
-                    <div className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400 font-bold text-xs">R$</div>
-                    <input 
-                      type="text" 
-                      inputMode="decimal"
-                      placeholder="0,00"
-                      value={expenseValue}
-                      disabled={bag.status === 'closed'}
-                      onChange={e => {
-                        const val = e.target.value;
-                        if (val === '' || /^\d*([.,]\d*)?$/.test(val)) {
-                          setExpenseValue(val);
-                        }
-                      }}
-                      onKeyDown={e => e.key === 'Enter' && handleAddExpense()}
-                      className="w-full bg-zinc-50 border border-zinc-100 rounded-xl pl-10 pr-16 py-3 text-sm font-bold text-zinc-800 focus:outline-none focus:border-emerald-500 disabled:opacity-50"
-                    />
-                    <div className="absolute right-2 top-1/2 -translate-y-1/2">
-                      <button 
-                        type="button"
-                        onClick={handleAddExpense}
-                        disabled={bag.status === 'closed' || !expenseValue}
-                        className="bg-emerald-500 hover:bg-emerald-600 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase transition-all shadow-sm disabled:opacity-50 flex items-center gap-1"
-                      >
-                        <Plus className="w-3 h-3" />
-                        Add
-                      </button>
-                    </div>
-                  </div>
-                </div>
-                
-                {expenses.length > 0 && (
-                  <div className="space-y-1">
-                    {expenses.map((exp, idx) => (
-                      <div key={idx} className="flex items-center justify-between bg-rose-50/50 border border-rose-100 rounded-lg px-3 py-1.5">
-                        <span className="text-[10px] font-medium text-rose-700">{exp.description}</span>
-                        <div className="flex items-center gap-2">
-                          <span className="text-[10px] font-bold text-rose-700">- R$ {exp.value.toFixed(2)}</span>
-                          {bag.status !== 'closed' && (
-                            <button 
-                              type="button"
-                              onClick={() => handleRemoveExpense(idx)} 
-                              className="text-rose-400 hover:text-rose-600"
-                            >
-                              <MinusCircle className="w-3 h-3" />
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <div className="space-y-4">
                 <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Valor Recebido (R$)</label>
                 <div className="relative">
                   <div className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400 font-bold">R$</div>
                   <input 
                     type="text" 
-                    inputMode="decimal"
-                    className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl pl-12 pr-4 py-4 text-2xl font-black text-zinc-800 focus:outline-none focus:border-emerald-500 disabled:opacity-50"
+                    inputMode="numeric"
+                    className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl pl-12 pr-4 py-4 text-xl sm:text-2xl font-black text-zinc-800 focus:outline-none focus:border-emerald-500 disabled:opacity-50"
                     value={receivedAmount}
                     disabled={bag.status === 'closed'}
                     onChange={(e) => {
-                      const val = e.target.value;
-                      if (val === '' || /^\d*([.,]\d*)?$/.test(val)) {
-                        setReceivedAmount(val);
-                      }
-                    }}
-                    onBlur={() => {
-                      if (receivedAmount === '' || receivedAmount === '.') {
-                        setReceivedAmount('0');
-                      }
+                      setReceivedAmount(formatMoneyInput(e.target.value));
                     }}
                   />
                   <div className="absolute right-4 top-1/2 -translate-y-1/2">
                     <button 
-                      onClick={() => setReceivedAmount(amountToPay.toString())}
+                      onClick={() => setReceivedAmount(formatMoney(amountToPay))}
                       disabled={bag.status === 'closed'}
                       className="bg-emerald-50 text-emerald-600 hover:bg-emerald-100 px-2 py-1 rounded-lg text-[10px] font-bold uppercase transition-colors disabled:opacity-50"
                     >
-                      Pago Integral
+                      Integral
                     </button>
                   </div>
                 </div>
@@ -740,7 +689,7 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
               </div>
 
               {paymentMethod === 'pix' && (
-                <div className="bg-zinc-50 rounded-3xl p-6 flex flex-col items-center gap-4">
+                <div className="bg-zinc-50 rounded-3xl p-4 sm:p-6 flex flex-col items-center gap-4">
                   <div className="bg-white p-4 rounded-2xl shadow-sm">
                     {userProfile?.pix_key ? (
                       <QRCodeSVG 
@@ -751,24 +700,24 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
                           amountToPay,
                           `SAC${bag.bag_number.replace(/\D/g, '')}`
                         )}
-                        size={160}
+                        size={140}
                         level="M"
                         includeMargin={false}
                       />
                     ) : (
-                      <div className="w-40 h-40 flex items-center justify-center bg-zinc-100 rounded-xl">
-                        <QrCode className="w-12 h-12 text-zinc-300" />
+                      <div className="w-32 h-32 flex items-center justify-center bg-zinc-100 rounded-xl">
+                        <QrCode className="w-10 h-10 text-zinc-300" />
                       </div>
                     )}
                   </div>
-                  <div className="text-center space-y-1">
+                  <div className="text-center space-y-1 w-full">
                     <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Escaneie para Pagar</p>
                     {userProfile?.pix_key ? (
                       <div className="mt-2 flex flex-col items-center gap-3">
-                        <div>
-                          <p className="text-xs font-bold text-zinc-800">{userProfile.pix_key}</p>
+                        <div className="w-full overflow-hidden">
+                          <p className="text-xs font-bold text-zinc-800 break-all">{userProfile.pix_key}</p>
                           {userProfile.pix_beneficiary && (
-                            <p className="text-[10px] text-zinc-400 uppercase">{userProfile.pix_beneficiary}</p>
+                            <p className="text-[10px] text-zinc-400 uppercase truncate">{userProfile.pix_beneficiary}</p>
                           )}
                         </div>
                         <button
@@ -787,14 +736,14 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
                               message: 'Código PIX copiado!'
                             });
                           }}
-                          className="flex items-center gap-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 px-4 py-2 rounded-lg text-xs font-bold transition-colors"
+                          className="flex items-center justify-center gap-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 px-4 py-2 rounded-lg text-xs font-bold transition-colors w-full"
                         >
                           <Copy className="w-4 h-4" />
-                          Copiar Código PIX
+                          Copiar Código
                         </button>
                       </div>
                     ) : (
-                      <p className="text-xs text-red-500 mt-2">Chave PIX não configurada no perfil.</p>
+                      <p className="text-xs text-red-500 mt-2">Chave PIX não configurada.</p>
                     )}
                   </div>
                 </div>

@@ -8,11 +8,12 @@ import {
   AlertCircle,
   Navigation,
   ShoppingBag,
-  TrendingUp
+  TrendingUp,
+  Star
 } from 'lucide-react';
 import { cn, formatError } from '../lib/utils';
 
-export type NotificationType = 'info' | 'warning' | 'error' | 'success' | 'route' | 'sale' | 'price_change';
+export type NotificationType = 'info' | 'warning' | 'error' | 'success' | 'route' | 'sale' | 'price_change' | 'review';
 
 export interface Notification {
   id: string;
@@ -88,6 +89,7 @@ export function NotificationCenter() {
       case 'route': return <Navigation className="w-5 h-5 text-blue-500" />;
       case 'sale': return <ShoppingBag className="w-5 h-5 text-purple-500" />;
       case 'price_change': return <TrendingUp className="w-5 h-5 text-purple-500" />;
+      case 'review': return <Star className="w-5 h-5 text-amber-500 fill-amber-500" />;
       default: return <Info className="w-5 h-5 text-zinc-400" />;
     }
   };

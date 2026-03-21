@@ -5,6 +5,7 @@ import { Loader2, Eye, EyeOff } from 'lucide-react';
 import { motion } from 'motion/react';
 
 import { Logo } from './Logo';
+import { LegalConfirmationModal } from './LegalConfirmationModal';
 
 export function Login() {
   const [email, setEmail] = useState('');
@@ -14,6 +15,25 @@ export function Login() {
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [resetSent, setResetSent] = useState(false);
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [legalSettings, setLegalSettings] = useState<any>(null);
+  const [showLegalModal, setShowLegalModal] = useState(false);
+
+  React.useEffect(() => {
+    fetchLegalSettings();
+  }, []);
+
+  async function fetchLegalSettings() {
+    try {
+      const { data, error } = await supabase
+        .from('app_legal_settings')
+        .select('*')
+        .single();
+      if (data) setLegalSettings(data);
+    } catch (err) {
+      console.error('Error fetching legal settings:', err);
+    }
+  }
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -40,6 +60,10 @@ export function Login() {
       setError('Preencha email e senha para cadastrar.');
       return;
     }
+    if (!acceptedTerms) {
+      setError('Você deve aceitar os Termos de Uso e Política de Privacidade.');
+      return;
+    }
     setLoading(true);
     setError(null);
     setSuccessMsg(null);
@@ -47,6 +71,11 @@ export function Login() {
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
+        options: {
+          data: {
+            accepted_terms_version: legalSettings?.version || 0
+          }
+        }
       });
       if (error) throw error;
       
@@ -192,7 +221,20 @@ export function Login() {
             </div>
           </div>
 
-          <div className="pt-4">
+          <div className="pt-4 space-y-4">
+            <div className="flex items-start gap-3 px-1">
+              <input
+                type="checkbox"
+                id="terms"
+                checked={acceptedTerms}
+                onChange={(e) => setAcceptedTerms(e.target.checked)}
+                className="mt-1 w-4 h-4 rounded border-zinc-300 text-[#38a89d] focus:ring-[#38a89d]/20"
+              />
+              <label htmlFor="terms" className="text-xs text-[#6b4e5d] leading-relaxed">
+                Li e aceito os <button type="button" onClick={() => setShowLegalModal(true)} className="text-[#4a1d33] font-bold hover:underline">Termos de Uso</button> e <button type="button" onClick={() => setShowLegalModal(true)} className="text-[#4a1d33] font-bold hover:underline">Política de Privacidade</button>.
+              </label>
+            </div>
+
             <button
               type="submit"
               disabled={loading}
@@ -225,6 +267,18 @@ export function Login() {
       <div className="absolute top-20 left-20 opacity-10">
         <div className="w-8 h-8 rounded-full border-4 border-[#4a1d33]" />
       </div>
+
+      {legalSettings && (
+        <LegalConfirmationModal
+          isOpen={showLegalModal}
+          privacyPolicy={legalSettings.privacy_policy}
+          termsOfUse={legalSettings.terms_of_use}
+          onConfirm={async () => {
+            setAcceptedTerms(true);
+            setShowLegalModal(false);
+          }}
+        />
+      )}
     </div>
   );
 }

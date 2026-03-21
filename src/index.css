@@ -29,6 +29,51 @@ body {
   font-family: 'Courier New', Courier, monospace; /* Fonte comum em térmicas */
 }
 
+/* Estilo para o Markdown */
+.markdown-body {
+  @apply text-zinc-700;
+}
+
+.markdown-body p {
+  @apply mb-4 leading-relaxed;
+}
+
+.markdown-body h1 {
+  @apply text-2xl font-bold mb-6 mt-8 border-b border-zinc-200 pb-2;
+}
+
+.markdown-body h2 {
+  @apply text-xl font-bold mb-4 mt-6;
+}
+
+.markdown-body h3 {
+  @apply text-lg font-bold mb-3 mt-4;
+}
+
+.markdown-body ul, .markdown-body ol {
+  @apply mb-4 pl-6;
+}
+
+.markdown-body ul {
+  @apply list-disc;
+}
+
+.markdown-body ol {
+  @apply list-decimal;
+}
+
+.markdown-body li {
+  @apply mb-1;
+}
+
+.markdown-body strong {
+  @apply font-bold text-zinc-900;
+}
+
+.markdown-body blockquote {
+  @apply border-l-4 border-zinc-200 pl-4 italic my-4 text-zinc-500;
+}
+
 /* Esconder elementos desnecessários se o usuário usar o Ctrl+P do navegador */
 @media print {
   .no-print {

@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { CommissionSimulation } from '../types';
-import { cn, formatError } from '../lib/utils';
+import { cn, formatError, formatMoneyInput, parseMoney } from '../lib/utils';
 import { format } from 'date-fns';
 import { ConfirmationModal } from './ConfirmationModal';
 import { useNotifications } from './NotificationCenter';
@@ -34,8 +34,8 @@ export function Simulation() {
   const [saving, setSaving] = useState(false);
   const { addNotification } = useNotifications();
 
-  const value = Number(inputValue.replace(',', '.')) || 0;
-  const expenseValue = Number(inputExpenseValue.replace(',', '.')) || 0;
+  const value = parseMoney(inputValue);
+  const expenseValue = parseMoney(inputExpenseValue);
 
   // Confirmation Modal State
   const [confirmModal, setConfirmModal] = useState<{
@@ -239,15 +239,10 @@ export function Simulation() {
                 <span className="absolute left-6 top-1/2 -translate-y-1/2 text-zinc-400 font-bold">R$</span>
                 <input 
                   type="text" 
-                  inputMode="decimal"
+                  inputMode="numeric"
                   placeholder="0,00"
                   value={inputValue}
-                  onChange={e => {
-                    const val = e.target.value;
-                    if (val === '' || /^\d*([.,]\d*)?$/.test(val)) {
-                      setInputValue(val);
-                    }
-                  }}
+                  onChange={e => setInputValue(formatMoneyInput(e.target.value))}
                   className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl pl-14 pr-6 py-4 text-2xl font-bold text-zinc-700 focus:border-indigo-500 outline-none transition-all"
                 />
               </div>
@@ -266,15 +261,10 @@ export function Simulation() {
                 />
                 <input 
                   type="text" 
-                  inputMode="decimal"
-                  placeholder="R$ 0,00"
+                  inputMode="numeric"
+                  placeholder="0,00"
                   value={inputExpenseValue}
-                  onChange={e => {
-                    const val = e.target.value;
-                    if (val === '' || /^\d*([.,]\d*)?$/.test(val)) {
-                      setInputExpenseValue(val);
-                    }
-                  }}
+                  onChange={e => setInputExpenseValue(formatMoneyInput(e.target.value))}
                   onKeyDown={e => e.key === 'Enter' && handleAddExpense()}
                   className="flex-1 bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm focus:border-indigo-500 outline-none transition-all"
                 />

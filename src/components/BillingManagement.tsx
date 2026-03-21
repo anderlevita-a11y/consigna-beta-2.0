@@ -299,24 +299,24 @@ export function BillingManagement({ profile }: BillingManagementProps) {
       let template = '';
 
       if (activeTab === 'cobranca') {
-        template = `AO JUIZADO ESPECIAL CÍVEL DE ${acaoData.foro.toUpperCase() || '[FORO]'} ${acaoData.estado_foro.toUpperCase() || '[UF]'}
+        template = `# AO JUIZADO ESPECIAL CÍVEL DE ${acaoData.foro.toUpperCase() || '[FORO]'} ${acaoData.estado_foro.toUpperCase() || '[UF]'}
 
-PARTE REQUERENTE: ${acaoData.requerente.nome || '[NOME]'}, ${acaoData.requerente.estado_civil || '[ESTADO CIVIL]'}, ${acaoData.requerente.profissao || '[PROFISSÃO]'}, inscrito(a) no CPF sob o nº ${acaoData.requerente.cpf_cnpj || '[CPF]'}, residente e domiciliado(a) em ${acaoData.requerente.endereco || '[ENDEREÇO]'}, e-mail: ${acaoData.requerente.email || '[EMAIL]'}, telefone: ${acaoData.requerente.telefone || '[TELEFONE]'}.
+**PARTE REQUERENTE:** ${acaoData.requerente.nome || '[NOME]'}, ${acaoData.requerente.estado_civil || '[ESTADO CIVIL]'}, ${acaoData.requerente.profissao || '[PROFISSÃO]'}, inscrito(a) no CPF sob o nº ${acaoData.requerente.cpf_cnpj || '[CPF]'}, residente e domiciliado(a) em ${acaoData.requerente.endereco || '[ENDEREÇO]'}, e-mail: ${acaoData.requerente.email || '[EMAIL]'}, telefone: ${acaoData.requerente.telefone || '[TELEFONE]'}.
 
-AÇÃO DE COBRANÇA DE DÍVIDA
+## AÇÃO DE COBRANÇA DE DÍVIDA
 
-em face da PARTE REQUERIDA: ${acaoData.requerida.nome || '[NOME]'}, ${acaoData.requerida.estado_civil || '[ESTADO CIVIL]'}, ${acaoData.requerida.profissao || '[PROFISSÃO]'}, inscrito(a) no CPF sob o nº ${acaoData.requerida.cpf_cnpj || '[CPF]'}, residente e domiciliado(a) em ${acaoData.requerida.endereco || '[ENDEREÇO]'}, e-mail: ${acaoData.requerida.email || '[EMAIL]'}, telefone: ${acaoData.requerida.telefone || '[TELEFONE]'}, pelas razões de fato e de direito a seguir aduzidas.
+em face da **PARTE REQUERIDA:** ${acaoData.requerida.nome || '[NOME]'}, ${acaoData.requerida.estado_civil || '[ESTADO CIVIL]'}, ${acaoData.requerida.profissao || '[PROFISSÃO]'}, inscrito(a) no CPF sob o nº ${acaoData.requerida.cpf_cnpj || '[CPF]'}, residente e domiciliado(a) em ${acaoData.requerida.endereco || '[ENDEREÇO]'}, e-mail: ${acaoData.requerida.email || '[EMAIL]'}, telefone: ${acaoData.requerida.telefone || '[TELEFONE]'}, pelas razões de fato e de direito a seguir aduzidas.
 
-DOS FATOS
-A parte requerente é credora da parte requerida da importância de ${parseFloat(acaoData.divida.valor.replace(',', '.') || '0').toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}, originária de ${acaoData.divida.origem || '[ORIGEM DA DÍVIDA]'}, com vencimento em ${acaoData.divida.vencimento ? new Date(acaoData.divida.vencimento).toLocaleDateString('pt-BR', {timeZone: 'UTC'}) : '[DATA]'}. 
+### DOS FATOS
+A parte requerente é credora da parte requerida da importância de **${parseFloat(acaoData.divida.valor.replace(',', '.') || '0').toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}**, originária de **${acaoData.divida.origem || '[ORIGEM DA DÍVIDA]'}**, com vencimento em ${acaoData.divida.vencimento ? new Date(acaoData.divida.vencimento).toLocaleDateString('pt-BR', {timeZone: 'UTC'}) : '[DATA]'}. 
 Apesar das diversas tentativas de recebimento amigável, a parte requerida permanece inadimplente, não restando outra alternativa senão a via judicial.
 
-DOS PEDIDOS
+### DOS PEDIDOS
 Com base no exposto, requer:
 a) que a parte requerida seja citada da presente ação e intimada para comparecer pessoalmente ou virtualmente se houver disponibilidade à Audiência de Conciliação, a ser designada no ato da distribuição, sendo que o não comparecimento importará a pena de revelia;
-b) No mérito, que seja julgado procedente o pedido para condenar a parte requerida a pagar a quantia de ${formattedValue} mais juros de atraso de 2% e mora de 1% ao mês conforme estipulado no contrato.
+b) No mérito, que seja julgado procedente o pedido para condenar a parte requerida a pagar a quantia de **${formattedValue}** mais juros de atraso de 2% e mora de 1% ao mês conforme estipulado no contrato.
 
-Atribui à causa o valor de ${formattedValue} (${formatCurrencyToWords(updatedValue)}).
+Atribui à causa o valor de **${formattedValue}** (${formatCurrencyToWords(updatedValue)}).
 
 Pretende demonstrar o alegado por todos os meios de prova admitidos em Direito.
 
@@ -324,65 +324,135 @@ Nestes termos, pede deferimento.
 
 (${acaoData.foro.toUpperCase() || 'ITAPEMA'}/${acaoData.estado_foro.toUpperCase() || 'SC'}, ${new Date().toLocaleDateString('pt-BR', { day: 'numeric', month: 'long', year: 'numeric' })}.)
 
-______________________________________________________
-ASSINATURA DA PARTE REQUERENTE
+---
+**ASSINATURA DA PARTE REQUERENTE**
 
-ANEXOS:
-${acaoData.anexos.map(a => `- ${a.name}`).join('\n') || '[NENHUM ANEXO ADICIONADO]'}`;
+**ANEXOS:**
+${acaoData.anexos.map(a => `* ${a.name}`).join('\n') || '[NENHUM ANEXO ADICIONADO]'}`;
       } else {
         // Execução de Nota Promissória
-        template = `AO JUIZADO ESPECIAL CÍVEL DE (a) ${acaoData.foro.toUpperCase() || 'ITAPEMA'}-${acaoData.estado_foro.toUpperCase() || 'SC'}
+        template = `# AO JUIZADO ESPECIAL CÍVEL DE (a) ${acaoData.foro.toUpperCase() || 'ITAPEMA'}-${acaoData.estado_foro.toUpperCase() || 'SC'}
 
-PARTE EXEQUENTE : ${acaoData.requerente.nome || '[NOME]'}, ${acaoData.requerente.estado_civil || '[ESTADO CIVIL]'}, ${acaoData.requerente.profissao || '[PROFISSÃO]'}, inscrito(a) no CPF sob o nº ${acaoData.requerente.cpf_cnpj || '[CPF]'}, residente e domiciliado(a) em ${acaoData.requerente.endereco || '[ENDEREÇO]'}, e-mail: ${acaoData.requerente.email || '[EMAIL]'}, telefone: ${acaoData.requerente.telefone || '[TELEFONE]'}.
+**PARTE EXEQUENTE:** ${acaoData.requerente.nome || '[NOME]'}, ${acaoData.requerente.estado_civil || '[ESTADO CIVIL]'}, ${acaoData.requerente.profissao || '[PROFISSÃO]'}, inscrito(a) no CPF sob o nº ${acaoData.requerente.cpf_cnpj || '[CPF]'}, residente e domiciliado(a) em ${acaoData.requerente.endereco || '[ENDEREÇO]'}, e-mail: ${acaoData.requerente.email || '[EMAIL]'}, telefone: ${acaoData.requerente.telefone || '[TELEFONE]'}.
 
-AÇÃO de EXECUÇÃO DE TÍTULO EXTRAJUDICIAL
-(NOTA PROMISSÓRIA – inadimplemento)
+## AÇÃO de EXECUÇÃO DE TÍTULO EXTRAJUDICIAL
+**(NOTA PROMISSÓRIA – inadimplemento)**
 
-em face da PARTE EXECUTADA : ${acaoData.requerida.nome || '[NOME]'}, ${acaoData.requerida.estado_civil || '[ESTADO CIVIL]'}, ${acaoData.requerida.profissao || '[PROFISSÃO]'}, inscrito(a) no CPF sob o nº ${acaoData.requerida.cpf_cnpj || '[CPF]'}, residente e domiciliado(a) em ${acaoData.requerida.endereco || '[ENDEREÇO]'}, e-mail: ${acaoData.requerida.email || '[EMAIL]'}, telefone: ${acaoData.requerida.telefone || '[TELEFONE]'}, pelas razões de fato e de direito a seguir aduzidas.
+em face da **PARTE EXECUTADA:** ${acaoData.requerida.nome || '[NOME]'}, ${acaoData.requerida.estado_civil || '[ESTADO CIVIL]'}, ${acaoData.requerida.profissao || '[PROFISSÃO]'}, inscrito(a) no CPF sob o nº ${acaoData.requerida.cpf_cnpj || '[CPF]'}, residente e domiciliado(a) em ${acaoData.requerida.endereco || '[ENDEREÇO]'}, e-mail: ${acaoData.requerida.email || '[EMAIL]'}, telefone: ${acaoData.requerida.telefone || '[TELEFONE]'}, pelas razões de fato e de direito a seguir aduzidas.
 
-DOS FATOS
-A parte exequente aduz que é credora da parte executada na quantia nominal de ${formattedValue} (${formatCurrencyToWords(updatedValue)}), fundada em título de crédito certo, líquido e exigível, fundada(s) em NOTA (S) DE PROMISSÓRIA, que segue em anexo, conforme planilha abaixo:
+### DOS FATOS
+A parte exequente aduz que é credora da parte executada na quantia nominal de **${formattedValue}** (${formatCurrencyToWords(updatedValue)}), fundada em título de crédito certo, líquido e exigível, fundada(s) em NOTA (S) DE PROMISSÓRIA, que segue em anexo, conforme planilha abaixo:
 
-Nº da Nota Promissória	Data de Emissão	Data de Vencimento	Valor nominal
-${acaoData.divida.numero_np || 'S/N'}	${acaoData.divida.data_emissao_np ? new Date(acaoData.divida.data_emissao_np).toLocaleDateString('pt-BR', {timeZone: 'UTC'}) : ''}	${acaoData.divida.vencimento ? new Date(acaoData.divida.vencimento).toLocaleDateString('pt-BR', {timeZone: 'UTC'}) : ''}	${formattedValue}
+| Nº da Nota Promissória | Data de Emissão | Data de Vencimento | Valor nominal |
+| :--- | :--- | :--- | :--- |
+| ${acaoData.divida.numero_np || 'S/N'} | ${acaoData.divida.data_emissao_np ? new Date(acaoData.divida.data_emissao_np).toLocaleDateString('pt-BR', {timeZone: 'UTC'}) : ''} | ${acaoData.divida.vencimento ? new Date(acaoData.divida.vencimento).toLocaleDateString('pt-BR', {timeZone: 'UTC'}) : ''} | ${formattedValue} |
 
-A pretensão da parte exequente fundamenta-se no fato de que, na(s) data(s) de vencimento da dívida, a parte executada NÃO efetuou o pagamento devido ou o fez de modo parcial, tornando-se inadimplente em face de emissão da nota promissória, perfazendo o saldo ora em cobrança de ${formattedValue} (${formatCurrencyToWords(updatedValue)}), motivo pelo qual ajuíza a presente ação para obrigá-la a satisfazer o crédito.
+A pretensão da parte exequente fundamenta-se no fato de que, na(s) data(s) de vencimento da dívida, a parte executada NÃO efetuou o pagamento devido ou o fez de modo parcial, tornando-se inadimplente em face de emissão da nota promissória, perfazendo o saldo ora em cobrança de **${formattedValue}** (${formatCurrencyToWords(updatedValue)}), motivo pelo qual ajuíza a presente ação para obrigá-la a satisfazer o crédito.
 
-DOS PEDIDOS
+### DOS PEDIDOS
 Com base no exposto, requer:
-a) Que a parte executada seja citada da presente ação, via mandado judicial a ser cumprido por Oficial de Justiça, para que pague no prazo legal a importância de ${formattedValue} (${formatCurrencyToWords(updatedValue)}), a qual deve ser devidamente atualizada e acrescida de juros legais desde o inadimplemento.
+a) Que a parte executada seja citada da presente ação, via mandado judicial a ser cumprido por Oficial de Justiça, para que pague no prazo legal a importância de **${formattedValue}** (${formatCurrencyToWords(updatedValue)}), a qual deve ser devidamente atualizada e acrescida de juros legais desde o inadimplemento.
 b) Em caso de não satisfação do crédito naquele prazo, requer o deferimento dos seguintes procedimentos executórios para localização de bens do devedor (a) passíveis de penhora, nesta ordem e na medida da impossibilidade do anterior:
-I. O bloqueio de valores disponíveis em contas bancárias e/ou aplicações financeiras que a(s) parte(s) executada(s) mantém junto à rede bancária por meio do sistema SISBAJUD até a totalidade do crédito, com a consequente conversão em penhora em caso de não impugnação ou do seu improvimento;
-II. O bloqueio de veículo automotor em nome da(s) parte(s) executada(s) junto ao respectivo DETRAN em que estiver cadastrado, por meio do sistema RENAJUD, para tanto, informa: 
-(  ) Dados do veículo: placa:       / RENAVAM:       / chassi:      ;
-(X) Não sabe especificar o bem, requer a pesquisa no sistema pelo CPF informado acima.
-III. A parte exequente indica para PENHORA os seguintes bens passíveis de constrição: 
-(X) Eletroeletrônicos em geral localizados no domicílio do(s) devedor(es);
+* I. O bloqueio de valores disponíveis em contas bancárias e/ou aplicações financeiras que a(s) parte(s) executada(s) mantém junto à rede bancária por meio do sistema SISBAJUD até a totalidade do crédito, com a consequente conversão em penhora em caso de não impugnação ou do seu improvimento;
+* II. O bloqueio de veículo automotor em nome da(s) parte(s) executada(s) junto ao respectivo DETRAN em que estiver cadastrado, por meio do sistema RENAJUD, para tanto, informa: 
+    * (  ) Dados do veículo: placa:       / RENAVAM:       / chassi:      ;
+    * (X) Não sabe especificar o bem, requer a pesquisa no sistema pelo CPF informado acima.
+* III. A parte exequente indica para PENHORA os seguintes bens passíveis de constrição: 
+    * (X) Eletroeletrônicos em geral localizados no domicílio do(s) devedor(es);
 
-Atribui à causa o valor de ${formattedValue} (${formatCurrencyToWords(updatedValue)}).
+Atribui à causa o valor de **${formattedValue}** (${formatCurrencyToWords(updatedValue)}).
 Pretende demonstrar o alegado por todos os meios de prova admitidos em Direito.
 Nestes termos, pede deferimento.
 
 ${acaoData.foro || 'Itapema'}/${acaoData.estado_foro || 'SC'}, ${new Date().toLocaleDateString('pt-BR', { day: 'numeric', month: 'long', year: 'numeric' })}.
 
-______________________________________________________
-ASSINATURA DA PARTE EXEQUENTE
+---
+**ASSINATURA DA PARTE EXEQUENTE**
 
-ANEXOS:
-${acaoData.anexos.map(a => `- ${a.name}`).join('\n') || '[NENHUM ANEXO ADICIONADO]'}`;
+**ANEXOS:**
+${acaoData.anexos.map(a => `* ${a.name}`).join('\n') || '[NENHUM ANEXO ADICIONADO]'}`;
       }
-
-      const disclaimer = `\n\n---\nAVISO LEGAL: Esta minuta foi gerada por inteligência artificial e possui caráter meramente informativo e auxiliar. NÃO SUBSTITUI A REVISÃO E ASSINATURA DE UM ADVOGADO HABILITADO. O uso deste documento é de inteira responsabilidade do usuário. O teto do Juizado Especial Cível (JEC) — popularmente conhecido como Pequenas Causas — foi atualizado para R$ 64.840,00 em 2026. Este é o valor máximo da causa para quem deseja utilizar a justiça gratuita, não é necessário estar assinado por advogado, porém se possível obtenha auxilio profissional.`;
 
       setLegalDraft({
         json: {},
-        text: template + disclaimer
+        text: template
       });
+
+      try {
+        const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
+        const response = await ai.models.generateContent({
+          model: "gemini-3.1-pro-preview",
+          contents: `Você é um assistente jurídico especializado em Direito Civil brasileiro e Juizados Especiais Cíveis. Sua tarefa é gerar uma petição inicial profissional, clara e bem fundamentada.
+          
+          TIPO DE AÇÃO: ${activeTab === 'cobranca' ? 'Ação de Cobrança' : 'Execução de Título Extrajudicial (Nota Promissória)'}
+          
+          DADOS DO REQUERENTE/EXEQUENTE:
+          Nome: ${acaoData.requerente.nome}
+          CPF/CNPJ: ${acaoData.requerente.cpf_cnpj}
+          Estado Civil: ${acaoData.requerente.estado_civil}
+          Profissão: ${acaoData.requerente.profissao}
+          Endereço: ${acaoData.requerente.endereco}
+          E-mail: ${acaoData.requerente.email}
+          Telefone: ${acaoData.requerente.telefone}
+          
+          DADOS DA REQUERIDA/EXECUTADA:
+          Nome: ${acaoData.requerida.nome}
+          CPF/CNPJ: ${acaoData.requerida.cpf_cnpj}
+          Estado Civil: ${acaoData.requerida.estado_civil}
+          Profissão: ${acaoData.requerida.profissao}
+          Endereço: ${acaoData.requerida.endereco}
+          E-mail: ${acaoData.requerida.email}
+          Telefone: ${acaoData.requerida.telefone}
+          
+          DADOS DA DÍVIDA:
+          Origem: ${acaoData.divida.origem || 'Nota Promissória'}
+          Valor Original: ${acaoData.divida.valor}
+          Vencimento: ${acaoData.divida.vencimento}
+          Valor Atualizado (com multa de 2% e juros de 1% a.m.): ${formattedValue}
+          Número NP: ${acaoData.divida.numero_np}
+          Data Emissão NP: ${acaoData.divida.data_emissao_np}
+          
+          FORO: ${acaoData.foro} / ${acaoData.estado_foro}
+          ANEXOS: ${acaoData.anexos.map(a => a.name).join(', ')}
+          
+          INSTRUÇÕES ADICIONAIS:
+          1. Utilize a fundamentação legal adequada (Código de Processo Civil, Lei 9.099/95, etc.).
+          2. Inclua os pedidos de citação, procedência, condenação em custas e honorários (se aplicável), e produção de provas.
+          3. O texto deve estar pronto para ser assinado e protocolado.
+          4. Identifique também qualquer pendência ou informação que falte para que a petição seja perfeita.
+          5. Utilize Markdown para formatar o texto (negrito para títulos, seções, etc.).
+          6. IMPORTANTE: Não inclua avisos legais, disclaimers ou discursos sobre a responsabilidade do usuário no campo 'text'. O texto deve conter apenas a petição judicial.
+          
+          Retorne um JSON com os campos 'text' (string com a petição completa formatada em Markdown) e 'pendencias' (array de strings).`,
+          config: {
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                text: { type: Type.STRING },
+                pendencias: { type: Type.ARRAY, items: { type: Type.STRING } }
+              },
+              required: ["text", "pendencias"]
+            }
+          }
+        });
+
+        const result = JSON.parse(response.text);
+        if (result.text) {
+          setLegalDraft({
+            json: result,
+            text: result.text
+          });
+        }
+      } catch (aiErr) {
+        console.error('AI Generation failed, using template:', aiErr);
+        // Keep the template already set
+      }
       
       addNotification({
         type: 'success',
         title: 'Minuta Gerada',
-        message: 'A minuta da petição inicial foi gerada com base no modelo.'
+        message: 'A minuta da petição inicial foi gerada com sucesso.'
       });
     } catch (err) {
       console.error('Error generating legal draft:', err);
@@ -431,34 +501,32 @@ ${acaoData.anexos.map(a => `- ${a.name}`).join('\n') || '[NENHUM ANEXO ADICIONAD
     const formattedFine = fine.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
     const formattedInterest = interest.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
     
-    let debtDetails = `Consta em nossos registros um débito em aberto originário de ${debtOrigin || '[Descrição da Origem da Dívida]'}, que encontra-se em atraso há ${daysOfDelay} dias (vencimento original em ${originalDueDate ? new Date(originalDueDate).toLocaleDateString('pt-BR', {timeZone: 'UTC'}) : '[Data de Vencimento]'}).\n\n`;
-    debtDetails += `O valor original da dívida era de ${formattedOriginalValue}.\n`;
+    let debtDetails = `Consta em nossos registros um débito em aberto originário de **${debtOrigin || '[Descrição da Origem da Dívida]'}**, que encontra-se em atraso há **${daysOfDelay} dias** (vencimento original em ${originalDueDate ? new Date(originalDueDate).toLocaleDateString('pt-BR', {timeZone: 'UTC'}) : '[Data de Vencimento]'}).\n\n`;
+    debtDetails += `O valor original da dívida era de **${formattedOriginalValue}**.\n\n`;
     if (daysOfDelay > 0) {
-      debtDetails += `Sobre este valor, incidem multa contratual/legal de 2% (${formattedFine}) e juros de mora de 1% ao mês (${formattedInterest}), totalizando um débito atualizado de ${formattedUpdatedValue}.`;
+      debtDetails += `Sobre este valor, incidem multa contratual/legal de 2% (${formattedFine}) e juros de mora de 1% ao mês (${formattedInterest}), totalizando um débito atualizado de **${formattedUpdatedValue}**.`;
     } else {
-      debtDetails += `O valor atualizado do débito é de ${formattedUpdatedValue}.`;
+      debtDetails += `O valor atualizado do débito é de **${formattedUpdatedValue}**.`;
     }
 
     let paymentSection = '';
     if (paymentInfo || installments) {
-      paymentSection = `\nOpções e Dados para Pagamento:\n`;
-      if (installments) paymentSection += `Parcelamento: ${installments}\n`;
-      if (paymentInfo) paymentSection += `${paymentInfo}\n`;
+      paymentSection = `\n### Opções e Dados para Pagamento\n\n`;
+      if (installments) paymentSection += `* **Parcelamento:** ${installments}\n`;
+      if (paymentInfo) paymentSection += `* **Dados:** ${paymentInfo}\n`;
     }
 
-    const disclaimer = `\n\n---\nAVISO LEGAL: Esta minuta foi gerada por inteligência artificial e possui caráter meramente informativo e auxiliar. NÃO SUBSTITUI A REVISÃO E ASSINATURA DE UM ADVOGADO HABILITADO. O uso deste documento é de inteira responsabilidade do usuário. O teto do Juizado Especial Cível (JEC) — popularmente conhecido como Pequenas Causas — foi atualizado para R$ 64.840,00 em 2026. Este é o valor máximo da causa para quem deseja utilizar a justiça gratuita, não é necessário estar assinado por advogado, porém se possível obtenha auxilio profissional.`;
-
-    return `NOTIFICAÇÃO EXTRAJUDICIAL DE COBRANÇA
-
-À(o) Sr(a). ${debtorName || '[Nome da Cliente/Devedora]'}
+    return `# NOTIFICAÇÃO EXTRAJUDICIAL DE COBRANÇA
+    
+À(o) Sr(a). **${debtorName || '[Nome da Cliente/Devedora]'}**
 
 Prezado(a) Senhor(a),
 
-Na qualidade de credor(a), eu, ${creditorName || '[Seu Nome/Nome da Empresa]'}, venho por meio desta NOTIFICÁ-LO(A) EXTRAJUDICIALMENTE para solicitar a regularização de pendências financeiras em seu nome.
+Na qualidade de credor(a), eu, **${creditorName || '[Seu Nome/Nome da Empresa]'}**, venho por meio desta **NOTIFICÁ-LO(A) EXTRAJUDICIALMENTE** para solicitar a regularização de pendências financeiras em seu nome.
 
 ${debtDetails}
 
-Considerando que as tentativas anteriores de contato e negociação amigável não obtiveram êxito, concedemos o prazo improrrogável de ${dueDate || '[Prazo em dias, ex: 5 (cinco) dias úteis]'} a contar do recebimento desta notificação para a quitação do débito ou para que entre em contato visando uma composição amigável.
+Considerando que as tentativas anteriores de contato e negociação amigável não obtiveram êxito, concedemos o prazo improrrogável de **${dueDate || '[Prazo em dias, ex: 5 (cinco) dias úteis]'}** a contar do recebimento desta notificação para a quitação do débito ou para que entre em contato visando uma composição amigável.
 
 Ressaltamos que a nossa intenção é sempre resolver a questão da melhor forma possível para ambas as partes. No entanto, o não atendimento a esta notificação no prazo estipulado demonstrará desinteresse na resolução amigável, o que nos obrigará a adotar as medidas cabíveis para a proteção de nossos direitos. 
 
@@ -468,14 +536,16 @@ Tais medidas podem incluir, mas não se limitam a:
 
 Para regularizar sua situação ou apresentar uma proposta de acordo, solicitamos que entre em contato imediatamente através dos seguintes canais:
 
-${contactInfo || '[Seus Canais de Contato: Telefone, WhatsApp, E-mail, etc.]'}
+**${contactInfo || '[Seus Canais de Contato: Telefone, WhatsApp, E-mail, etc.]'}**
+
 ${paymentSection}
+
 Certos de sua compreensão e colaboração para a rápida solução desta pendência, subscrevemo-nos.
 
 Atenciosamente,
 
-${creditorName || '[Seu Nome/Nome da Empresa]'}
-${new Date().toLocaleDateString('pt-BR')}` + disclaimer;
+**${creditorName || '[Seu Nome/Nome da Empresa]'}**
+*${new Date().toLocaleDateString('pt-BR')}*`;
   };
 
   const handleShareWhatsApp = () => {
@@ -767,13 +837,11 @@ ${new Date().toLocaleDateString('pt-BR')}` + disclaimer;
             </div>
           </div>
           
-          <div className="flex-1 bg-white border border-zinc-200 rounded-2xl p-6 overflow-y-auto text-sm text-zinc-700 whitespace-pre-wrap font-serif leading-relaxed shadow-sm h-[500px]">
-            {generateTemplate()}
+          <div className="flex-1 bg-white border border-zinc-200 rounded-2xl p-6 overflow-y-auto shadow-sm h-[500px]">
+            <div className="markdown-body font-serif text-zinc-700 text-sm leading-relaxed">
+              <ReactMarkdown>{generateTemplate()}</ReactMarkdown>
+            </div>
           </div>
-          
-          <p className="text-xs text-zinc-400 mt-4 text-center">
-            Este é um modelo padrão. Recomendamos que você revise o texto antes de enviar para garantir que atende às suas necessidades específicas.
-          </p>
         </div>
       </div>
       ) : (
@@ -1211,18 +1279,9 @@ ${new Date().toLocaleDateString('pt-BR')}` + disclaimer;
                 )}
 
                 <div className="flex-1 bg-white border border-zinc-200 rounded-2xl p-6 overflow-y-auto shadow-sm">
-                  <div className="whitespace-pre-wrap font-serif text-zinc-700 text-sm leading-relaxed">
-                    {legalDraft.text}
+                  <div className="markdown-body font-serif text-zinc-700 text-sm leading-relaxed">
+                    <ReactMarkdown>{legalDraft.text}</ReactMarkdown>
                   </div>
-                </div>
-
-                <div className="bg-red-50 border border-red-100 rounded-2xl p-4 flex items-start gap-3">
-                  <AlertTriangle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
-                  <p className="text-[10px] text-red-700 font-medium leading-relaxed">
-                    <strong>AVISO LEGAL:</strong> Esta minuta foi gerada por inteligência artificial e possui caráter meramente informativo e auxiliar. 
-                    <strong> NÃO SUBSTITUI A REVISÃO E ASSINATURA DE UM ADVOGADO HABILITADO.</strong> 
-                    O uso deste documento é de inteira responsabilidade do usuário. O teto do Juizado Especial Cível (JEC) — popularmente conhecido como Pequenas Causas — foi atualizado para R$ 64.840,00 em 2026. Este é o valor máximo da causa para quem deseja utilizar a justiça gratuita, não é necessário estar assinado por advogado, porém se possível obtenha auxilio profissional.
-                  </p>
                 </div>
               </div>
             )}

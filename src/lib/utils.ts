@@ -77,6 +77,25 @@ export function formatError(error: any): string {
   return message;
 }
 
+export function formatMoney(value: number): string {
+  return new Intl.NumberFormat('pt-BR', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(value);
+}
+
+export function formatMoneyInput(value: string): string {
+  const cleanValue = value.replace(/\D/g, '');
+  if (!cleanValue) return '0,00';
+  const numberValue = parseInt(cleanValue) / 100;
+  return formatMoney(numberValue);
+}
+
+export function parseMoney(value: string): number {
+  if (!value) return 0;
+  return parseFloat(value.replace(/\./g, '').replace(',', '.')) || 0;
+}
+
 export function validatePhone(phone: string): boolean {
   const digits = phone.replace(/\D/g, '');
   return digits.length >= 10 && digits.length <= 11;
@@ -140,6 +159,7 @@ export function printFallback(payload: any, onError?: (msg: string) => void) {
           <div class="info-block">
             <b>Cliente / Destinatário</b>
             <span>${payload.dados_cliente.nome}</span>
+            ${payload.dados_cliente.cpf ? `<span style="display: block; font-size: 11px; color: #71717a; margin-top: 2px;">CPF: ${payload.dados_cliente.cpf}</span>` : ''}
           </div>
           <div class="info-block" style="text-align: right;">
             <b>Data de Emissão</b>
@@ -174,8 +194,14 @@ export function printFallback(payload: any, onError?: (msg: string) => void) {
             <span class="total-value">R$ ${total.toFixed(2)}</span>
           </div>
         </div>
+
+        <div style="margin-top: 60px; border-top: 1px solid #e4e4e7; padding-top: 10px; text-align: center; max-width: 300px; margin-left: auto; margin-right: auto;">
+          <div style="height: 40px;"></div>
+          <p style="margin: 0; font-size: 12px; font-weight: bold; color: #18181b; text-transform: uppercase;">${payload.dados_cliente.nome}</p>
+          <p style="margin: 4px 0 0; font-size: 10px; color: #71717a; text-transform: uppercase; letter-spacing: 1px;">Assinatura do Cliente</p>
+        </div>
         
-        <div style="margin-top: 50px; font-size: 10px; color: #a1a1aa; text-align: center;">
+        <div style="margin-top: 40px; font-size: 10px; color: #a1a1aa; text-align: center;">
           Gerado automaticamente por Consigna Beauty - Sistema de Gestão
         </div>
       </body>

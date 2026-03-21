@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { GoalCampaign, GoalParticipant, StoreSettings } from '../types';
 import { Loader2, Target, Gift, MessageSquare, MapPin, User, Send, CheckCircle2, ChevronRight, Share2, ChevronLeft, BarChart3, Clock } from 'lucide-react';
-import { cn, formatError } from '../lib/utils';
+import { cn, formatError, formatMoneyInput, parseMoney } from '../lib/utils';
 import { format, differenceInDays } from 'date-fns';
 import { useNotifications } from './NotificationCenter';
 
@@ -21,7 +21,7 @@ export function PublicGoals() {
     city: '',
     cpf: '',
     phone: '',
-    contribution_value: 0,
+    contribution_value: '0,00' as string | number,
     message: ''
   });
   const [isUpdating, setIsUpdating] = useState(false);
@@ -145,7 +145,7 @@ export function PublicGoals() {
       city: '',
       cpf: '',
       phone: '',
-      contribution_value: 0,
+      contribution_value: '0,00',
       message: ''
     });
     setIsUpdating(false);
@@ -173,7 +173,7 @@ export function PublicGoals() {
           city: data.city,
           cpf: data.cpf || '',
           phone: data.phone || '',
-          contribution_value: data.contribution_value || 0,
+          contribution_value: data.contribution_value ? data.contribution_value.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '0,00',
           message: data.message || ''
         });
         setIsUpdating(true);
@@ -224,7 +224,7 @@ export function PublicGoals() {
             name: formData.name,
             city: formData.city,
             phone: formData.phone,
-            contribution_value: formData.contribution_value,
+            contribution_value: typeof formData.contribution_value === 'string' ? parseMoney(formData.contribution_value) : formData.contribution_value,
             message: formData.message
           })
           .eq('id', identifiedParticipant.id);
@@ -239,7 +239,7 @@ export function PublicGoals() {
             city: formData.city,
             cpf: formData.cpf,
             phone: formData.phone,
-            contribution_value: formData.contribution_value,
+            contribution_value: typeof formData.contribution_value === 'string' ? parseMoney(formData.contribution_value) : formData.contribution_value,
             message: formData.message
           }]);
 
@@ -647,10 +647,10 @@ export function PublicGoals() {
                   <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Seu Valor Atingido (R$)</label>
                   <input 
                     required
-                    type="number" 
-                    step="0.01"
+                    type="text" 
+                    inputMode="numeric"
                     value={formData.contribution_value}
-                    onChange={e => setFormData({...formData, contribution_value: Number(e.target.value)})}
+                    onChange={e => setFormData({...formData, contribution_value: formatMoneyInput(e.target.value)})}
                     className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm focus:border-emerald-500 outline-none transition-all"
                     style={{ '--tw-ring-color': storeSettings?.primary_color } as any}
                   />

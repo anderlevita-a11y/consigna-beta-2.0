@@ -278,8 +278,12 @@ export function Reports() {
       const finalAmount = totalGross - discountAmount;
 
       const customerName = bag.customer?.nome || 'Cliente';
+      const customerCPF = bag.customer?.cpf || '---';
       let message = `*Resumo da Sacola #${bag.bag_number.replace(/\D/g, '')}*\n`;
       message += `Cliente: ${customerName}\n`;
+      if (customerCPF !== '---') {
+        message += `CPF: ${customerCPF}\n`;
+      }
       message += `Data: ${format(new Date(bag.created_at), "dd/MM/yyyy")}\n\n`;
       message += `*Itens:*\n`;
       
@@ -302,6 +306,8 @@ export function Reports() {
           message += `\n*Saldo Devedor: R$ ${debt.toFixed(2)}*`;
         }
       }
+
+      message += `\n\n__________________________\nAssinatura: ${customerName}`;
       
       const encodedMessage = encodeURIComponent(message);
       window.open(`https://wa.me/?text=${encodedMessage}`, '_blank');
@@ -343,8 +349,12 @@ export function Reports() {
 
       // Share receipt
       const customerName = selectedBagForPayment.customer?.nome || 'Cliente';
+      const customerCPF = selectedBagForPayment.customer?.cpf || '---';
       let message = `*Comprovante de Pagamento*\n`;
       message += `Cliente: ${customerName}\n`;
+      if (customerCPF !== '---') {
+        message += `CPF: ${customerCPF}\n`;
+      }
       message += `Sacola: #${selectedBagForPayment.bag_number}\n`;
       message += `Data: ${format(new Date(), "dd/MM/yyyy HH:mm")}\n\n`;
       message += `Valor Recebido: *R$ ${amount.toFixed(2)}*\n`;
@@ -358,6 +368,7 @@ export function Reports() {
       }
       
       message += `\nObrigado pela preferência!`;
+      message += `\n\n__________________________\nAssinatura: ${customerName}`;
 
       const encodedMessage = encodeURIComponent(message);
       window.open(`https://wa.me/?text=${encodedMessage}`, '_blank');
@@ -379,8 +390,12 @@ export function Reports() {
 
   const handleShareReceipt = (bag: any) => {
     const customerName = bag.customer?.nome || 'Cliente';
+    const customerCPF = bag.customer?.cpf || '---';
     let message = `*Comprovante de Pagamento*\n`;
     message += `Cliente: ${customerName}\n`;
+    if (customerCPF !== '---') {
+      message += `CPF: ${customerCPF}\n`;
+    }
     message += `Sacola: #${bag.bag_number}\n\n`;
     message += `Valor Total: R$ ${bag.total_value.toFixed(2)}\n`;
     message += `Valor Pago: *R$ ${(bag.received_amount || 0).toFixed(2)}*\n`;
@@ -393,6 +408,7 @@ export function Reports() {
     }
     
     message += `\nObrigado pela preferência!`;
+    message += `\n\n__________________________\nAssinatura: ${customerName}`;
 
     const encodedMessage = encodeURIComponent(message);
     window.open(`https://wa.me/?text=${encodedMessage}`, '_blank');

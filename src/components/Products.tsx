@@ -27,7 +27,7 @@ import { Product, PriceSuggestion } from '../types';
 import { ConfirmationModal } from './ConfirmationModal';
 import { PrintPreview } from './PrintPreview';
 import { LabelCenter } from './LabelCenter';
-import { cn, printFallback, formatError } from '../lib/utils';
+import { cn, printFallback, formatError, formatMoney, formatMoneyInput, parseMoney } from '../lib/utils';
 import { useNotifications } from './NotificationCenter';
 import { detectUserDuplicates, resolveDuplicates, getLinkedProductIds } from '../lib/syncCatalog';
 
@@ -84,8 +84,8 @@ export function Products() {
   const [previewType, setPreviewType] = useState<'termica' | 'a4' | 'etiqueta'>('etiqueta');
   const [selectedCentralProduct, setSelectedCentralProduct] = useState<any>(null);
   const [suggestionForm, setSuggestionForm] = useState({
-    cost_price: 0,
-    sale_price: 0
+    cost_price: '0,00',
+    sale_price: '0,00'
   });
   const [priceHistory, setPriceHistory] = useState<PriceSuggestion[]>([]);
   const [selectedProductForLabels, setSelectedProductForLabels] = useState<Product | null>(null);
@@ -113,8 +113,8 @@ export function Products() {
     label_name: '',
     ean: '',
     ean_variations: [],
-    cost_price: '',
-    sale_price: '',
+    cost_price: '0,00',
+    sale_price: '0,00',
     current_stock: '',
     photo_url: '',
     has_grid: false,
@@ -449,8 +449,8 @@ export function Products() {
       name: '',
       label_name: '',
       ean: '',
-      cost_price: '',
-      sale_price: '',
+      cost_price: '0,00',
+      sale_price: '0,00',
       current_stock: '',
       photo_url: '',
       has_grid: false,
@@ -469,8 +469,8 @@ export function Products() {
       name: product.name || '',
       label_name: product.label_name || '',
       ean: product.ean || '',
-      cost_price: product.cost_price?.toString() || '',
-      sale_price: product.sale_price?.toString() || '',
+      cost_price: formatMoney(product.cost_price || 0),
+      sale_price: formatMoney(product.sale_price || 0),
       current_stock: product.current_stock?.toString() || '',
       photo_url: product.photo_url || '',
       has_grid: product.has_grid || false,
@@ -607,8 +607,8 @@ export function Products() {
       const dataToSave = {
         ...formData,
         ean: finalEan,
-        cost_price: Number(formData.cost_price.toString().replace(',', '.')) || 0,
-        sale_price: Number(formData.sale_price.toString().replace(',', '.')) || 0,
+        cost_price: parseMoney(formData.cost_price.toString()),
+        sale_price: parseMoney(formData.sale_price.toString()),
         current_stock: formData.has_grid 
           ? formData.grid_data.reduce((sum, item) => sum + item.quantity, 0)
           : (Number(formData.current_stock.toString().replace(',', '.')) || 0)
@@ -717,8 +717,8 @@ export function Products() {
   const handleOpenPriceModal = async (product: any) => {
     setSelectedCentralProduct(product);
     setSuggestionForm({
-      cost_price: product.cost_price,
-      sale_price: product.sale_price
+      cost_price: formatMoney(product.cost_price || 0),
+      sale_price: formatMoney(product.sale_price || 0)
     });
     
     // Fetch history for this product
@@ -749,8 +749,8 @@ export function Products() {
         .from('price_suggestions')
         .insert([{
           central_product_id: selectedCentralProduct.id,
-          suggested_cost_price: suggestionForm.cost_price,
-          suggested_sale_price: suggestionForm.sale_price,
+          suggested_cost_price: parseMoney(suggestionForm.cost_price.toString()),
+          suggested_sale_price: parseMoney(suggestionForm.sale_price.toString()),
           created_by: user.id
         }]);
 
@@ -760,8 +760,8 @@ export function Products() {
       const { error: updateError } = await supabase
         .from('central_products')
         .update({
-          cost_price: suggestionForm.cost_price,
-          sale_price: suggestionForm.sale_price
+          cost_price: parseMoney(suggestionForm.cost_price.toString()),
+          sale_price: parseMoney(suggestionForm.sale_price.toString())
         })
         .eq('id', selectedCentralProduct.id);
 
@@ -1189,11 +1189,10 @@ export function Products() {
                 <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Custo [R$]</label>
                 <input 
                   type="text" 
-                  inputMode="decimal"
+                  inputMode="numeric"
                   value={formData.cost_price}
                   onChange={e => {
-                    const val = e.target.value.replace(/[^0-9.,]/g, '');
-                    setFormData({...formData, cost_price: val});
+                    setFormData({...formData, cost_price: formatMoneyInput(e.target.value)});
                   }}
                   className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm focus:border-emerald-500 outline-none transition-all"
                 />
@@ -1202,11 +1201,10 @@ export function Products() {
                 <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Venda [R$]</label>
                 <input 
                   type="text" 
-                  inputMode="decimal"
+                  inputMode="numeric"
                   value={formData.sale_price}
                   onChange={e => {
-                    const val = e.target.value.replace(/[^0-9.,]/g, '');
-                    setFormData({...formData, sale_price: val});
+                    setFormData({...formData, sale_price: formatMoneyInput(e.target.value)});
                   }}
                   className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm focus:border-emerald-500 outline-none transition-all"
                 />
@@ -2195,14 +2193,9 @@ export function Products() {
                     <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Novo Custo [R$]</label>
                     <input 
                       type="text" 
-                      inputMode="decimal"
-                      value={suggestionForm.cost_price === 0 ? '' : suggestionForm.cost_price}
-                      onChange={e => {
-                        const val = e.target.value.replace(',', '.');
-                        if (val === '' || /^\d*\.?\d*$/.test(val)) {
-                          setSuggestionForm({...suggestionForm, cost_price: val === '' ? 0 : Number(val)});
-                        }
-                      }}
+                      inputMode="numeric"
+                      value={suggestionForm.cost_price}
+                      onChange={e => setSuggestionForm({...suggestionForm, cost_price: formatMoneyInput(e.target.value)})}
                       className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm focus:border-purple-500 outline-none transition-all"
                     />
                   </div>
@@ -2210,14 +2203,9 @@ export function Products() {
                     <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Novo Preço de Venda [R$]</label>
                     <input 
                       type="text" 
-                      inputMode="decimal"
-                      value={suggestionForm.sale_price === 0 ? '' : suggestionForm.sale_price}
-                      onChange={e => {
-                        const val = e.target.value.replace(',', '.');
-                        if (val === '' || /^\d*\.?\d*$/.test(val)) {
-                          setSuggestionForm({...suggestionForm, sale_price: val === '' ? 0 : Number(val)});
-                        }
-                      }}
+                      inputMode="numeric"
+                      value={suggestionForm.sale_price}
+                      onChange={e => setSuggestionForm({...suggestionForm, sale_price: formatMoneyInput(e.target.value)})}
                       className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm focus:border-purple-500 outline-none transition-all"
                     />
                   </div>
@@ -2586,13 +2574,10 @@ export function Products() {
                   <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Novo Custo [R$]</label>
                   <input 
                     type="text" 
-                    inputMode="decimal"
-                    value={suggestionForm.cost_price === 0 ? '' : suggestionForm.cost_price}
+                    inputMode="numeric"
+                    value={suggestionForm.cost_price}
                     onChange={e => {
-                      const val = e.target.value.replace(',', '.');
-                      if (val === '' || /^\d*\.?\d*$/.test(val)) {
-                        setSuggestionForm({...suggestionForm, cost_price: val === '' ? 0 : Number(val)});
-                      }
+                      setSuggestionForm({...suggestionForm, cost_price: formatMoneyInput(e.target.value)});
                     }}
                     className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm focus:border-purple-500 outline-none transition-all"
                   />
@@ -2601,13 +2586,10 @@ export function Products() {
                   <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Novo Preço de Venda [R$]</label>
                   <input 
                     type="text" 
-                    inputMode="decimal"
-                    value={suggestionForm.sale_price === 0 ? '' : suggestionForm.sale_price}
+                    inputMode="numeric"
+                    value={suggestionForm.sale_price}
                     onChange={e => {
-                      const val = e.target.value.replace(',', '.');
-                      if (val === '' || /^\d*\.?\d*$/.test(val)) {
-                        setSuggestionForm({...suggestionForm, sale_price: val === '' ? 0 : Number(val)});
-                      }
+                      setSuggestionForm({...suggestionForm, sale_price: formatMoneyInput(e.target.value)});
                     }}
                     className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm focus:border-purple-500 outline-none transition-all"
                   />

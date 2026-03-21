@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { GoalCampaign, GoalParticipant } from '../types';
-import { cn, formatError } from '../lib/utils';
+import { cn, formatError, formatMoneyInput, parseMoney } from '../lib/utils';
 import { format, differenceInDays } from 'date-fns';
 import { ConfirmationModal } from './ConfirmationModal';
 import { useNotifications } from './NotificationCenter';
@@ -266,7 +266,7 @@ function GoalForm({ onClose, onSave }: { onClose: () => void; onSave: () => void
   const [formData, setFormData] = useState({
     title: '',
     description: '',
-    goal_value: 100,
+    goal_value: '0,00' as string | number,
     reward_description: '',
     type: 'participants' as 'participants' | 'value',
     end_date: ''
@@ -286,7 +286,7 @@ function GoalForm({ onClose, onSave }: { onClose: () => void; onSave: () => void
           user_id: user.id,
           title: formData.title,
           description: formData.description,
-          goal_value: formData.goal_value,
+          goal_value: typeof formData.goal_value === 'string' ? parseMoney(formData.goal_value) : formData.goal_value,
           current_value: 0,
           reward_description: formData.reward_description,
           status: 'active',
@@ -348,9 +348,17 @@ function GoalForm({ onClose, onSave }: { onClose: () => void; onSave: () => void
             </label>
             <input 
               required
-              type="number" 
+              type={formData.type === 'value' ? "text" : "number"}
+              inputMode={formData.type === 'value' ? "numeric" : undefined}
               value={formData.goal_value}
-              onChange={e => setFormData({...formData, goal_value: Number(e.target.value)})}
+              onChange={e => {
+                const value = e.target.value;
+                if (formData.type === 'value') {
+                  setFormData({...formData, goal_value: formatMoneyInput(value)});
+                } else {
+                  setFormData({...formData, goal_value: Number(value)});
+                }
+              }}
               className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm focus:border-emerald-500 outline-none transition-all"
             />
           </div>

@@ -295,11 +295,91 @@ function AppContent() {
       })
       .subscribe();
 
+    // Listen for new product reviews
+    const reviewsSubscription = supabase
+      .channel('public:product_reviews')
+      .on('postgres_changes', { 
+        event: 'INSERT', 
+        schema: 'public', 
+        table: 'product_reviews',
+        filter: `user_id=eq.${session.user.id}`
+      }, (payload) => {
+        addNotification({
+          type: 'review',
+          title: 'Nova Avaliação Recebida',
+          message: `Você recebeu uma nova avaliação de ${payload.new.customer_name}.`,
+          onClick: () => setActiveTab('store-settings')
+        });
+      })
+      .subscribe();
+
     return () => {
       routesSubscription.unsubscribe();
       bagsSubscription.unsubscribe();
       catalogSubscription.unsubscribe();
+      reviewsSubscription.unsubscribe();
     };
+  }, [session]);
+
+  useEffect(() => {
+    if (!session) return;
+
+    const checkFinancialReminders = async () => {
+      try {
+        const todayStr = new Date().toISOString().split('T')[0];
+        const tomorrowDate = new Date();
+        tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+        const tomorrowStr = tomorrowDate.toISOString().split('T')[0];
+
+        const { data, error } = await supabase
+          .from('financial_transactions')
+          .select('*')
+          .eq('user_id', session.user.id)
+          .eq('type', 'expense')
+          .eq('status', 'pending')
+          .eq('reminder_enabled', true)
+          .lte('due_date', tomorrowStr);
+
+        if (error) throw error;
+
+        data?.forEach(t => {
+          const isToday = t.due_date === todayStr;
+          const isTomorrow = t.due_date === tomorrowStr;
+          const isOverdue = t.due_date < todayStr;
+
+          let title = '';
+          let type: any = 'info';
+          let message = '';
+
+          if (isOverdue) {
+            title = 'Conta Atrasada';
+            type = 'error';
+            message = `A conta "${t.description}" está atrasada! Venceu em ${new Date(t.due_date).toLocaleDateString('pt-BR')}. Valor: R$ ${t.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
+          } else if (isToday) {
+            title = 'Vencimento Hoje';
+            type = 'warning';
+            message = `A conta "${t.description}" vence hoje! Valor: R$ ${t.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
+          } else if (isTomorrow) {
+            title = 'Vencimento Amanhã';
+            type = 'info';
+            message = `A conta "${t.description}" vence amanhã. Valor: R$ ${t.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
+          }
+
+          if (title) {
+            addNotification({
+              type,
+              title,
+              message,
+              onClick: () => setActiveTab('financial')
+            });
+          }
+        });
+      } catch (err) {
+        console.error('Error checking financial reminders:', err);
+      }
+    };
+
+    checkFinancialReminders();
   }, [session]);
 
   useEffect(() => {
@@ -421,7 +501,8 @@ function AppContent() {
           nome: session.user.user_metadata?.full_name || '',
           role: 'user',
           status_pagamento: 'TRIAL',
-          vencimento: trialExpiration.toISOString()
+          vencimento: trialExpiration.toISOString(),
+          accepted_terms_version: session.user.user_metadata?.accepted_terms_version || 0
         }])
         .select()
         .single();

@@ -18,7 +18,7 @@ import {
   Loader2,
   Save
 } from 'lucide-react';
-import { cn, formatError } from '../lib/utils';
+import { cn, formatError, formatMoney, formatMoneyInput, parseMoney } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { supabase } from '../lib/supabase';
 import { useNotifications } from './NotificationCenter';
@@ -88,12 +88,13 @@ export function FinancialControl() {
   const [isDueModalOpen, setIsDueModalOpen] = useState(false);
 
   // Form State
-  const [newTransaction, setNewTransaction] = useState<Partial<Transaction>>({
+  const [newTransaction, setNewTransaction] = useState<any>({
     type: 'expense',
     date: new Date().toISOString().split('T')[0],
     category: DEFAULT_CATEGORIES.expense[0],
     status: 'paid',
-    reminder_enabled: false
+    reminder_enabled: false,
+    amount: '0,00'
   });
 
   // Load data from Supabase
@@ -267,7 +268,7 @@ export function FinancialControl() {
       const transactionData = {
         user_id: user.id,
         description: newTransaction.description as string,
-        amount: Number(newTransaction.amount),
+        amount: parseMoney(newTransaction.amount.toString()),
         type: newTransaction.type as 'income' | 'expense',
         category: newTransaction.category as string,
         date: newTransaction.date as string,
@@ -316,7 +317,8 @@ export function FinancialControl() {
         date: new Date().toISOString().split('T')[0],
         category: categories.expense[0],
         status: 'paid',
-        reminder_enabled: false
+        reminder_enabled: false,
+        amount: '0,00'
       });
       
       // Also save categories to Supabase if they changed (added new one)
@@ -765,10 +767,10 @@ export function FinancialControl() {
                       <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest ml-1">Valor (R$)</label>
                       <input 
                         required
-                        type="number"
-                        step="0.01"
-                        value={newTransaction.amount || ''}
-                        onChange={(e) => setNewTransaction({ ...newTransaction, amount: Number(e.target.value) })}
+                        type="text"
+                        inputMode="numeric"
+                        value={newTransaction.amount}
+                        onChange={(e) => setNewTransaction({ ...newTransaction, amount: formatMoneyInput(e.target.value) })}
                         placeholder="0,00"
                         className="w-full bg-zinc-50 border border-zinc-100 rounded-xl p-4 text-sm focus:ring-2 focus:ring-[#38a89d]/10 focus:border-[#38a89d] outline-none transition-all"
                       />
