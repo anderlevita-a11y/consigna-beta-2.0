@@ -18,7 +18,9 @@ import {
   Eye,
   Check,
   XCircle,
-  Clock
+  Clock,
+  Archive,
+  ArchiveRestore
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { Profile, AppLegalSettings, DailyInsight, PaymentReceipt } from '../types';
@@ -35,6 +37,7 @@ export function AdminPanel({ currentProfile }: { currentProfile: Profile | null 
   const [loadingCentral, setLoadingCentral] = useState(false);
   const [schemaErrors, setSchemaErrors] = useState<string[]>([]);
   const [activeSection, setActiveSection] = useState<'users' | 'legal' | 'insights' | 'receipts'>('users');
+  const [showArchived, setShowArchived] = useState(false);
   
   // Receipts State
   const [receipts, setReceipts] = useState<PaymentReceipt[]>([]);
@@ -46,6 +49,15 @@ export function AdminPanel({ currentProfile }: { currentProfile: Profile | null 
   const [dailyInsights, setDailyInsights] = useState<DailyInsight[]>([]);
   const [insightText, setInsightText] = useState('');
   const [savingInsights, setSavingInsights] = useState(false);
+  const [expiredUsersModal, setExpiredUsersModal] = useState<{
+    isOpen: boolean;
+    users: Profile[];
+    selectedIds: string[];
+  }>({
+    isOpen: false,
+    users: [],
+    selectedIds: []
+  });
   const [expirationModal, setExpirationModal] = useState<{
     isOpen: boolean;
     userId: string;
@@ -139,9 +151,9 @@ export function AdminPanel({ currentProfile }: { currentProfile: Profile | null 
     }
 
     // Check profiles table for pix columns and vencimento
-    const { error: profError } = await supabase.from('profiles').select('pix_key, pix_beneficiary, vencimento').limit(1);
-    if (profError && (profError.message.includes('pix_key') || profError.message.includes('pix_beneficiary') || profError.message.includes('vencimento'))) {
-      errors.push("As colunas 'pix_key', 'pix_beneficiary' ou 'vencimento' estão faltando na tabela 'profiles'.");
+    const { error: profError } = await supabase.from('profiles').select('pix_key, pix_beneficiary, vencimento, is_archived').limit(1);
+    if (profError && (profError.message.includes('pix_key') || profError.message.includes('pix_beneficiary') || profError.message.includes('vencimento') || profError.message.includes('is_archived'))) {
+      errors.push("As colunas 'pix_key', 'pix_beneficiary', 'vencimento' ou 'is_archived' estão faltando na tabela 'profiles'.");
     }
 
     // Check products table for photo_url, has_grid, and label_name
@@ -493,27 +505,41 @@ Data da última atualização: 09 de marco. Responsável Legal: Anderson Rodrigu
         try {
           const updates: any = { status_pagamento: status };
           
+          const getNext8th = () => {
+            const now = new Date();
+            let next8th = new Date(now.getFullYear(), now.getMonth(), 8, 12, 0, 0);
+            if (now.getDate() >= 8) {
+              next8th.setMonth(next8th.getMonth() + 1);
+            }
+            return next8th.toISOString();
+          };
+
           if (status === 'PRO') {
             updates.access_key_code = selectedUser.access_key_code || `PRO-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
             updates.plan = 'Pro';
-            updates.vencimento = null;
+            updates.plano_tipo = 'pro';
+            updates.vencimento = getNext8th();
           } else if (status === 'STARTER') {
             updates.access_key_code = selectedUser.access_key_code || `START-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
             updates.plan = 'Starter';
-            updates.vencimento = null;
+            updates.plano_tipo = 'starter';
+            updates.vencimento = getNext8th();
           } else if (status === 'PAGO') {
             updates.access_key_code = selectedUser.access_key_code || `KEY-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
             updates.plan = 'Standard';
+            updates.plano_tipo = 'standard';
             updates.vencimento = null;
           } else if (status === 'TRIAL') {
             updates.access_key_code = selectedUser.access_key_code || `TRIAL-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
             updates.plan = 'Trial';
+            updates.plano_tipo = 'trial';
             const trialEnd = new Date();
             trialEnd.setDate(trialEnd.getDate() + 7);
             updates.vencimento = trialEnd.toISOString();
           } else if (status === 'PENDENTE') {
             updates.access_key_code = null;
             updates.plan = null;
+            updates.plano_tipo = null;
             updates.vencimento = null;
           }
 
@@ -560,6 +586,7 @@ Data da última atualização: 09 de marco. Responsável Legal: Anderson Rodrigu
         .from('profiles')
         .update({ 
           vencimento: next8th.toISOString(),
+          data_pagamento: expirationModal.paymentDate,
           status_pagamento: 'PAGO' // Assume it becomes PAGO when expiration is set
         })
         .eq('id', expirationModal.userId);
@@ -586,6 +613,77 @@ Data da última atualização: 09 de marco. Responsável Legal: Anderson Rodrigu
     }
   };
 
+  const blockExpiredUsers = async () => {
+    setLoading(true);
+    try {
+      const now = new Date().toISOString();
+      const { data: expiredUsers, error: fetchError } = await supabase
+        .from('profiles')
+        .select('*')
+        .lt('vencimento', now)
+        .eq('is_blocked', false)
+        .not('vencimento', 'is', null);
+
+      if (fetchError) throw fetchError;
+
+      if (!expiredUsers || expiredUsers.length === 0) {
+        addNotification({
+          type: 'info',
+          title: 'Tudo em dia',
+          message: 'Não há usuários com plano vencido para bloquear.'
+        });
+        return;
+      }
+
+      setExpiredUsersModal({
+        isOpen: true,
+        users: expiredUsers,
+        selectedIds: expiredUsers.map(u => u.id) // Default to all selected
+      });
+    } catch (err: any) {
+      console.error(err);
+      addNotification({
+        type: 'error',
+        title: 'Erro ao buscar usuários vencidos',
+        message: formatError(err)
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleConfirmBlockExpired = async () => {
+    if (expiredUsersModal.selectedIds.length === 0) return;
+
+    setLoading(true);
+    try {
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({ is_blocked: true })
+        .in('id', expiredUsersModal.selectedIds);
+
+      if (updateError) throw updateError;
+
+      addNotification({
+        type: 'success',
+        title: 'Bloqueio Concluído',
+        message: `${expiredUsersModal.selectedIds.length} usuários foram bloqueados por vencimento.`
+      });
+      
+      setExpiredUsersModal(prev => ({ ...prev, isOpen: false }));
+      await fetchData();
+    } catch (err: any) {
+      console.error(err);
+      addNotification({
+        type: 'error',
+        title: 'Erro ao bloquear usuários',
+        message: formatError(err)
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const calculateProRated = (planPrice: number, paymentDate: string) => {
     const payDate = new Date(paymentDate + 'T12:00:00');
     let next8th = new Date(payDate.getFullYear(), payDate.getMonth(), 8, 12, 0, 0);
@@ -602,6 +700,15 @@ Data da última atualização: 09 de marco. Responsável Legal: Anderson Rodrigu
     return (dailyRate * diffDays).toFixed(2);
   };
 
+  const getDaysRemaining = (vencimento: string | undefined) => {
+    if (!vencimento) return null;
+    const now = new Date();
+    const expiry = new Date(vencimento);
+    const diffTime = expiry.getTime() - now.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return diffDays;
+  };
+
   const toggleBlockUser = async (userId: string, currentStatus: boolean) => {
     const { error } = await supabase
       .from('profiles')
@@ -615,6 +722,28 @@ Data da última atualização: 09 de marco. Responsável Legal: Anderson Rodrigu
         message: formatError(error)
       });
     } else {
+      fetchData();
+    }
+  };
+
+  const toggleArchiveUser = async (userId: string, currentStatus: boolean) => {
+    const { error } = await supabase
+      .from('profiles')
+      .update({ is_archived: !currentStatus })
+      .eq('id', userId);
+
+    if (error) {
+      addNotification({
+        type: 'error',
+        title: 'Erro ao arquivar usuário',
+        message: formatError(error)
+      });
+    } else {
+      addNotification({
+        type: 'success',
+        title: currentStatus ? 'Usuário Restaurado' : 'Usuário Arquivado',
+        message: `Usuário ${currentStatus ? 'restaurado' : 'arquivado'} com sucesso.`
+      });
       fetchData();
     }
   };
@@ -736,6 +865,8 @@ ALTER TABLE profiles ADD COLUMN IF NOT EXISTS pix_key TEXT;
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS pix_beneficiary TEXT;
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS accepted_terms_version INTEGER DEFAULT 0;
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS vencimento TIMESTAMPTZ;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS data_pagamento TIMESTAMPTZ;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_archived BOOLEAN DEFAULT false;
 ALTER TABLE profiles ALTER COLUMN status_pagamento SET DEFAULT 'TRIAL';
 
 -- Adicionar colunas na tabela products
@@ -1086,9 +1217,33 @@ CREATE POLICY "Permitir tudo para admins" ON daily_insights FOR ALL TO authentic
       {activeSection === 'users' && (
         /* Users Section */
         <div className="space-y-4">
-          <div className="flex items-center gap-2 px-2">
-            <Users className="w-4 h-4 text-emerald-600" />
-            <h3 className="font-bold text-zinc-800 text-sm uppercase tracking-wider">Usuários e Status</h3>
+          <div className="flex items-center justify-between px-2">
+            <div className="flex items-center gap-2">
+              <Users className="w-4 h-4 text-emerald-600" />
+              <h3 className="font-bold text-zinc-800 text-sm uppercase tracking-wider">Usuários e Status</h3>
+            </div>
+            <div className="flex items-center gap-2">
+              <button 
+                onClick={() => setShowArchived(!showArchived)}
+                className={cn(
+                  "flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-bold transition-all border shadow-sm",
+                  showArchived 
+                    ? "bg-zinc-800 text-white border-zinc-800" 
+                    : "bg-white text-zinc-600 border-zinc-200 hover:bg-zinc-50"
+                )}
+              >
+                {showArchived ? <ArchiveRestore className="w-3 h-3" /> : <Archive className="w-3 h-3" />}
+                {showArchived ? 'VER ATIVOS' : 'VER ARQUIVADOS'}
+              </button>
+              <button
+                onClick={blockExpiredUsers}
+                disabled={loading}
+                className="flex items-center gap-2 px-4 py-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-xl text-[10px] font-bold transition-all shadow-sm"
+              >
+                <Lock className="w-3 h-3" />
+                BLOQUEAR VENCIDOS
+              </button>
+            </div>
           </div>
           <div className="bg-white border border-zinc-100 rounded-2xl overflow-hidden shadow-sm">
             <div className="overflow-x-auto">
@@ -1102,8 +1257,10 @@ CREATE POLICY "Permitir tudo para admins" ON daily_insights FOR ALL TO authentic
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-50">
-                  {users.map((user) => (
-                    <tr key={user.id} className={cn(
+                  {users
+                    .filter(user => !!user.is_archived === showArchived)
+                    .map((user) => (
+                      <tr key={user.id} className={cn(
                       "hover:bg-zinc-50/30 transition-colors",
                       user.is_blocked && "bg-red-50/30"
                     )}>
@@ -1173,12 +1330,24 @@ CREATE POLICY "Permitir tudo para admins" ON daily_insights FOR ALL TO authentic
                                     isOpen: true,
                                     userId: user.id,
                                     userName: user.nome || user.email || '',
-                                    paymentDate: new Date().toISOString().split('T')[0]
+                                    paymentDate: user.data_pagamento || new Date().toISOString().split('T')[0]
                                   })}
-                                  className="flex items-center gap-2 px-3 py-1.5 bg-zinc-50 text-zinc-400 hover:bg-zinc-100 rounded-lg text-[10px] font-bold transition-all"
+                                  className={cn(
+                                    "flex items-center gap-2 px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all",
+                                    getDaysRemaining(user.vencimento) !== null && getDaysRemaining(user.vencimento)! <= 3
+                                      ? "bg-red-50 text-red-600 hover:bg-red-100"
+                                      : "bg-zinc-50 text-zinc-400 hover:bg-zinc-100"
+                                  )}
                                   title="Gerenciar Vencimento"
                                 >
-                                  RESET
+                                  {getDaysRemaining(user.vencimento) !== null ? (
+                                    <>
+                                      <Clock className="w-3 h-3" />
+                                      {getDaysRemaining(user.vencimento)! <= 0 ? 'VENCIDO' : `${getDaysRemaining(user.vencimento)} DIAS`}
+                                    </>
+                                  ) : (
+                                    'RESET'
+                                  )}
                                 </button>
                               )}
                               <button 
@@ -1228,6 +1397,19 @@ CREATE POLICY "Permitir tudo para admins" ON daily_insights FOR ALL TO authentic
                               </button>
                             </>
                           )}
+                          <button 
+                            onClick={() => toggleArchiveUser(user.id, !!user.is_archived)}
+                            className={cn(
+                              "flex items-center gap-2 px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all",
+                              user.is_archived 
+                                ? "bg-emerald-50 text-emerald-600 hover:bg-emerald-100" 
+                                : "bg-zinc-100 text-zinc-500 hover:bg-zinc-200"
+                            )}
+                            title={user.is_archived ? "Restaurar Usuário" : "Arquivar Usuário"}
+                          >
+                            {user.is_archived ? <ArchiveRestore className="w-3 h-3" /> : <Archive className="w-3 h-3" />}
+                            {user.is_archived ? 'RESTAURAR' : 'ARQUIVAR'}
+                          </button>
                           <button 
                             onClick={() => toggleBlockUser(user.id, !!user.is_blocked)}
                             className={cn(
@@ -1384,6 +1566,92 @@ CREATE POLICY "Permitir tudo para admins" ON daily_insights FOR ALL TO authentic
                 className="flex-1 py-3 bg-emerald-600 text-white rounded-xl font-bold shadow-lg shadow-emerald-500/20 hover:bg-emerald-700 transition-all"
               >
                 Confirmar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Expired Users Selection Modal */}
+      {expiredUsersModal.isOpen && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="bg-white w-full max-w-2xl rounded-[32px] shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-300 max-h-[90vh]">
+            <div className="p-6 border-b border-zinc-100 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-3 rounded-2xl bg-red-50 text-red-500">
+                  <Lock className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-zinc-800 tracking-tight">Bloquear Usuários Vencidos</h3>
+                  <p className="text-sm text-zinc-500">Selecione quem você deseja bloquear</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setExpiredUsersModal(prev => ({ ...prev, isOpen: false }))}
+                className="p-2 hover:bg-zinc-100 rounded-xl transition-colors text-zinc-400"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto p-6">
+              <div className="space-y-3">
+                {expiredUsersModal.users.map((user) => (
+                  <div 
+                    key={user.id}
+                    onClick={() => {
+                      setExpiredUsersModal(prev => ({
+                        ...prev,
+                        selectedIds: prev.selectedIds.includes(user.id)
+                          ? prev.selectedIds.filter(id => id !== user.id)
+                          : [...prev.selectedIds, user.id]
+                      }));
+                    }}
+                    className={cn(
+                      "flex items-center justify-between p-4 rounded-2xl border transition-all cursor-pointer",
+                      expiredUsersModal.selectedIds.includes(user.id)
+                        ? "bg-red-50 border-red-200"
+                        : "bg-zinc-50 border-zinc-100 hover:border-zinc-200"
+                    )}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className={cn(
+                        "w-5 h-5 rounded-md border flex items-center justify-center transition-all",
+                        expiredUsersModal.selectedIds.includes(user.id)
+                          ? "bg-red-500 border-red-500 text-white"
+                          : "bg-white border-zinc-300"
+                      )}>
+                        {expiredUsersModal.selectedIds.includes(user.id) && <Check className="w-3 h-3" />}
+                      </div>
+                      <div>
+                        <p className="font-bold text-zinc-800 text-sm">{user.nome || 'Sem Nome'}</p>
+                        <p className="text-[10px] text-zinc-400">{user.email}</p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[10px] font-bold text-red-600 uppercase">Vencido em</p>
+                      <p className="text-xs font-bold text-zinc-600">
+                        {user.vencimento ? new Date(user.vencimento).toLocaleDateString() : 'N/A'}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            
+            <div className="p-6 border-t border-zinc-100 flex gap-3 bg-zinc-50/50">
+              <button
+                onClick={() => setExpiredUsersModal(prev => ({ ...prev, isOpen: false }))}
+                className="flex-1 py-3 rounded-xl font-bold text-zinc-500 hover:bg-zinc-100 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleConfirmBlockExpired}
+                disabled={expiredUsersModal.selectedIds.length === 0 || loading}
+                className="flex-[2] py-3 bg-red-600 text-white rounded-xl font-bold shadow-lg shadow-red-500/20 hover:bg-red-700 transition-all disabled:opacity-50 disabled:shadow-none flex items-center justify-center gap-2"
+              >
+                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Lock className="w-4 h-4" />}
+                Bloquear Selecionados ({expiredUsersModal.selectedIds.length})
               </button>
             </div>
           </div>

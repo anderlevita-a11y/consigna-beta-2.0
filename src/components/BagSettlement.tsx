@@ -366,7 +366,7 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
         }
       }
 
-      message += `\n\n__________________________\nAssinatura: ${customerName}`;
+      message += `\n\n__________________________\nAssinatura: ${customerName}\nCPF: ${customerCPF}`;
       
       const encodedMessage = encodeURIComponent(message);
       window.open(`https://wa.me/?text=${encodedMessage}`, '_blank');

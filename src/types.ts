@@ -11,6 +11,8 @@ export interface Profile {
   vencimento?: string;
   status_pagamento?: string;
   is_blocked?: boolean;
+  is_archived?: boolean;
+  data_pagamento?: string;
   pix_key?: string;
   pix_beneficiary?: string;
   data_nascimento?: string;

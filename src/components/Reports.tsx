@@ -217,7 +217,7 @@ export function Reports() {
       // 4. Delinquents (Closed Bags with pending or partial payment status + Overdue Open Bags)
       const { data: pendingBags } = await supabase
         .from('bags')
-        .select('*, customer:customers(nome), campaign:campaigns(name, return_date)')
+        .select('*, customer:customers(nome, cpf), campaign:campaigns(name, return_date)')
         .eq('user_id', user.id)
         .or('status.eq.closed,status.eq.open')
         .limit(30000);
@@ -307,7 +307,7 @@ export function Reports() {
         }
       }
 
-      message += `\n\n__________________________\nAssinatura: ${customerName}`;
+      message += `\n\n__________________________\nAssinatura: ${customerName}\nCPF: ${customerCPF}`;
       
       const encodedMessage = encodeURIComponent(message);
       window.open(`https://wa.me/?text=${encodedMessage}`, '_blank');
@@ -368,7 +368,7 @@ export function Reports() {
       }
       
       message += `\nObrigado pela preferência!`;
-      message += `\n\n__________________________\nAssinatura: ${customerName}`;
+      message += `\n\n__________________________\nAssinatura: ${customerName}\nCPF: ${customerCPF}`;
 
       const encodedMessage = encodeURIComponent(message);
       window.open(`https://wa.me/?text=${encodedMessage}`, '_blank');
@@ -408,7 +408,7 @@ export function Reports() {
     }
     
     message += `\nObrigado pela preferência!`;
-    message += `\n\n__________________________\nAssinatura: ${customerName}`;
+    message += `\n\n__________________________\nAssinatura: ${customerName}\nCPF: ${customerCPF}`;
 
     const encodedMessage = encodeURIComponent(message);
     window.open(`https://wa.me/?text=${encodedMessage}`, '_blank');

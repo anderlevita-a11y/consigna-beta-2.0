@@ -500,8 +500,8 @@ function AppContent() {
           email: session.user.email,
           nome: session.user.user_metadata?.full_name || '',
           role: 'user',
-          status_pagamento: 'TRIAL',
-          vencimento: trialExpiration.toISOString(),
+          status_pagamento: 'PENDENTE',
+          vencimento: null,
           accepted_terms_version: session.user.user_metadata?.accepted_terms_version || 0
         }])
         .select()
@@ -544,10 +544,10 @@ function AppContent() {
     
     const isTrial = profile?.status_pagamento === 'TRIAL';
     const isStarter = profile?.status_pagamento === 'STARTER';
-    const trialEnd = isTrial && profile?.vencimento ? new Date(profile.vencimento) : null;
-    const isTrialExpired = isTrial && trialEnd && trialEnd.getTime() < new Date().getTime();
+    const vencimentoDate = profile?.vencimento ? new Date(profile.vencimento) : null;
+    const isExpired = vencimentoDate && vencimentoDate.getTime() < new Date().getTime();
     
-    const hasAccess = isAdmin || ((!!profile?.access_key_code || ['pro', 'starter'].includes(profile?.plano_tipo)) && !isBlocked && !isTrialExpired);
+    const hasAccess = isAdmin || ((!!profile?.access_key_code || ['pro', 'starter', 'trial'].includes(profile?.plano_tipo)) && !isBlocked && !isExpired);
     
     if (!hasAccess && activeTab !== 'profile') {
       return <ProfileScreen />;

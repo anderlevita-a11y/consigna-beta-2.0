@@ -198,6 +198,7 @@ export function printFallback(payload: any, onError?: (msg: string) => void) {
         <div style="margin-top: 60px; border-top: 1px solid #e4e4e7; padding-top: 10px; text-align: center; max-width: 300px; margin-left: auto; margin-right: auto;">
           <div style="height: 40px;"></div>
           <p style="margin: 0; font-size: 12px; font-weight: bold; color: #18181b; text-transform: uppercase;">${payload.dados_cliente.nome}</p>
+          ${payload.dados_cliente.cpf && payload.dados_cliente.cpf !== '---' ? `<p style="margin: 0; font-size: 10px; color: #71717a;">CPF: ${payload.dados_cliente.cpf}</p>` : ''}
           <p style="margin: 4px 0 0; font-size: 10px; color: #71717a; text-transform: uppercase; letter-spacing: 1px;">Assinatura do Cliente</p>
         </div>
         
