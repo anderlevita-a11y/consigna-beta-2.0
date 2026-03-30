@@ -391,15 +391,36 @@ export function Routes() {
   };
 
   const getNavigateToStopUrl = (stop: RouteStop, app: 'maps' | 'waze') => {
-    if (!stop.customer?.latitude || !stop.customer?.longitude) return null;
-    
-    const lat = stop.customer.latitude;
-    const lng = stop.customer.longitude;
-    
+    const cust = stop.customer;
+    if (!cust) return null;
+
+    if (cust.latitude && cust.longitude) {
+      const lat = cust.latitude;
+      const lng = cust.longitude;
+      if (app === 'maps') {
+        return `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+      } else {
+        return `https://waze.com/ul?ll=${lat},${lng}&navigate=yes`;
+      }
+    }
+
+    // Fallback to address
+    const addressParts = [
+      cust.logradouro,
+      cust.address_number,
+      cust.bairro,
+      cust.cidade,
+      cust.estado,
+      'Brasil'
+    ].filter(Boolean);
+
+    if (addressParts.length === 0) return null;
+
+    const address = encodeURIComponent(addressParts.join(', '));
     if (app === 'maps') {
-      return `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+      return `https://www.google.com/maps/dir/?api=1&destination=${address}`;
     } else {
-      return `https://waze.com/ul?ll=${lat},${lng}&navigate=yes`;
+      return `https://waze.com/ul?q=${address}&navigate=yes`;
     }
   };
 
@@ -407,7 +428,12 @@ export function Routes() {
     if (!activeRoute || !activeRoute.stops) return null;
     
     const pendingStops = activeRoute.stops
-      .filter(s => s.status === 'pending' && s.customer?.latitude && s.customer?.longitude)
+      .filter(s => {
+        if (s.status !== 'pending') return false;
+        const cust = s.customer;
+        if (!cust) return false;
+        return (cust.latitude && cust.longitude) || (cust.logradouro && cust.cidade);
+      })
       .sort((a, b) => a.order_index - b.order_index);
       
     if (pendingStops.length === 0) return null;
@@ -420,8 +446,15 @@ export function Routes() {
     const destination = stopsToNavigate[stopsToNavigate.length - 1];
     const waypoints = stopsToNavigate.slice(0, -1);
     
-    const waypointsStr = waypoints.map(s => `${s.customer!.latitude},${s.customer!.longitude}`).join('|');
-    const destStr = `${destination.customer!.latitude},${destination.customer!.longitude}`;
+    const getStopLoc = (s: RouteStop) => {
+      if (s.customer?.latitude && s.customer?.longitude) {
+        return `${s.customer.latitude},${s.customer.longitude}`;
+      }
+      return [s.customer?.logradouro, s.customer?.address_number, s.customer?.bairro, s.customer?.cidade].filter(Boolean).join(', ');
+    };
+
+    const waypointsStr = waypoints.map(s => encodeURIComponent(getStopLoc(s))).join('|');
+    const destStr = encodeURIComponent(getStopLoc(destination));
     
     let url = `https://www.google.com/maps/dir/?api=1&destination=${destStr}`;
     if (waypoints.length > 0) {
@@ -1071,7 +1104,7 @@ export function Routes() {
                             addNotification({
                               type: 'warning',
                               title: 'Aviso',
-                              message: 'Cliente sem coordenadas GPS cadastradas.'
+                              message: 'Cliente sem endereço ou coordenadas GPS cadastradas.'
                             });
                           }
                         }}
@@ -1090,7 +1123,7 @@ export function Routes() {
                             addNotification({
                               type: 'warning',
                               title: 'Aviso',
-                              message: 'Cliente sem coordenadas GPS cadastradas.'
+                              message: 'Cliente sem endereço ou coordenadas GPS cadastradas.'
                             });
                           }
                         }}

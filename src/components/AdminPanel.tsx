@@ -36,9 +36,16 @@ export function AdminPanel({ currentProfile }: { currentProfile: Profile | null 
   const [centralProducts, setCentralProducts] = useState<any[]>([]);
   const [loadingCentral, setLoadingCentral] = useState(false);
   const [schemaErrors, setSchemaErrors] = useState<string[]>([]);
-  const [activeSection, setActiveSection] = useState<'users' | 'legal' | 'insights' | 'receipts'>('users');
+  const [activeSection, setActiveSection] = useState<'users' | 'legal' | 'insights' | 'receipts' | 'favorita'>('users');
   const [showArchived, setShowArchived] = useState(false);
   
+  // Favorita State
+  const [favoritaProducts, setFavoritaProducts] = useState<{
+    novos: any[];
+    alterados: any[];
+  }>({ novos: [], alterados: [] });
+  const [loadingFavorita, setLoadingFavorita] = useState(false);
+
   // Receipts State
   const [receipts, setReceipts] = useState<PaymentReceipt[]>([]);
   const [loadingReceipts, setLoadingReceipts] = useState(false);
@@ -49,6 +56,7 @@ export function AdminPanel({ currentProfile }: { currentProfile: Profile | null 
   const [dailyInsights, setDailyInsights] = useState<DailyInsight[]>([]);
   const [insightText, setInsightText] = useState('');
   const [savingInsights, setSavingInsights] = useState(false);
+  const [syncingFavorita, setSyncingFavorita] = useState(false);
   const [expiredUsersModal, setExpiredUsersModal] = useState<{
     isOpen: boolean;
     users: Profile[];
@@ -92,6 +100,7 @@ export function AdminPanel({ currentProfile }: { currentProfile: Profile | null 
     fetchLegalSettings();
     fetchDailyInsights();
     fetchReceipts();
+    fetchFavoritaReport();
 
     // Real-time subscriptions for immediate updates
     const profilesSubscription = supabase
@@ -684,6 +693,83 @@ Data da última atualização: 09 de marco. Responsável Legal: Anderson Rodrigu
     }
   };
 
+  const fetchFavoritaReport = async () => {
+    setLoadingFavorita(true);
+    try {
+      const { data: novos, error: errorNovos } = await supabase
+        .from('produtos_favorita')
+        .select('*')
+        .eq('status', 'novo')
+        .order('ultima_atualizacao', { ascending: false });
+
+      const { data: alterados, error: errorAlterados } = await supabase
+        .from('produtos_favorita')
+        .select('*')
+        .eq('status', 'alterado')
+        .order('ultima_atualizacao', { ascending: false });
+
+      if (errorNovos) throw errorNovos;
+      if (errorAlterados) throw errorAlterados;
+
+      setFavoritaProducts({ 
+        novos: novos || [], 
+        alterados: alterados || [] 
+      });
+    } catch (err: any) {
+      console.error('Error fetching Favorita report:', err);
+      addNotification({
+        type: 'error',
+        title: 'Erro ao buscar relatório',
+        message: formatError(err)
+      });
+    } finally {
+      setLoadingFavorita(false);
+    }
+  };
+
+  const handleSyncFavorita = async () => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Sincronizar Favorita',
+      message: 'Deseja iniciar a sincronização de produtos do site da Favorita? Este processo pode levar alguns minutos.',
+      variant: 'info',
+      onConfirm: async () => {
+        setConfirmModal(prev => ({ ...prev, isOpen: false }));
+        setSyncingFavorita(true);
+        try {
+          const response = await fetch('/api/sync-favorita', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            }
+          });
+
+          const result = await response.json();
+
+          if (result.success) {
+            addNotification({
+              type: 'success',
+              title: 'Sincronização Concluída',
+              message: `Novos: ${result.results.new}, Alterados: ${result.results.updated}, Sem Mudança: ${result.results.normal}, Erros: ${result.results.errors}`
+            });
+            await fetchFavoritaReport();
+          } else {
+            throw new Error(result.error || 'Erro desconhecido na sincronização');
+          }
+        } catch (err: any) {
+          console.error('Error syncing Favorita:', err);
+          addNotification({
+            type: 'error',
+            title: 'Erro na Sincronização',
+            message: formatError(err)
+          });
+        } finally {
+          setSyncingFavorita(false);
+        }
+      }
+    });
+  };
+
   const calculateProRated = (planPrice: number, paymentDate: string) => {
     const payDate = new Date(paymentDate + 'T12:00:00');
     let next8th = new Date(payDate.getFullYear(), payDate.getMonth(), 8, 12, 0, 0);
@@ -1034,7 +1120,172 @@ CREATE POLICY "Permitir tudo para admins" ON daily_insights FOR ALL TO authentic
           <FileText className="w-4 h-4" />
           Comprovantes
         </button>
+        <button
+          onClick={() => setActiveSection('favorita')}
+          className={cn(
+            "flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-xs font-bold uppercase tracking-widest transition-all",
+            activeSection === 'favorita' ? "bg-emerald-600 text-white shadow-lg shadow-emerald-500/20" : "text-zinc-400 hover:text-zinc-600"
+          )}
+        >
+          <Upload className="w-4 h-4" />
+          Favorita
+        </button>
       </div>
+
+      {activeSection === 'favorita' && (
+        <div className="space-y-8">
+          <div className="flex items-center justify-between px-2">
+            <div className="flex items-center gap-2">
+              <Upload className="w-4 h-4 text-emerald-600" />
+              <h3 className="font-bold text-zinc-800 text-sm uppercase tracking-wider">Relatório de Sincronização Favorita</h3>
+            </div>
+            <div className="flex items-center gap-3">
+              <button 
+                onClick={fetchFavoritaReport}
+                className="p-2 hover:bg-zinc-100 rounded-lg text-zinc-400 transition-colors"
+                title="Atualizar Relatório"
+              >
+                <Loader2 className={cn("w-4 h-4", loadingFavorita && "animate-spin")} />
+              </button>
+              <button
+                onClick={handleSyncFavorita}
+                disabled={syncingFavorita}
+                className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-xl text-[10px] font-bold transition-all shadow-lg shadow-emerald-500/20 disabled:opacity-50"
+              >
+                {syncingFavorita ? <Loader2 className="w-3 h-3 animate-spin" /> : <Upload className="w-3 h-3" />}
+                SINCRONIZAR AGORA
+              </button>
+            </div>
+          </div>
+
+          {/* Novos Produtos */}
+          <div className="space-y-4">
+            <div className="flex items-center gap-2 px-2">
+              <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <h4 className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Novos Produtos ({favoritaProducts.novos.length})</h4>
+            </div>
+            <div className="bg-white border border-zinc-100 rounded-2xl overflow-hidden shadow-sm">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse min-w-[800px]">
+                  <thead>
+                    <tr className="bg-zinc-50/50 border-b border-zinc-100">
+                      <th className="px-6 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">SKU</th>
+                      <th className="px-6 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Nome</th>
+                      <th className="px-6 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Categoria</th>
+                      <th className="px-6 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Preço</th>
+                      <th className="px-6 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest text-right">Data</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-50">
+                    {favoritaProducts.novos.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="px-6 py-12 text-center text-zinc-400 text-xs italic">
+                          Nenhum produto novo encontrado.
+                        </td>
+                      </tr>
+                    ) : (
+                      favoritaProducts.novos.map((prod) => (
+                        <tr key={prod.id} className="hover:bg-zinc-50/30 transition-colors">
+                          <td className="px-6 py-4">
+                            <span className="font-mono text-[10px] font-bold text-zinc-400 bg-zinc-100 px-2 py-1 rounded">
+                              {prod.sku}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4">
+                            <p className="text-xs font-bold text-zinc-800">{prod.nome}</p>
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded uppercase">
+                              {prod.categoria || 'N/A'}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4">
+                            <p className="text-xs font-black text-emerald-600">R$ {prod.preco_atual?.toFixed(2)}</p>
+                          </td>
+                          <td className="px-6 py-4 text-right">
+                            <p className="text-[10px] text-zinc-400">
+                              {new Date(prod.ultima_atualizacao).toLocaleDateString()} {new Date(prod.ultima_atualizacao).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </p>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          {/* Preços Alterados */}
+          <div className="space-y-4">
+            <div className="flex items-center gap-2 px-2">
+              <div className="w-2 h-2 rounded-full bg-orange-500 animate-pulse" />
+              <h4 className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Preços Alterados ({favoritaProducts.alterados.length})</h4>
+            </div>
+            <div className="bg-white border border-zinc-100 rounded-2xl overflow-hidden shadow-sm">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse min-w-[800px]">
+                  <thead>
+                    <tr className="bg-zinc-50/50 border-b border-zinc-100">
+                      <th className="px-6 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">SKU</th>
+                      <th className="px-6 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Nome</th>
+                      <th className="px-6 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Categoria</th>
+                      <th className="px-6 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Preço Anterior</th>
+                      <th className="px-6 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Novo Preço</th>
+                      <th className="px-6 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest text-right">Data</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-50">
+                    {favoritaProducts.alterados.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="px-6 py-12 text-center text-zinc-400 text-xs italic">
+                          Nenhuma alteração de preço encontrada.
+                        </td>
+                      </tr>
+                    ) : (
+                      favoritaProducts.alterados.map((prod) => (
+                        <tr key={prod.id} className="hover:bg-zinc-50/30 transition-colors">
+                          <td className="px-6 py-4">
+                            <span className="font-mono text-[10px] font-bold text-zinc-400 bg-zinc-100 px-2 py-1 rounded">
+                              {prod.sku}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4">
+                            <p className="text-xs font-bold text-zinc-800">{prod.nome}</p>
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className="text-[10px] font-bold text-orange-600 bg-orange-50 px-2 py-1 rounded uppercase">
+                              {prod.categoria || 'N/A'}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4">
+                            <p className="text-xs font-bold text-zinc-400 line-through">R$ {prod.preco_anterior?.toFixed(2)}</p>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="flex items-center gap-2">
+                              <p className="text-xs font-black text-orange-600">R$ {prod.preco_atual?.toFixed(2)}</p>
+                              {prod.preco_atual < prod.preco_anterior ? (
+                                <span className="text-[8px] font-bold text-emerald-600 bg-emerald-50 px-1 rounded">BAIXOU</span>
+                              ) : (
+                                <span className="text-[8px] font-bold text-red-600 bg-red-50 px-1 rounded">SUBIU</span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 text-right">
+                            <p className="text-[10px] text-zinc-400">
+                              {new Date(prod.ultima_atualizacao).toLocaleDateString()} {new Date(prod.ultima_atualizacao).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </p>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {activeSection === 'receipts' && (
         <div className="space-y-6">
@@ -1242,6 +1493,14 @@ CREATE POLICY "Permitir tudo para admins" ON daily_insights FOR ALL TO authentic
               >
                 <Lock className="w-3 h-3" />
                 BLOQUEAR VENCIDOS
+              </button>
+              <button
+                onClick={handleSyncFavorita}
+                disabled={syncingFavorita}
+                className="flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 rounded-xl text-[10px] font-bold transition-all shadow-sm disabled:opacity-50"
+              >
+                {syncingFavorita ? <Loader2 className="w-3 h-3 animate-spin" /> : <Upload className="w-3 h-3" />}
+                SINCRONIZAR FAVORITA
               </button>
             </div>
           </div>
