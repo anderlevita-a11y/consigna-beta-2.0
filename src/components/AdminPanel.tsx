@@ -20,7 +20,8 @@ import {
   XCircle,
   Clock,
   Archive,
-  ArchiveRestore
+  ArchiveRestore,
+  MessageSquare
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { Profile, AppLegalSettings, DailyInsight, PaymentReceipt } from '../types';
@@ -124,10 +125,13 @@ export function AdminPanel({ currentProfile }: { currentProfile: Profile | null 
     setLoadingReceipts(false);
   }
 
-  async function handleUpdateReceiptStatus(id: string, status: 'approved' | 'rejected') {
+  async function handleUpdateReceiptStatus(id: string, status: 'approved' | 'rejected', reason?: string) {
+    const updates: any = { status };
+    if (reason) updates.rejection_reason = reason;
+
     const { error } = await supabase
       .from('payment_receipts')
-      .update({ status })
+      .update(updates)
       .eq('id', id);
 
     if (error) {
@@ -140,7 +144,7 @@ export function AdminPanel({ currentProfile }: { currentProfile: Profile | null 
       addNotification({
         type: 'success',
         title: 'Status Atualizado',
-        message: `Comprovante ${status === 'approved' ? 'aprovado' : 'recusado'} com sucesso.`
+        message: `Comprovante ${status === 'approved' ? 'aprovado' : 'reprovado'} com sucesso.`
       });
       fetchReceipts();
     }
@@ -175,6 +179,22 @@ export function AdminPanel({ currentProfile }: { currentProfile: Profile | null 
     const { error: centralError } = await supabase.from('central_products').select('id').limit(1);
     if (centralError && centralError.message.includes('does not exist')) {
       errors.push("A tabela 'central_products' não existe.");
+    }
+
+    // Check if produtos_favorita table exists
+    const { error: favoritaError } = await supabase.from('produtos_favorita').select('id').limit(1);
+    if (favoritaError && favoritaError.message.includes('does not exist')) {
+      errors.push("A tabela 'produtos_favorita' não existe.");
+    }
+
+    // Check if payment_receipts table exists and has rejection_reason
+    const { error: receiptError } = await supabase.from('payment_receipts').select('rejection_reason').limit(1);
+    if (receiptError) {
+      if (receiptError.message.includes('does not exist')) {
+        errors.push("A tabela 'payment_receipts' não existe.");
+      } else if (receiptError.message.includes('rejection_reason')) {
+        errors.push("A coluna 'rejection_reason' está faltando na tabela 'payment_receipts'.");
+      }
     }
 
     setSchemaErrors(errors);
@@ -1039,6 +1059,27 @@ CREATE TABLE IF NOT EXISTS announcements (
   created_by UUID REFERENCES auth.users(id)
 );
 
+-- Tabela para produtos da Favorita (Sincronização)
+CREATE TABLE IF NOT EXISTS produtos_favorita (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  sku TEXT UNIQUE NOT NULL,
+  nome TEXT NOT NULL,
+  preco_atual DECIMAL(10,2) NOT NULL,
+  preco_anterior DECIMAL(10,2),
+  categoria TEXT,
+  status TEXT DEFAULT 'normal',
+  ultima_atualizacao TIMESTAMPTZ DEFAULT now()
+);
+
+-- Habilitar RLS e criar políticas para produtos_favorita
+ALTER TABLE produtos_favorita ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Permitir leitura para todos" ON produtos_favorita;
+CREATE POLICY "Permitir leitura para todos" ON produtos_favorita FOR SELECT TO authenticated USING (true);
+DROP POLICY IF EXISTS "Permitir tudo para admins" ON produtos_favorita;
+CREATE POLICY "Permitir tudo para admins" ON produtos_favorita FOR ALL TO authenticated USING (
+  EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND (role = 'admin' OR email IN ('anderlevita@gmail.com')))
+);
+
 -- Habilitar RLS e criar políticas para novas tabelas
 ALTER TABLE price_suggestions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE announcements ENABLE ROW LEVEL SECURITY;
@@ -1347,7 +1388,7 @@ CREATE POLICY "Permitir tudo para admins" ON daily_insights FOR ALL TO authentic
                             "bg-amber-100 text-amber-700"
                           )}>
                             {receipt.status === 'approved' ? 'Aprovado' : 
-                             receipt.status === 'rejected' ? 'Recusado' : 
+                             receipt.status === 'rejected' ? 'Reprovado' : 
                              'Pendente'}
                           </span>
                         </td>
@@ -1372,9 +1413,21 @@ CREATE POLICY "Permitir tudo para admins" ON daily_insights FOR ALL TO authentic
                                   <Check className="w-4 h-4" />
                                 </button>
                                 <button
-                                  onClick={() => handleUpdateReceiptStatus(receipt.id, 'rejected')}
+                                  onClick={() => {
+                                    const reason = "seu comprovante foi recusado, alguns dos motivos pode ser: envio do comprovante com valor errado, pint. com dados incompletos, reenvie o comprovante de pix onde apareça valor, data do envio, quem enviou e quem recebeu a transferencia.";
+                                    setConfirmModal({
+                                      isOpen: true,
+                                      title: 'Reprovar Comprovante',
+                                      message: `Deseja realmente reprovar este comprovante? O usuário será avisado com o seguinte motivo: "${reason}"`,
+                                      variant: 'danger',
+                                      onConfirm: () => {
+                                        handleUpdateReceiptStatus(receipt.id, 'rejected', reason);
+                                        setConfirmModal(prev => ({ ...prev, isOpen: false }));
+                                      }
+                                    });
+                                  }}
                                   className="p-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg transition-all"
-                                  title="Recusar"
+                                  title="Reprovar"
                                 >
                                   <XCircle className="w-4 h-4" />
                                 </button>
@@ -1583,6 +1636,50 @@ CREATE POLICY "Permitir tudo para admins" ON daily_insights FOR ALL TO authentic
                           )}
                           {user.role !== 'admin' && (
                             <>
+                              <button 
+                                onClick={() => {
+                                  let phone = user.whatsapp?.replace(/\D/g, '');
+                                  if (!phone) {
+                                    addNotification({
+                                      type: 'warning',
+                                      title: 'WhatsApp não cadastrado',
+                                      message: 'Este usuário não possui número de WhatsApp cadastrado.'
+                                    });
+                                    return;
+                                  }
+                                  
+                                  // Add country code if missing
+                                  if (phone.length <= 11) {
+                                    phone = `55${phone}`;
+                                  }
+
+                                  const vencimentoStr = user.vencimento 
+                                    ? new Date(user.vencimento).toLocaleDateString('pt-BR') 
+                                    : 'A definir';
+
+                                  const message = `Olá ${user.nome || 'Cliente'}, tudo bem?
+
+Passando para lembrar que seu plano no Consigna Beauty está próximo do vencimento ou já venceu.
+
+📅 Vencimento: ${vencimentoStr}
+
+Para manter seu acesso ativo e aproveitar todas as funcionalidades, realize o pagamento via PIX:
+
+🔑 Chave PIX (CNPJ): 26.384.051/0001-58
+👤 Beneficiário: Anderson Rodrigues de Morais
+
+Após o pagamento, por favor, envie o comprovante diretamente pelo seu perfil no sistema:
+🔗 ${window.location.origin}?tab=profile
+
+Qualquer dúvida, estamos à disposição!`;
+
+                                  window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank');
+                                }}
+                                className="p-2 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 rounded-lg transition-all"
+                                title="Enviar Cobrança via WhatsApp"
+                              >
+                                <MessageSquare className="w-4 h-4" />
+                              </button>
                               {user.status_pagamento !== 'PENDENTE' && (
                                 <button 
                                   onClick={() => setExpirationModal({

@@ -11,7 +11,8 @@ import {
   Save,
   UserPlus,
   Search,
-  RefreshCcw
+  RefreshCcw,
+  Calendar
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { Campaign, Bag, Customer } from '../types';
@@ -48,6 +49,14 @@ export function CampaignDetails({ campaign, onBack, onAddBag, onEditBag }: Campa
   const [showPreview, setShowPreview] = useState(false);
   const [pdfUrl, setPdfUrl] = useState('');
   const [previewType, setPreviewType] = useState<'termica' | 'a4' | 'etiqueta'>('termica');
+
+  // Date Prompt Modal State
+  const [datePromptModal, setDatePromptModal] = useState<{
+    isOpen: boolean;
+    campaign?: Campaign;
+  }>({
+    isOpen: false
+  });
 
   // Confirmation Modal State
   const [confirmModal, setConfirmModal] = useState<{
@@ -195,7 +204,7 @@ export function CampaignDetails({ campaign, onBack, onAddBag, onEditBag }: Campa
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       if (campaign.return_date && new Date(campaign.return_date) < today) {
-        const overdueBags = fetchedBags.filter(b => b.status === 'open');
+        const overdueBags = fetchedBags.filter(b => b.status === 'open' || b.status === 'overdue');
         if (overdueBags.length > 0) {
           addNotification({
             type: 'warning',
@@ -466,8 +475,54 @@ export function CampaignDetails({ campaign, onBack, onAddBag, onEditBag }: Campa
     });
   };
 
+  const handleUpdateReturnDate = async (targetCampaign: Campaign, newDate: string) => {
+    try {
+      const todayStr = new Date().toISOString().split('T')[0];
+      const oldReturnDateStr = targetCampaign.return_date ? new Date(targetCampaign.return_date).toISOString().split('T')[0] : null;
+
+      // Logic from CampaignForm.tsx for recycling
+      if (oldReturnDateStr && oldReturnDateStr < todayStr && newDate >= todayStr) {
+        // Mark all open bags as 'overdue' before updating the campaign
+        await supabase
+          .from('bags')
+          .update({ status: 'overdue' })
+          .eq('campaign_id', targetCampaign.id)
+          .eq('status', 'open');
+      }
+
+      const { error } = await supabase
+        .from('campaigns')
+        .update({ return_date: newDate })
+        .eq('id', targetCampaign.id);
+
+      if (error) throw error;
+
+      addNotification({
+        type: 'success',
+        title: 'Data Atualizada',
+        message: 'A data de retorno foi atualizada com sucesso.'
+      });
+
+      // Update local campaign state if needed or just refresh parent
+      // Since campaign is a prop, we might need to notify parent or just let it refresh on next view
+      // For now, let's just refresh the bags to reflect any status changes
+      fetchBags();
+    } catch (err) {
+      console.error('Error updating return date:', err);
+      addNotification({
+        type: 'error',
+        title: 'Erro ao atualizar data',
+        message: formatError(err)
+      });
+    } finally {
+      setDatePromptModal({ isOpen: false });
+    }
+  };
+
   const getStatusBadge = (status: string, returnDate?: string) => {
-    const isOverdue = returnDate && new Date(returnDate) < new Date(new Date().setHours(0, 0, 0, 0)) && status === 'open';
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const isOverdue = (returnDate && new Date(returnDate) < today && status === 'open') || status === 'overdue';
 
     if (isOverdue) {
       return <span className="bg-red-100 text-red-700 px-3 py-1 rounded-lg text-[10px] font-bold uppercase">Vencida</span>;
@@ -478,6 +533,8 @@ export function CampaignDetails({ campaign, onBack, onAddBag, onEditBag }: Campa
         return <span className="bg-emerald-100 text-emerald-700 px-3 py-1 rounded-lg text-[10px] font-bold uppercase">Acertada</span>;
       case 'open':
         return <span className="bg-amber-100 text-amber-700 px-3 py-1 rounded-lg text-[10px] font-bold uppercase">Aberta</span>;
+      case 'overdue':
+        return <span className="bg-red-100 text-red-700 px-3 py-1 rounded-lg text-[10px] font-bold uppercase">Vencida</span>;
       case 'archived':
         return <span className="bg-zinc-100 text-zinc-500 px-3 py-1 rounded-lg text-[10px] font-bold uppercase">Arquivada</span>;
       default:
@@ -510,6 +567,39 @@ export function CampaignDetails({ campaign, onBack, onAddBag, onEditBag }: Campa
           <Plus className="w-5 h-5" />
           Nova Sacola
         </button>
+      </div>
+
+      {/* Campaign Header */}
+      <div className="bg-white border border-zinc-200 rounded-2xl p-6 shadow-sm">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <h2 className="text-2xl font-bold text-zinc-800">{campaign.name}</h2>
+            <p className="text-sm text-zinc-500">Campanha Ativa • {campaign.discount_pct}% de Desconto</p>
+          </div>
+          <div 
+            onClick={() => setDatePromptModal({ isOpen: true, campaign })}
+            className={cn(
+              "flex items-center gap-3 px-5 py-3 rounded-2xl border cursor-pointer transition-all active:scale-95 group",
+              campaign.return_date && new Date(campaign.return_date) < new Date(new Date().setHours(0, 0, 0, 0))
+                ? "bg-red-50 border-red-100 text-red-600 hover:bg-red-100"
+                : "bg-zinc-50 border-zinc-100 text-zinc-600 hover:bg-zinc-100"
+            )}
+            title="Clique para alterar a data de retorno"
+          >
+            <div className={cn(
+              "p-2 rounded-xl transition-colors",
+              campaign.return_date && new Date(campaign.return_date) < new Date(new Date().setHours(0, 0, 0, 0))
+                ? "bg-red-100 text-red-600"
+                : "bg-white text-zinc-400 group-hover:text-emerald-600"
+            )}>
+              <Calendar className="w-5 h-5" />
+            </div>
+            <div className="text-left">
+              <p className="text-[10px] font-bold uppercase tracking-wider opacity-60">Data de Retorno</p>
+              <p className="text-base font-bold">{format(new Date(campaign.return_date || ''), "dd/MM/yyyy")}</p>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Legenda de Ações */}
@@ -596,7 +686,7 @@ export function CampaignDetails({ campaign, onBack, onAddBag, onEditBag }: Campa
                             <p className="font-bold text-zinc-800">{bag.customer?.nome || 'Sem Cliente'}</p>
                             <p className="text-[10px] text-zinc-400">Rev: {bag.reseller_name || '-'}</p>
                           </div>
-                          {!bag.customer_id && bag.status === 'open' && (
+                          {!bag.customer_id && (bag.status === 'open' || bag.status === 'overdue') && (
                             <button 
                               onClick={() => setAssigningBag(bag)}
                               className="p-1.5 bg-zinc-100 hover:bg-zinc-200 text-emerald-600 rounded-lg transition-colors"
@@ -618,7 +708,7 @@ export function CampaignDetails({ campaign, onBack, onAddBag, onEditBag }: Campa
                       </td>
                       <td className="px-8 py-6">
                         <div className="flex items-center justify-end gap-2">
-                          {bag.status === 'open' && (
+                          {(bag.status === 'open' || bag.status === 'overdue') && (
                             <button 
                               onClick={() => setSettlingBag(bag)}
                               className="p-2.5 text-emerald-600 hover:bg-emerald-50 rounded-xl transition-all active:scale-95"
@@ -691,6 +781,16 @@ export function CampaignDetails({ campaign, onBack, onAddBag, onEditBag }: Campa
         message={promptModal.message}
         onConfirm={promptModal.onConfirm}
         onCancel={() => setPromptModal(prev => ({ ...prev, isOpen: false }))}
+      />
+
+      <PromptModal
+        isOpen={datePromptModal.isOpen}
+        title="Alterar Data de Retorno"
+        message={`Selecione a nova data de retorno para a campanha "${datePromptModal.campaign?.name}":`}
+        type="date"
+        defaultValue={datePromptModal.campaign?.return_date ? new Date(datePromptModal.campaign.return_date).toISOString().split('T')[0] : ''}
+        onConfirm={(value) => datePromptModal.campaign && handleUpdateReturnDate(datePromptModal.campaign, value)}
+        onCancel={() => setDatePromptModal({ isOpen: false })}
       />
 
       {/* Assign Customer Modal */}

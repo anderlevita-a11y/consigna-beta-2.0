@@ -20,6 +20,7 @@ import { useNotifications } from './NotificationCenter';
 import { CampaignForm } from './CampaignForm';
 import { BagForm } from './BagForm';
 import { CampaignDetails } from './CampaignDetails';
+import { PromptModal } from './PromptModal';
 
 export function Campaigns() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
@@ -30,6 +31,14 @@ export function Campaigns() {
   const [editingCampaign, setEditingCampaign] = useState<Campaign | undefined>();
   const [selectedCampaign, setSelectedCampaign] = useState<Campaign | undefined>();
   const [editingBagId, setEditingBagId] = useState<string | undefined>();
+
+  // Date Prompt Modal State
+  const [datePromptModal, setDatePromptModal] = useState<{
+    isOpen: boolean;
+    campaign?: Campaign;
+  }>({
+    isOpen: false
+  });
 
   // Confirmation Modal State
   const [confirmModal, setConfirmModal] = useState<{
@@ -168,6 +177,47 @@ export function Campaigns() {
     setView('campaign-details');
   };
 
+  const handleUpdateReturnDate = async (campaign: Campaign, newDate: string) => {
+    try {
+      const todayStr = new Date().toISOString().split('T')[0];
+      const oldReturnDateStr = campaign.return_date ? new Date(campaign.return_date).toISOString().split('T')[0] : null;
+
+      // Logic from CampaignForm.tsx for recycling
+      if (oldReturnDateStr && oldReturnDateStr < todayStr && newDate >= todayStr) {
+        // Mark all open bags as 'overdue' before updating the campaign
+        await supabase
+          .from('bags')
+          .update({ status: 'overdue' })
+          .eq('campaign_id', campaign.id)
+          .eq('status', 'open');
+      }
+
+      const { error } = await supabase
+        .from('campaigns')
+        .update({ return_date: newDate })
+        .eq('id', campaign.id);
+
+      if (error) throw error;
+
+      addNotification({
+        type: 'success',
+        title: 'Data Atualizada',
+        message: 'A data de retorno foi atualizada com sucesso.'
+      });
+
+      fetchCampaigns();
+    } catch (err) {
+      console.error('Error updating return date:', err);
+      addNotification({
+        type: 'error',
+        title: 'Erro ao atualizar data',
+        message: formatError(err)
+      });
+    } finally {
+      setDatePromptModal({ isOpen: false });
+    }
+  };
+
   const handleAddBagToCampaign = (campaign: Campaign) => {
     setSelectedCampaign(campaign);
     setView('bag-form');
@@ -286,6 +336,7 @@ export function Campaigns() {
                 onArchive={() => handleArchive(campaign.id)}
                 onUnarchive={() => handleUnarchive(campaign.id)}
                 onOpen={() => handleOpenCampaign(campaign)}
+                onUpdateDate={() => setDatePromptModal({ isOpen: true, campaign })}
               />
             </div>
           ))
@@ -300,6 +351,16 @@ export function Campaigns() {
         onConfirm={confirmModal.onConfirm}
         onCancel={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
       />
+
+      <PromptModal
+        isOpen={datePromptModal.isOpen}
+        title="Alterar Data de Retorno"
+        message={`Selecione a nova data de retorno para a campanha "${datePromptModal.campaign?.name}":`}
+        type="date"
+        defaultValue={datePromptModal.campaign?.return_date ? new Date(datePromptModal.campaign.return_date).toISOString().split('T')[0] : ''}
+        onConfirm={(value) => datePromptModal.campaign && handleUpdateReturnDate(datePromptModal.campaign, value)}
+        onCancel={() => setDatePromptModal({ isOpen: false })}
+      />
     </div>
   );
 }
@@ -312,9 +373,10 @@ interface CampaignCardProps {
   onArchive: () => void;
   onUnarchive: () => void;
   onOpen: () => void;
+  onUpdateDate: () => void;
 }
 
-function CampaignCard({ campaign, isArchived, onAddBag, onEdit, onArchive, onUnarchive, onOpen }: CampaignCardProps) {
+function CampaignCard({ campaign, isArchived, onAddBag, onEdit, onArchive, onUnarchive, onOpen, onUpdateDate }: CampaignCardProps) {
   return (
     <div className={cn(
       "bg-white border border-zinc-200 rounded-2xl p-6 shadow-sm hover:shadow-md transition-shadow group",
@@ -358,12 +420,18 @@ function CampaignCard({ campaign, isArchived, onAddBag, onEdit, onArchive, onUna
       </div>
 
       <div className="flex items-center justify-between text-xs font-medium">
-        <div className={cn(
-          "flex items-center gap-1.5",
-          campaign.return_date && new Date(campaign.return_date) < new Date(new Date().setHours(0, 0, 0, 0))
-            ? "text-red-600 font-bold"
-            : "text-zinc-400"
-        )}>
+        <div 
+          onClick={(e) => {
+            e.stopPropagation();
+            onUpdateDate();
+          }}
+          className={cn(
+            "flex items-center gap-1.5 cursor-pointer hover:bg-zinc-50 p-1 rounded-lg transition-colors",
+            campaign.return_date && new Date(campaign.return_date) < new Date(new Date().setHours(0, 0, 0, 0))
+              ? "text-red-600 font-bold"
+              : "text-zinc-400"
+          )}
+        >
           <span>Retorno: {format(new Date(campaign.return_date || ''), "dd/MM/yyyy")}</span>
         </div>
         <div className="flex items-center gap-1.5 text-zinc-400">

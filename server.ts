@@ -14,12 +14,28 @@ const __dirname = path.dirname(__filename);
 
 async function runFavoritaSync(supabase: any) {
   console.log(`[${new Date().toISOString()}] Starting Favorita Sync...`);
+  
+  const cpf = process.env.FAVORITA_CPF;
+  const senha = process.env.FAVORITA_SENHA;
+
+  if (!cpf || !senha) {
+    console.error("ERRO: FAVORITA_CPF ou FAVORITA_SENHA não configurados.");
+    return { success: false, error: "Credenciais da Favorita não configuradas." };
+  }
+
   let browser;
   
   const categorias = [
-    'lancamentos', 'feminino', 'masculino', 'moda-intima', 'cosmeticos', 
-    'sex-shop', 'rmc-casa', 'empreendedora', 'institucional', 
-    'acessorios', 'sacolas', 'acao-da-semana', 'outlet-torra'
+    { nome: 'Lancamentos', id: '1', url: 'https://www.catalogofavorita.com.br/search?c=1&order_by=priority' },
+    { nome: 'Feminino', id: '4', url: 'https://www.catalogofavorita.com.br/search?c=4&order_by=priority' },
+    { nome: 'Masculino', id: '15', url: 'https://www.catalogofavorita.com.br/search?c=15&order_by=priority' },
+    { nome: 'Moda Intima', id: '20', url: 'https://www.catalogofavorita.com.br/search?c=20&order_by=priority' },
+    { nome: 'Cosmeticos', id: '22', url: 'https://www.catalogofavorita.com.br/search?c=22&order_by=priority' },
+    { nome: 'Sex Shop', id: '27', url: 'https://www.catalogofavorita.com.br/search?c=27&order_by=priority' },
+    { nome: 'RMC Casa', id: '71', url: 'https://www.catalogofavorita.com.br/search?c=71&order_by=priority' },
+    { nome: 'Empreendedora', id: '40', url: 'https://www.catalogofavorita.com.br/search?c=40&order_by=priority' },
+    { nome: 'Acao da Semana', id: '35', url: 'https://www.catalogofavorita.com.br/search?c=35&order_by=priority' },
+    { nome: 'Outlet Torra', id: '37', url: 'https://www.catalogofavorita.com.br/search?c=37&order_by=priority' }
   ];
 
   const results = {
@@ -50,12 +66,16 @@ async function runFavoritaSync(supabase: any) {
         }
       });
     }
+    console.log(`Loaded ${centralMap.size} products from central_products.`);
 
     browser = await chromium.launch({ 
       headless: true,
       args: ['--no-sandbox', '--disable-setuid-sandbox'] 
     });
-    const page = await browser.newPage();
+    const context = await browser.newContext({
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    });
+    const page = await context.newPage();
     
     // Aumentar o timeout padrão para 120 segundos (2 minutos)
     page.setDefaultTimeout(120000);
@@ -64,167 +84,186 @@ async function runFavoritaSync(supabase: any) {
 
     // 1. Login no site da Favorita
     console.log("Navegando para a página de login...");
+    let vtexCookie: string | undefined;
     try {
-      // Usar 'domcontentloaded' em vez de 'networkidle' para evitar timeouts por scripts lentos
       await page.goto('https://www.catalogofavorita.com.br/login', { 
-        waitUntil: 'domcontentloaded',
+        waitUntil: 'networkidle',
         timeout: 120000 
-      });
-    } catch (gotoError) {
-      console.error("Erro ao navegar para login:", gotoError);
-      throw new Error("O site da Favorita demorou muito para responder. Tente novamente em instantes.");
-    }
-    
-    // Esperar explicitamente pelos campos de login
-    try {
-      console.log("Aguardando campos de login...");
-      await page.waitForSelector('input[name="login"], #cpf, #login', { timeout: 60000 });
+      }).catch(() => page.goto('https://catalogofavorita.com.br/login', { waitUntil: 'networkidle', timeout: 60000 }));
       
-      // Tentar preencher o CPF com um pequeno atraso entre as teclas
       const cpf = process.env.FAVORITA_CPF!;
       const senha = process.env.FAVORITA_SENHA!;
 
-      try {
-        await page.type('input[name="login"]', cpf, { delay: 50 });
-      } catch {
-        try {
-          await page.type('#cpf', cpf, { delay: 50 });
-        } catch {
-          await page.type('#login', cpf, { delay: 50 });
-        }
+      if (!cpf || !senha) {
+        throw new Error("Credenciais da Favorita (CPF/Senha) não configuradas no ambiente.");
       }
+
+      // 1. TENTA PREENCHER (usando seletores mais genéricos para Next.js)
+      console.log("Preenchendo credenciais...");
+      const loginSelector = 'input[type="text"], input[name="cpf"], input[id="cpf"], input[type="email"], input[name="login"], input[placeholder*="CPF"]';
+      await page.waitForSelector(loginSelector, { timeout: 60000 });
+      await page.type(loginSelector, cpf, { delay: 100 });
       
-      // Tentar preencher a senha
-      try {
-        await page.type('input[name="senha"]', senha, { delay: 50 });
-      } catch {
-        try {
-          await page.type('#senha', senha, { delay: 50 });
-        } catch {
-          await page.type('input[type="password"]', senha, { delay: 50 });
-        }
-      }
-      
+      const passSelector = 'input[type="password"], input[name="senha"], #senha';
+      await page.waitForSelector(passSelector, { timeout: 30000 });
+      await page.type(passSelector, senha, { delay: 100 });
+
+      // 2. CLIQUE E ESPERA REAL
       console.log("Clicando no botão de login...");
+      const submitSelector = 'button[type="submit"], .btn-login, #btn-login, input[type="submit"], button:has-text("Entrar")';
+      
+      // Espera o clique e observa se a URL muda para algo que não seja "search?search="
       await Promise.all([
-        page.click('button[type="submit"]'),
-        page.waitForNavigation({ waitUntil: 'load', timeout: 120000 }).catch(() => console.log("Aviso: Navegação de login demorada, mas continuando..."))
+        page.click(submitSelector),
+        page.waitForNavigation({ waitUntil: 'networkidle', timeout: 60000 }).catch(() => console.log("Aviso: Timeout na navegação pós-login."))
       ]);
-    } catch (loginError) {
-      console.error("Erro no processo de login:", loginError);
-      throw new Error("Falha ao interagir com a página de login. O site pode estar instável.");
-    }
 
-    for (const cat of categorias) {
-      console.log(`Syncing category: ${cat}`);
+      // 3. VERIFICAÇÃO DE SUCESSO
+      // Se ainda estiver na página de login ou na busca vazia, tentamos um refresh
+      if (page.url().includes('login') || page.url().includes('search?search=')) {
+        console.log("Login parece ter ficado preso. Tentando acessar uma categoria direto para forçar sessão...");
+        await page.goto('https://www.catalogofavorita.com.br/search?c=1', { waitUntil: 'networkidle' });
+      }
+
+      console.log("Login concluído (URL atual: " + page.url() + ")");
+      console.log("Título da página: " + await page.title());
+
+      // 4. ACEITAR COOKIES (Essencial para o Next.js renderizar o conteúdo)
       try {
-        await page.goto(`https://www.catalogofavorita.com.br/${cat}`, { 
-          waitUntil: 'domcontentloaded', 
-          timeout: 60000 
-        });
-        
-        // Esperar um pouco para o conteúdo dinâmico carregar
-        await page.waitForTimeout(2000);
-      } catch (catError) {
-        console.error(`Erro ao carregar categoria ${cat}:`, catError);
-        continue; // Pular para a próxima categoria se uma falhar
+        console.log("Tentando aceitar cookies...");
+        const cookieButton = await page.$('button:has-text("Aceitar"), #onetrust-accept-btn-handler, .accept-cookies, #btn-aceitar-cookies, #btn-aceitar, .cookie-accept');
+        if (cookieButton) {
+          await cookieButton.click();
+          await page.waitForTimeout(2000);
+        }
+      } catch (e) {
+        console.log("Banner de cookies não apareceu ou já foi fechado.");
       }
       
-      // Seletores ajustados para o padrão de e-commerce da Favorita
-      const produtosSite = await page.$$eval('.product-item, .product-card', (items) => {
-        return items.map(item => {
-          const sku = item.getAttribute('data-product-id') || item.getAttribute('data-id') || item.querySelector('.sku')?.textContent?.trim();
-          const nome = (item.querySelector('.product-name') || item.querySelector('.name'))?.textContent?.trim() || '';
-          const precoText = (item.querySelector('.price-value') || item.querySelector('.price'))?.textContent || '0';
-          const preco = parseFloat(precoText.replace('R$', '').replace('.', '').replace(',', '.').trim());
-          return { sku, nome, preco };
-        });
-      });
+      // Esperar um pouco mais para garantir que a sessão foi estabelecida
+      await page.waitForTimeout(5000);
 
-      console.log(`Found ${produtosSite.length} products in ${cat}.`);
+      // Capturar cookies de sessão para uso na API
+      const cookies = await context.cookies();
+      vtexCookie = cookies.find(c => c.name === 'VtexIdclientAutCookie')?.value || process.env.VTEX_TOKEN;
+      
+      if (vtexCookie) {
+        console.log("Sessão VTEX capturada com sucesso.");
+      } else {
+        console.log("Aviso: Cookie VtexIdclientAutCookie não encontrado. A API pode falhar.");
+      }
 
-      // 3. Lógica de Comparação no Supabase
-      for (const item of produtosSite) {
-        if (!item.sku || isNaN(item.preco)) continue;
+      } catch (loginError) {
+        console.error("Erro durante o login ou captura de sessão:", loginError);
+      }
+      
+      let totalItemsFound = 0;
+      for (const cat of categorias) {
+        console.log(`Navegando para: ${cat.nome}`);
+        try {
+          await page.goto(cat.url, { waitUntil: 'networkidle', timeout: 90000 });
 
-        // Verificar se o produto existe na Central (Base de Referência)
-        const centralProd = centralMap.get(item.sku) || centralMap.get(item.nome.toLowerCase().trim());
-        
-        // Verificar se já existe no log de sincronização
-        const { data: existente, error: fetchError } = await supabase
-          .from('produtos_favorita')
-          .select('*')
-          .eq('sku', item.sku)
-          .maybeSingle();
-
-        if (fetchError) {
-          console.error(`Error fetching product ${item.sku}:`, fetchError);
-          results.errors++;
-          continue;
-        }
-
-        // Se não existe na Central, é um produto novo para o sistema
-        // Se existe na Central mas o preço é diferente, é uma alteração
-        
-        const precoReferencia = centralProd ? centralProd.sale_price : (existente ? existente.preco_atual : null);
-        const isNovo = !centralProd && !existente;
-        const isAlterado = precoReferencia !== null && precoReferencia !== item.preco;
-
-        if (isNovo) {
-          // PRODUTO NOVO (Não está na Central nem no Log)
-          const { error: insertError } = await supabase.from('produtos_favorita').upsert({
-            sku: item.sku, 
-            nome: item.nome, 
-            preco_atual: item.preco, 
-            categoria: cat,
-            status: 'novo',
-            ultima_atualizacao: new Date()
-          }, { onConflict: 'sku' });
-          
-          if (insertError) {
-            console.error(`Error inserting product ${item.sku}:`, insertError);
-            results.errors++;
-          } else {
-            results.new++;
+          // Verifica se fomos redirecionados para o login
+          if (page.url().includes('/login')) {
+            console.log("Sessão expirada ou não iniciada. Tentando re-login...");
+            // Aqui poderíamos chamar a lógica de login novamente se necessário, 
+            // mas por enquanto vamos apenas registrar o aviso.
+            continue; 
           }
-        } else if (isAlterado) {
-          // PREÇO ALTERADO (Diferente da Central ou do Log)
-          const { error: updateError } = await supabase.from('produtos_favorita').upsert({
-            sku: item.sku,
-            nome: item.nome,
-            preco_anterior: precoReferencia,
-            preco_atual: item.preco,
-            categoria: cat,
-            status: 'alterado',
-            ultima_atualizacao: new Date()
-          }, { onConflict: 'sku' });
-          
-          if (updateError) {
-            console.error(`Error updating product ${item.sku}:`, updateError);
-            results.errors++;
-          } else {
-            results.updated++;
+
+          // 1. ESPERA O CONTEÚDO CARREGAR (Aguarda links de produtos ou o texto 'R$')
+          try {
+            // Espera por links de produtos que são o gatilho da extração
+            await page.waitForSelector('a[href*="/p"]', { timeout: 30000 });
+            // Garantia extra que os preços renderizaram
+            await page.waitForFunction(() => document.body.innerText.includes('R$'), { timeout: 10000 });
+          } catch (e) {
+            console.log(`Aviso: Conteúdo ou preços não detectados em ${cat.nome} após 40s. Tentando extrair o que houver...`);
           }
-        } else {
-          // SEM MUDANÇA
-          const { error: updateError } = await supabase.from('produtos_favorita').upsert({ 
-            sku: item.sku,
-            nome: item.nome,
-            preco_atual: item.preco,
-            status: 'normal',
-            categoria: cat,
-            ultima_atualizacao: new Date()
-          }, { onConflict: 'sku' });
-          
-          if (updateError) {
-            console.error(`Error resetting status for product ${item.sku}:`, updateError);
-          } else {
-            results.normal++;
+
+          // 2. EXTRAÇÃO POR ESTRUTURA
+          const produtos = await page.evaluate((categoriaNome) => {
+            const cards = Array.from(document.querySelectorAll('a[href*="/p"]'));
+            const data: any[] = [];
+            const seenSkus = new Set();
+
+            cards.forEach(card => {
+              const container = card.closest('div[class*="product"], div[class*="item"], article, .vtex-search-result-3-x-galleryItem');
+              if (!container) return;
+
+              const texto = (container as HTMLElement).innerText;
+              const precoMatch = texto.match(/R\$\s?(\d+[\d.,]*)/);
+              
+              if (precoMatch) {
+                const link = card.getAttribute('href') || "";
+                const sku = link.split('/').pop()?.split('?')[0] || "";
+                if (!sku || seenSkus.has(sku)) return;
+
+                seenSkus.add(sku);
+                data.push({
+                  sku: sku,
+                  nome: texto.split('\n')[0].trim().substring(0, 100),
+                  preco: parseFloat(precoMatch[1].replace(/\./g, '').replace(',', '.')),
+                  categoria: categoriaNome
+                });
+              }
+            });
+            return data;
+          }, cat.nome);
+
+          console.log(`Sucesso: ${produtos.length} produtos encontrados em ${cat.nome}`);
+          totalItemsFound += produtos.length;
+
+          // 3. SALVAR NO SUPABASE (Com lógica de comparação para o seu relatório)
+          for (const p of produtos) {
+            try {
+              const { data: antigo } = await supabase
+                .from('produtos_favorita')
+                .select('preco_atual')
+                .eq('sku', p.sku)
+                .maybeSingle();
+
+              if (!antigo) {
+                // NOVO PRODUTO
+                const { error } = await supabase.from('produtos_favorita').insert({
+                  sku: p.sku,
+                  nome: p.nome,
+                  preco_atual: p.preco,
+                  categoria: p.categoria,
+                  status: 'novo',
+                  ultima_atualizacao: new Date()
+                });
+                if (!error) results.new++;
+                else results.errors++;
+              } else if (antigo.preco_atual !== p.preco) {
+                // PREÇO ALTERADO
+                const { error } = await supabase.from('produtos_favorita').update({
+                  preco_anterior: antigo.preco_atual,
+                  preco_atual: p.preco,
+                  status: 'alterado',
+                  ultima_atualizacao: new Date()
+                }).eq('sku', p.sku);
+                if (!error) results.updated++;
+                else results.errors++;
+              } else {
+                // NORMAL
+                await supabase.from('produtos_favorita').update({
+                  ultima_atualizacao: new Date(),
+                  status: 'normal'
+                }).eq('sku', p.sku);
+                results.normal++;
+              }
+            } catch (pError) {
+              console.error(`Erro ao processar produto ${p.sku}:`, pError);
+              results.errors++;
+            }
           }
+        } catch (catError) {
+          console.error(`Erro ao processar categoria ${cat.nome}:`, catError);
         }
       }
-    }
 
+    console.log(`Total products found across all categories: ${totalItemsFound}`);
     console.log(`Sync finished. New: ${results.new}, Updated: ${results.updated}, Normal: ${results.normal}, Errors: ${results.errors}`);
     return { success: true, results };
   } catch (error: any) {
@@ -241,10 +280,15 @@ async function startServer() {
 
   app.use(express.json());
 
-  const supabase = createClient(
-    process.env.SUPABASE_URL!,
-    process.env.SUPABASE_KEY!
-  );
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const supabaseKey = process.env.SUPABASE_KEY;
+
+  if (!supabaseUrl || !supabaseKey) {
+    console.error("ERRO: SUPABASE_URL ou SUPABASE_KEY não configurados.");
+    process.exit(1);
+  }
+
+  const supabase = createClient(supabaseUrl, supabaseKey);
 
   // Schedule Favorita Sync: Every Monday at 08:00
   // Cron expression: 0 8 * * 1

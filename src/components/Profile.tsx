@@ -798,9 +798,14 @@ export function ProfileScreen() {
                                 "text-amber-500"
                               )}>
                                 {receipt.status === 'approved' ? 'Aprovado' : 
-                                 receipt.status === 'rejected' ? 'Recusado' : 
+                                 receipt.status === 'rejected' ? 'Reprovado' : 
                                  'Em Análise'}
                               </p>
+                              {receipt.status === 'rejected' && receipt.rejection_reason && (
+                                <p className="text-[10px] text-red-600 mt-1 leading-tight max-w-[200px]">
+                                  {receipt.rejection_reason}
+                                </p>
+                              )}
                             </div>
                           </div>
                           <a 
@@ -894,7 +899,7 @@ export function ProfileScreen() {
                             <Crown className="w-6 h-6" />
                           </div>
                           <div>
-                            <h4 className="font-bold text-orange-900">Plano Pro Distribuidor</h4>
+                            <h4 className="font-bold text-orange-900">Plano Distribuidor Romance primeira mensalidade</h4>
                             <p className="text-xs text-orange-600">Libera todas as funções do sistema</p>
                           </div>
                         </div>

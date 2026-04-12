@@ -379,6 +379,7 @@ export interface PaymentReceipt {
   user_name: string;
   receipt_url: string;
   status: 'pending' | 'approved' | 'rejected';
+  rejection_reason?: string;
   created_at: string;
   profile?: Profile;
 }

@@ -49,6 +49,20 @@ export function CampaignForm({ onClose, onSave, initialData }: CampaignFormProps
       });
 
       if (initialData?.id) {
+        // Se estiver reciclando (atualizando data de retorno de uma campanha vencida)
+        const oldReturnDateStr = initialData.return_date ? new Date(initialData.return_date).toISOString().split('T')[0] : null;
+        const newReturnDateStr = formData.return_date;
+        const todayStr = new Date().toISOString().split('T')[0];
+
+        if (oldReturnDateStr && oldReturnDateStr < todayStr && newReturnDateStr && newReturnDateStr >= todayStr) {
+          // Marcar todas as sacolas abertas como 'overdue' antes de atualizar a campanha
+          await supabase
+            .from('bags')
+            .update({ status: 'overdue' })
+            .eq('campaign_id', initialData.id)
+            .eq('status', 'open');
+        }
+
         const { error } = await supabase
           .from('campaigns')
           .update(payload)

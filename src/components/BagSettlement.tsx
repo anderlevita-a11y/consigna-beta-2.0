@@ -13,7 +13,9 @@ import {
   Plus,
   MinusCircle,
   RefreshCcw,
-  Package
+  Package,
+  CheckCircle2,
+  AlertCircle
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { generatePixPayload } from '../lib/pix';
@@ -60,6 +62,14 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
     message: '',
     onConfirm: () => {}
   });
+  const [feedback, setFeedback] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+
+  useEffect(() => {
+    if (feedback) {
+      const timer = setTimeout(() => setFeedback(null), 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [feedback]);
 
   useEffect(() => {
     fetchData();
@@ -312,13 +322,10 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
     
     if (item) {
       updateReturnedQuantity(item.id, item.returned_quantity + 1);
+      setFeedback({ message: 'Item devolvido', type: 'success' });
       setSearchProduct('');
     } else {
-      addNotification({
-        type: 'warning',
-        title: 'Não encontrado',
-        message: 'Erro de leitura: Produto não encontrado na sacola.'
-      });
+      setFeedback({ message: 'Produto não localizado', type: 'error' });
       setSearchProduct('');
     }
   };
@@ -804,6 +811,27 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
         onCancel={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
         variant="warning"
       />
+
+      {/* Feedback Overlay */}
+      {feedback && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center pointer-events-none animate-in fade-in zoom-in duration-200">
+          <div className={cn(
+            "px-12 py-8 rounded-[40px] shadow-2xl backdrop-blur-md flex flex-col items-center gap-4 border-4",
+            feedback.type === 'success' 
+              ? "bg-emerald-500/90 border-emerald-400 text-white" 
+              : "bg-red-600/90 border-red-500 text-white"
+          )}>
+            {feedback.type === 'success' ? (
+              <CheckCircle2 className="w-20 h-20" />
+            ) : (
+              <AlertCircle className="w-20 h-20" />
+            )}
+            <h2 className="text-4xl font-black uppercase tracking-tighter text-center">
+              {feedback.message}
+            </h2>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

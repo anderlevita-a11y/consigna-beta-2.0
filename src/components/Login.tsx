@@ -15,7 +15,7 @@ export function Login() {
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [resetSent, setResetSent] = useState(false);
-  const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [isSignUp, setIsSignUp] = useState(false);
   const [legalSettings, setLegalSettings] = useState<any>(null);
   const [showLegalModal, setShowLegalModal] = useState(false);
 
@@ -34,6 +34,15 @@ export function Login() {
       console.error('Error fetching legal settings:', err);
     }
   }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (isSignUp) {
+      handleSignUp();
+    } else {
+      handleLogin(e);
+    }
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -58,10 +67,6 @@ export function Login() {
   const handleSignUp = async () => {
     if (!email || !password) {
       setError('Preencha email e senha para cadastrar.');
-      return;
-    }
-    if (!acceptedTerms) {
-      setError('Você deve aceitar os Termos de Uso e Política de Privacidade.');
       return;
     }
     setLoading(true);
@@ -157,7 +162,35 @@ export function Login() {
           <div className="w-full h-[1px] bg-[#dcd7c0] mt-6" />
         </div>
 
-        <form onSubmit={handleLogin} className="space-y-5">
+        <div className="mb-6 text-center">
+          {isSignUp ? (
+            <p className="text-[#6b4e5d] text-sm font-medium">
+              Já sou cadastrado?{' '}
+              <button
+                type="button"
+                disabled={loading}
+                onClick={() => setIsSignUp(false)}
+                className="text-[#4a1d33] font-bold hover:underline underline-offset-2 disabled:opacity-50"
+              >
+                Voltar ao login
+              </button>
+            </p>
+          ) : (
+            <p className="text-[#6b4e5d] text-sm font-medium">
+              Primeiro acesso?{' '}
+              <button
+                type="button"
+                disabled={loading}
+                onClick={() => setIsSignUp(true)}
+                className="text-[#4a1d33] font-bold hover:underline underline-offset-2 disabled:opacity-50"
+              >
+                Cadastre-se aqui
+              </button>
+            </p>
+          )}
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-5">
           {error && (
             <motion.div 
               initial={{ opacity: 0, scale: 0.95 }}
@@ -186,7 +219,7 @@ export function Login() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="w-full bg-white border border-[#d1d5db] rounded-xl px-4 py-3.5 text-[#4a1d33] placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-[#38a89d]/20 focus:border-[#38a89d] transition-all shadow-sm"
-              placeholder="Digite seu email corporativo"
+              placeholder={isSignUp ? "Seu melhor email" : "Digite seu email corporativo"}
             />
           </div>
 
@@ -199,7 +232,7 @@ export function Login() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full bg-white border border-[#d1d5db] rounded-xl px-4 py-3.5 text-[#4a1d33] placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-[#38a89d]/20 focus:border-[#38a89d] transition-all shadow-sm"
-                placeholder="Digite sua senha"
+                placeholder={isSignUp ? "Crie uma senha forte" : "Digite sua senha"}
               />
               <button
                 type="button"
@@ -209,55 +242,30 @@ export function Login() {
                 {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
               </button>
             </div>
-            <div className="text-right">
-              <button 
-                type="button" 
-                onClick={handleResetPassword}
-                disabled={loading}
-                className="text-xs font-bold text-[#4a1d33] hover:underline underline-offset-2 disabled:opacity-50"
-              >
-                Esqueceu a senha?
-              </button>
-            </div>
+            {!isSignUp && (
+              <div className="text-right">
+                <button 
+                  type="button" 
+                  onClick={handleResetPassword}
+                  disabled={loading}
+                  className="text-xs font-bold text-[#4a1d33] hover:underline underline-offset-2 disabled:opacity-50"
+                >
+                  Esqueceu a senha?
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="pt-4 space-y-4">
-            <div className="flex items-start gap-3 px-1">
-              <input
-                type="checkbox"
-                id="terms"
-                checked={acceptedTerms}
-                onChange={(e) => setAcceptedTerms(e.target.checked)}
-                className="mt-1 w-4 h-4 rounded border-zinc-300 text-[#38a89d] focus:ring-[#38a89d]/20"
-              />
-              <label htmlFor="terms" className="text-xs text-[#6b4e5d] leading-relaxed">
-                Li e aceito os <button type="button" onClick={() => setShowLegalModal(true)} className="text-[#4a1d33] font-bold hover:underline">Termos de Uso</button> e <button type="button" onClick={() => setShowLegalModal(true)} className="text-[#4a1d33] font-bold hover:underline">Política de Privacidade</button>.
-              </label>
-            </div>
-
             <button
               type="submit"
               disabled={loading}
               className="w-full bg-[#38a89d] hover:bg-[#2d8a81] text-white font-bold py-4 rounded-[20px] transition-all flex items-center justify-center gap-2 shadow-lg shadow-[#38a89d]/20 active:scale-[0.98] disabled:opacity-70"
             >
-              {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'ENTRAR'}
+              {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : (isSignUp ? 'CADASTRAR' : 'ENTRAR')}
             </button>
           </div>
         </form>
-
-        <div className="mt-8 text-center">
-          <p className="text-[#6b4e5d] text-sm font-medium">
-            Primeiro acesso?{' '}
-            <button
-              type="button"
-              disabled={loading}
-              onClick={handleSignUp}
-              className="text-[#4a1d33] font-bold hover:underline underline-offset-2 disabled:opacity-50"
-            >
-              Cadastre-se aqui
-            </button>
-          </p>
-        </div>
       </motion.div>
       
       {/* Decorative Stars/Dots from the image */}
@@ -274,7 +282,6 @@ export function Login() {
           privacyPolicy={legalSettings.privacy_policy}
           termsOfUse={legalSettings.terms_of_use}
           onConfirm={async () => {
-            setAcceptedTerms(true);
             setShowLegalModal(false);
           }}
         />

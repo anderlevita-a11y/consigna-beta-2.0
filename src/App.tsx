@@ -154,6 +154,44 @@ function AppContent() {
   const [legalSettings, setLegalSettings] = useState<AppLegalSettings | null>(null);
   const [showLegalModal, setShowLegalModal] = useState(false);
   const [showResetPassword, setShowResetPassword] = useState(false);
+  const [rejectedReceipt, setRejectedReceipt] = useState<any>(null);
+
+  useEffect(() => {
+    if (!session) return;
+
+    const checkRejectedReceipt = async () => {
+      const { data, error } = await supabase
+        .from('payment_receipts')
+        .select('*')
+        .eq('user_id', session.user.id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+      
+      if (data && data.status === 'rejected') {
+        setRejectedReceipt(data);
+      } else {
+        setRejectedReceipt(null);
+      }
+    };
+
+    checkRejectedReceipt();
+
+    // Subscribe to receipt changes
+    const channel = supabase
+      .channel('receipt-status-changes')
+      .on('postgres_changes', { 
+        event: '*', 
+        schema: 'public', 
+        table: 'payment_receipts',
+        filter: `user_id=eq.${session.user.id}`
+      }, () => checkRejectedReceipt())
+      .subscribe();
+
+    return () => {
+      channel.unsubscribe();
+    };
+  }, [session]);
 
   useEffect(() => {
     // Check URL hash for recovery token on initial load
@@ -229,6 +267,17 @@ function AppContent() {
   }, []);
 
   const { addNotification } = useNotifications();
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tab = params.get('tab');
+    if (tab) {
+      setActiveTab(tab);
+      // Clean up the URL
+      const newUrl = window.location.pathname;
+      window.history.replaceState({}, '', newUrl);
+    }
+  }, []);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -381,6 +430,48 @@ function AppContent() {
 
     checkFinancialReminders();
   }, [session]);
+
+  useEffect(() => {
+    if (!profile) return;
+
+    const checkPlanExpiration = () => {
+      if (!profile.vencimento) return;
+
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      const expiry = new Date(profile.vencimento);
+      expiry.setHours(0, 0, 0, 0);
+
+      const diffTime = expiry.getTime() - today.getTime();
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+      if (diffDays === 7) {
+        addNotification({
+          type: 'warning',
+          title: 'Vencimento Próximo',
+          message: 'Seu plano vence em 7 dias. Realize o pagamento para evitar interrupções.',
+          onClick: () => setActiveTab('profile')
+        });
+      } else if (diffDays === 0) {
+        addNotification({
+          type: 'error',
+          title: 'Vencimento Hoje',
+          message: 'Seu plano vence hoje! Realize o pagamento para manter seu acesso.',
+          onClick: () => setActiveTab('profile')
+        });
+      } else if (diffDays < 0) {
+         addNotification({
+          type: 'error',
+          title: 'Plano Vencido',
+          message: 'Seu plano está vencido. Realize o pagamento para reativar seu acesso.',
+          onClick: () => setActiveTab('profile')
+        });
+      }
+    };
+
+    checkPlanExpiration();
+  }, [profile]);
 
   useEffect(() => {
     if (!session) return;
@@ -627,6 +718,26 @@ function AppContent() {
         </header>
 
         <div className="p-4 sm:p-8 max-w-7xl mx-auto">
+          {rejectedReceipt && activeTab !== 'profile' && (
+            <div className="mb-6 bg-red-50 border border-red-200 rounded-2xl p-4 flex items-start gap-3 animate-in slide-in-from-top duration-500">
+              <ShieldAlert className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <h4 className="text-sm font-bold text-red-800">Comprovante Recusado</h4>
+                <p className="text-xs text-red-700 mt-1">
+                  Seu último comprovante de pagamento foi recusado pelo administrador. 
+                  {rejectedReceipt.rejection_reason && (
+                    <span className="block mt-1 font-medium italic">Motivo: "{rejectedReceipt.rejection_reason}"</span>
+                  )}
+                </p>
+                <button 
+                  onClick={() => setActiveTab('profile')}
+                  className="mt-3 text-[10px] font-bold text-red-600 uppercase tracking-widest hover:underline"
+                >
+                  Ir para Perfil e Enviar Novo Comprovante
+                </button>
+              </div>
+            </div>
+          )}
           {renderContent()}
         </div>
       </main>

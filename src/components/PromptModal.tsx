@@ -7,6 +7,7 @@ interface PromptModalProps {
   message: string;
   placeholder?: string;
   defaultValue?: string;
+  type?: string;
   onConfirm: (value: string) => void;
   onCancel: () => void;
   confirmText?: string;
@@ -19,6 +20,7 @@ export function PromptModal({
   message,
   placeholder = 'Digite aqui...',
   defaultValue = '',
+  type = 'text',
   onConfirm,
   onCancel,
   confirmText = 'Confirmar',
@@ -57,7 +59,7 @@ export function PromptModal({
             <p className="text-zinc-600 leading-relaxed">{message}</p>
             <input
               autoFocus
-              type="text"
+              type={type}
               value={value}
               onChange={(e) => setValue(e.target.value)}
               placeholder={placeholder}
