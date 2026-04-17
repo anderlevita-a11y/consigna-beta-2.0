@@ -185,6 +185,15 @@ export function ProfileScreen() {
   };
 
   const handleSave = async () => {
+    if (!profile?.nome || !profile?.whatsapp || !profile?.cpf) {
+      addNotification({
+        type: 'error',
+        title: 'Campos Obrigatórios',
+        message: 'Por favor, preencha Nome, CPF e WhatsApp.'
+      });
+      return;
+    }
+
     setSaving(true);
     try {
       // Remove immutable fields from profile

@@ -20,7 +20,8 @@ import {
   Printer,
   Eye,
   Lock,
-  Link as LinkIcon
+  Link as LinkIcon,
+  Save
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { Product, PriceSuggestion } from '../types';
@@ -83,6 +84,9 @@ export function Products() {
   const [pdfUrl, setPdfUrl] = useState('');
   const [previewType, setPreviewType] = useState<'termica' | 'a4' | 'etiqueta'>('etiqueta');
   const [selectedCentralProduct, setSelectedCentralProduct] = useState<any>(null);
+  const [isCentralEditModalOpen, setIsCentralEditModalOpen] = useState(false);
+  const [editingCentralProduct, setEditingCentralProduct] = useState<any>(null);
+  const [centralEanVariationInput, setCentralEanVariationInput] = useState('');
   const [suggestionForm, setSuggestionForm] = useState({
     cost_price: '0,00',
     sale_price: '0,00'
@@ -246,6 +250,51 @@ export function Products() {
     });
   };
 
+  const handleEditCentralProduct = (product: any) => {
+    setEditingCentralProduct({
+      ...product,
+      ean_variations: product.ean_variations || []
+    });
+    setIsCentralEditModalOpen(true);
+  };
+
+  const handleSaveCentralProduct = async () => {
+    if (!editingCentralProduct) return;
+    setSaving(true);
+    try {
+      const { error } = await supabase
+        .from('central_products')
+        .update({
+          name: editingCentralProduct.name,
+          label_name: editingCentralProduct.label_name,
+          ean: editingCentralProduct.ean || null,
+          ean_variations: editingCentralProduct.ean_variations,
+          cost_price: editingCentralProduct.cost_price,
+          sale_price: editingCentralProduct.sale_price
+        })
+        .eq('id', editingCentralProduct.id);
+
+      if (error) throw error;
+
+      addNotification({
+        type: 'success',
+        title: 'Sucesso',
+        message: 'Produto da central atualizado com sucesso!'
+      });
+      setIsCentralEditModalOpen(false);
+      fetchCentralProducts();
+    } catch (err: any) {
+      console.error('Error saving central product:', err);
+      addNotification({
+        type: 'error',
+        title: 'Erro ao salvar',
+        message: formatError(err)
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleClearCentral = () => {
     setConfirmModal({
       isOpen: true,
@@ -307,12 +356,14 @@ export function Products() {
         const ean = cols[2]?.trim() || '';
         const cost_price = parseFloat(cols[3]?.replace(',', '.') || '0');
         const sale_price = parseFloat(cols[4]?.replace(',', '.') || '0');
+        const ean_variations = cols[5]?.split(',').map(v => v.trim()).filter(v => v) || [];
 
         return {
           user_id: user.id,
           name,
           label_name,
           ean,
+          ean_variations,
           cost_price: isNaN(cost_price) ? 0 : cost_price,
           sale_price: isNaN(sale_price) ? 0 : sale_price,
           has_grid: false
@@ -693,6 +744,7 @@ export function Products() {
         current_stock: 0,
         photo_url: centralProduct.photo_url,
         has_grid: centralProduct.has_grid,
+        ean_variations: centralProduct.ean_variations || [],
         is_visible_in_store: true
       }]);
 
@@ -1985,7 +2037,7 @@ export function Products() {
             <div className="space-y-4">
               <p className="text-sm text-zinc-500">
                 Cole os dados copiados do Excel. A sequência das colunas deve ser exatamente: <br/>
-                <strong className="text-zinc-800">Nome do Produto | Nome na Etiqueta | Código EAN | Custo | Valor de Venda</strong>
+                <strong className="text-zinc-800">Nome do Produto | Nome na Etiqueta | Código EAN | Custo | Valor de Venda | Variações EAN (opcional, separadas por vírgula)</strong>
               </p>
               <textarea
                 value={excelData}
@@ -2076,7 +2128,14 @@ export function Products() {
                           <td className="px-4 py-3">
                             <p className="text-sm text-zinc-500">{product.label_name || '-'}</p>
                           </td>
-                          <td className="px-4 py-3 text-xs text-zinc-500 font-mono">{product.ean || '-'}</td>
+                          <td className="px-4 py-3 text-xs text-zinc-500 font-mono">
+                            <div>{product.ean || '-'}</div>
+                            {product.ean_variations?.length > 0 && (
+                              <div className="text-[9px] text-zinc-400 mt-1">
+                                +{product.ean_variations.length} variações
+                              </div>
+                            )}
+                          </td>
                           <td className="px-4 py-3 text-sm text-zinc-500 text-right">R$ {product.cost_price?.toFixed(2)}</td>
                           <td className="px-4 py-3 text-sm font-bold text-emerald-600 text-right">R$ {product.sale_price?.toFixed(2)}</td>
                           <td className="px-4 py-3 text-right">
@@ -2090,6 +2149,14 @@ export function Products() {
                                   >
                                     <TrendingUp className="w-3 h-3" />
                                     Preço
+                                  </button>
+                                  <button 
+                                    onClick={() => handleEditCentralProduct(product)}
+                                    className="flex items-center gap-1.5 px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-lg text-[10px] font-bold uppercase transition-all"
+                                    title="Editar Produto"
+                                  >
+                                    <Edit2 className="w-3 h-3" />
+                                    Editar
                                   </button>
                                   <button 
                                     onClick={() => handleDeleteCentralProduct(product.id)}
@@ -2246,6 +2313,165 @@ export function Products() {
                     )}
                   </div>
                 </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {isCentralEditModalOpen && editingCentralProduct && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
+            <div className="bg-white w-full max-w-2xl rounded-[32px] shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-300 max-h-[90vh]">
+              <div className="p-6 border-b border-zinc-100 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 rounded-2xl bg-blue-50 text-blue-500">
+                    <Edit2 className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold text-zinc-800 tracking-tight">Editar Produto Central</h3>
+                    <p className="text-sm text-zinc-500">Atualize as informações globais do produto.</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setIsCentralEditModalOpen(false)}
+                  className="p-2 hover:bg-zinc-100 rounded-xl transition-colors text-zinc-400"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+              
+              <div className="p-6 overflow-y-auto space-y-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Nome do Produto</label>
+                    <input 
+                      type="text"
+                      value={editingCentralProduct.name}
+                      onChange={e => setEditingCentralProduct({...editingCentralProduct, name: e.target.value})}
+                      className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3 text-sm focus:border-emerald-500 outline-none transition-colors"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Nome na Etiqueta</label>
+                    <input 
+                      type="text"
+                      value={editingCentralProduct.label_name || ''}
+                      onChange={e => setEditingCentralProduct({...editingCentralProduct, label_name: e.target.value})}
+                      className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3 text-sm focus:border-emerald-500 outline-none transition-colors"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Código EAN Principal</label>
+                  <input 
+                    type="text"
+                    value={editingCentralProduct.ean || ''}
+                    onChange={e => setEditingCentralProduct({...editingCentralProduct, ean: e.target.value})}
+                    className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3 text-sm focus:border-emerald-500 outline-none transition-colors font-mono"
+                  />
+                </div>
+
+                <div className="space-y-4">
+                  <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest block">Variações de EAN (Máx. 10)</label>
+                  <div className="flex gap-2">
+                    <input 
+                      type="text" 
+                      value={centralEanVariationInput}
+                      onChange={e => setCentralEanVariationInput(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          if (centralEanVariationInput.trim() && editingCentralProduct.ean_variations.length < 10) {
+                            setEditingCentralProduct({
+                              ...editingCentralProduct,
+                              ean_variations: [...editingCentralProduct.ean_variations, centralEanVariationInput.trim()]
+                            });
+                            setCentralEanVariationInput('');
+                          }
+                        }
+                      }}
+                      placeholder="Digitar ou bipar variação EAN..."
+                      className="flex-1 bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3 text-sm focus:border-emerald-500 outline-none transition-colors"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (centralEanVariationInput.trim() && editingCentralProduct.ean_variations.length < 10) {
+                          setEditingCentralProduct({
+                            ...editingCentralProduct,
+                            ean_variations: [...editingCentralProduct.ean_variations, centralEanVariationInput.trim()]
+                          });
+                          setCentralEanVariationInput('');
+                        }
+                      }}
+                      disabled={!centralEanVariationInput.trim() || editingCentralProduct.ean_variations.length >= 10}
+                      className="bg-zinc-900 text-white px-6 rounded-xl font-bold text-xs hover:bg-zinc-800 transition-colors disabled:opacity-50"
+                    >
+                      Adicionar
+                    </button>
+                  </div>
+                  
+                  {editingCentralProduct.ean_variations.length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {editingCentralProduct.ean_variations.map((v: string, i: number) => (
+                        <div key={i} className="bg-zinc-100 text-zinc-700 px-3 py-1.5 rounded-xl text-[10px] font-bold flex items-center gap-2 border border-zinc-200">
+                          <Barcode className="w-3 h-3 text-zinc-400" />
+                          {v}
+                          <button 
+                            type="button"
+                            onClick={() => setEditingCentralProduct({
+                              ...editingCentralProduct,
+                              ean_variations: editingCentralProduct.ean_variations.filter((_: any, idx: number) => idx !== i)
+                            })}
+                            className="text-zinc-400 hover:text-red-500 transition-colors"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Preço de Custo</label>
+                    <input 
+                      type="number"
+                      step="0.01"
+                      value={editingCentralProduct.cost_price}
+                      onChange={e => setEditingCentralProduct({...editingCentralProduct, cost_price: parseFloat(e.target.value)})}
+                      className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3 text-sm focus:border-emerald-500 outline-none transition-colors"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Preço de Venda</label>
+                    <input 
+                      type="number"
+                      step="0.01"
+                      value={editingCentralProduct.sale_price}
+                      onChange={e => setEditingCentralProduct({...editingCentralProduct, sale_price: parseFloat(e.target.value)})}
+                      className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3 text-sm focus:border-emerald-500 outline-none transition-colors"
+                    />
+                  </div>
+                </div>
+              </div>
+              
+              <div className="p-6 border-t border-zinc-100 flex gap-3 bg-zinc-50/50">
+                <button
+                  onClick={() => setIsCentralEditModalOpen(false)}
+                  className="flex-1 py-3 rounded-xl font-bold text-zinc-500 hover:bg-zinc-100 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleSaveCentralProduct}
+                  disabled={saving}
+                  className="flex-[2] py-3 bg-emerald-600 text-white rounded-xl font-bold shadow-lg shadow-emerald-500/20 hover:bg-emerald-700 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                  Salvar Alterações
+                </button>
               </div>
             </div>
           </div>
@@ -2779,6 +3005,6 @@ export function Products() {
           </div>
         </div>
       )}
-    </div>
-  );
-}
+      </div>
+    );
+  }

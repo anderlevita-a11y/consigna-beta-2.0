@@ -169,16 +169,20 @@ export function AdminPanel({ currentProfile }: { currentProfile: Profile | null 
       errors.push("As colunas 'pix_key', 'pix_beneficiary', 'vencimento' ou 'is_archived' estão faltando na tabela 'profiles'.");
     }
 
-    // Check products table for photo_url, has_grid, and label_name
-    const { error: prodError } = await supabase.from('products').select('photo_url, has_grid, label_name').limit(1);
-    if (prodError && (prodError.message.includes('photo_url') || prodError.message.includes('has_grid') || prodError.message.includes('label_name'))) {
-      errors.push("As colunas 'photo_url', 'has_grid' ou 'label_name' estão faltando na tabela 'products'.");
+    // Check products table for photo_url, has_grid, label_name, and ean_variations
+    const { error: prodError } = await supabase.from('products').select('photo_url, has_grid, label_name, ean_variations').limit(1);
+    if (prodError && (prodError.message.includes('photo_url') || prodError.message.includes('has_grid') || prodError.message.includes('label_name') || prodError.message.includes('ean_variations'))) {
+      errors.push("As colunas 'photo_url', 'has_grid', 'label_name' ou 'ean_variations' estão faltando na tabela 'products'.");
     }
 
-    // Check if central_products table exists
-    const { error: centralError } = await supabase.from('central_products').select('id').limit(1);
-    if (centralError && centralError.message.includes('does not exist')) {
-      errors.push("A tabela 'central_products' não existe.");
+    // Check if central_products table exists and has ean_variations
+    const { error: centralError } = await supabase.from('central_products').select('id, ean_variations').limit(1);
+    if (centralError) {
+      if (centralError.message.includes('does not exist')) {
+        errors.push("A tabela 'central_products' não existe.");
+      } else if (centralError.message.includes('ean_variations')) {
+        errors.push("A coluna 'ean_variations' está faltando na tabela 'central_products'.");
+      }
     }
 
     // Check if produtos_favorita table exists
@@ -194,6 +198,17 @@ export function AdminPanel({ currentProfile }: { currentProfile: Profile | null 
         errors.push("A tabela 'payment_receipts' não existe.");
       } else if (receiptError.message.includes('rejection_reason')) {
         errors.push("A coluna 'rejection_reason' está faltando na tabela 'payment_receipts'.");
+      }
+    }
+
+    // Check if bags table has notes column
+    const { error: bagColumnError } = await supabase.from('bags').select('notes, installments').limit(1);
+    if (bagColumnError && !bagColumnError.message.includes('0 rows')) {
+      if (bagColumnError.message.includes('notes') || bagColumnError.message.includes('reseller_name')) {
+        errors.push("A tabela 'bags' precisa ser atualizada (coluna 'notes' faltando ou 'reseller_name' ainda presente).");
+      }
+      if (bagColumnError.message.includes('installments')) {
+        errors.push("A coluna 'installments' está faltando na tabela 'bags'.");
       }
     }
 
@@ -764,6 +779,11 @@ Data da última atualização: 09 de marco. Responsável Legal: Anderson Rodrigu
             }
           });
 
+          if (!response.ok) {
+            const errorData = await response.json().catch(() => ({ error: 'Servidor retornou um erro inesperado.' }));
+            throw new Error(errorData.error || `Erro do servidor (${response.status})`);
+          }
+
           const result = await response.json();
 
           if (result.success) {
@@ -778,10 +798,16 @@ Data da última atualização: 09 de marco. Responsável Legal: Anderson Rodrigu
           }
         } catch (err: any) {
           console.error('Error syncing Favorita:', err);
+          let errorMessage = formatError(err);
+          
+          if (err.message === 'Failed to fetch') {
+            errorMessage = 'O servidor backend não respondeu. Isso pode acontecer se ele ainda estiver iniciando, se houver um erro de configuração das chaves do Supabase no ambiente, ou se a requisição excedeu o tempo limite (Timeout). Tente novamente em alguns instantes.';
+          }
+
           addNotification({
             type: 'error',
             title: 'Erro na Sincronização',
-            message: formatError(err)
+            message: errorMessage
           });
         } finally {
           setSyncingFavorita(false);
@@ -879,11 +905,13 @@ Data da última atualização: 09 de marco. Responsável Legal: Anderson Rodrigu
         const ean = cols[2]?.trim() || '';
         const cost_price = parseFloat(cols[3]?.replace(',', '.') || '0');
         const sale_price = parseFloat(cols[4]?.replace(',', '.') || '0');
+        const ean_variations = cols[5]?.split(',').map(v => v.trim()).filter(v => v) || [];
 
         return {
           name,
           label_name,
           ean,
+          ean_variations,
           cost_price: isNaN(cost_price) ? 0 : cost_price,
           sale_price: isNaN(sale_price) ? 0 : sale_price,
           has_grid: false
@@ -979,6 +1007,52 @@ ALTER TABLE profiles ALTER COLUMN status_pagamento SET DEFAULT 'TRIAL';
 ALTER TABLE products ADD COLUMN IF NOT EXISTS photo_url TEXT;
 ALTER TABLE products ADD COLUMN IF NOT EXISTS has_grid BOOLEAN DEFAULT false;
 ALTER TABLE products ADD COLUMN IF NOT EXISTS label_name TEXT;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS ean_variations TEXT[] DEFAULT '{}';
+
+-- Adicionar colunas na tabela central_products
+ALTER TABLE central_products ADD COLUMN IF NOT EXISTS ean_variations TEXT[] DEFAULT '{}';
+
+-- 2. Corrigir tabela bags (renomear reseller_name para notes e adicionar parcelas)
+DO $$ 
+BEGIN 
+  -- Renomear se existir a coluna antiga
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'bags' AND column_name = 'reseller_name') THEN
+    ALTER TABLE bags RENAME COLUMN reseller_name TO notes;
+  END IF;
+
+  -- Garantir que a coluna notes existe
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'bags' AND column_name = 'notes') THEN
+    ALTER TABLE bags ADD COLUMN notes TEXT;
+  END IF;
+  
+  -- Adicionar coluna installments
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'bags' AND column_name = 'installments') THEN
+    ALTER TABLE bags ADD COLUMN installments INTEGER DEFAULT 1;
+  END IF;
+END $$;
+
+-- Criar tabelas para cobranças avulsas
+CREATE TABLE IF NOT EXISTS miscellaneous_charges (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES auth.users(id),
+  customer_id UUID REFERENCES customers(id),
+  description TEXT NOT NULL,
+  total_value NUMERIC(15,2) NOT NULL,
+  installments_count INTEGER DEFAULT 1,
+  apply_late_fees BOOLEAN DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS miscellaneous_charge_installments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  charge_id UUID NOT NULL REFERENCES miscellaneous_charges(id) ON DELETE CASCADE,
+  installment_number INTEGER NOT NULL,
+  value NUMERIC(15,2) NOT NULL,
+  due_date DATE NOT NULL,
+  status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'paid')),
+  paid_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
 
 -- Criar tabela app_legal_settings se não existir
 CREATE TABLE IF NOT EXISTS app_legal_settings (
@@ -1018,6 +1092,7 @@ CREATE TABLE IF NOT EXISTS central_products (
   name TEXT NOT NULL,
   label_name TEXT,
   ean TEXT,
+  ean_variations TEXT[] DEFAULT '{}',
   cost_price DECIMAL DEFAULT 0,
   sale_price DECIMAL DEFAULT 0,
   photo_url TEXT,
@@ -1675,7 +1750,7 @@ Qualquer dúvida, estamos à disposição!`;
 
                                   window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank');
                                 }}
-                                className="p-2 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 rounded-lg transition-all"
+                                className="p-2 bg-[#25D366] text-white hover:bg-[#128C7E] rounded-lg transition-all shadow-sm hover:shadow-md active:scale-95 flex items-center justify-center"
                                 title="Enviar Cobrança via WhatsApp"
                               >
                                 <MessageSquare className="w-4 h-4" />

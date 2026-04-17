@@ -605,15 +605,55 @@ function AppContent() {
     } else if (data) {
       setProfile(data);
       // If not admin and no access key, force profile tab
-      if (data.role !== 'admin' && !data.access_key_code) {
+      if (data.role !== 'admin' && (!data.access_key_code || !data.whatsapp)) {
         setActiveTab('profile');
-      } else if (activeTab === 'profile' && (data.role === 'admin' || data.access_key_code)) {
+      } else if (activeTab === 'profile' && (data.role === 'admin' || (data.access_key_code && data.whatsapp))) {
         // Default to campaigns if access is granted and on profile
         setActiveTab('campaigns');
       }
     }
     setLoading(false);
   }
+
+  useEffect(() => {
+    if (!session) return;
+
+    const checkInstallmentReminders = async () => {
+      try {
+        const today = new Date().toISOString().split('T')[0];
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        const tomorrowStr = tomorrow.toISOString().split('T')[0];
+
+        const { data, error } = await supabase
+          .from('miscellaneous_charge_installments')
+          .select('*, charge:miscellaneous_charges(description, customer:customers(nome))')
+          .eq('status', 'pending')
+          .or(`due_date.eq.${today},due_date.eq.${tomorrowStr}`);
+
+        if (error) throw error;
+
+        data?.forEach(inst => {
+          const chargeDesc = (inst as any).charge?.description || 'Cobrança Avulsa';
+          const customerName = (inst as any).charge?.customer?.nome || 'Cliente';
+          const type = inst.due_date === today ? 'warning' : 'info';
+          const title = inst.due_date === today ? 'Vencimento Hoje' : 'Vencimento Amanhã';
+          
+          addNotification({
+            type,
+            title,
+            message: `A parcela ${inst.installment_number} de "${chargeDesc}" (${customerName}) vence ${inst.due_date === today ? 'hoje' : 'amanhã'}! Valor: R$ ${inst.value.toFixed(2)}`
+          });
+        });
+      } catch (err) {
+        console.error('Error checking installment reminders globally:', err);
+      }
+    };
+
+    // Delay a bit to not conflict with other notifications on start
+    const timer = setTimeout(checkInstallmentReminders, 2000);
+    return () => clearTimeout(timer);
+  }, [session]);
 
   if (loading) {
     return (
@@ -673,7 +713,7 @@ function AppContent() {
       case 'notepad':
         return <SmartNotepad />;
       case 'financial':
-        return <FinancialControl />;
+        return <FinancialControl profile={profile} />;
       case 'billing':
         return <BillingManagement profile={profile} />;
       case 'admin':

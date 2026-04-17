@@ -274,36 +274,51 @@ async function runFavoritaSync(supabase: any) {
   }
 }
 
+// Lazy initialize Supabase client to avoid crashes if keys are missing
+let supabaseClient: any = null;
+
+function getSupabase() {
+  if (!supabaseClient) {
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseKey = process.env.SUPABASE_KEY;
+
+    if (!supabaseUrl || !supabaseKey) {
+      throw new Error("SUPABASE_URL ou SUPABASE_KEY não configurados no ambiente (.env). Verifique o painel de segredos do AI Studio.");
+    }
+    supabaseClient = createClient(supabaseUrl, supabaseKey);
+  }
+  return supabaseClient;
+}
+
 async function startServer() {
   const app = express();
   const PORT = 3000;
 
   app.use(express.json());
 
-  const supabaseUrl = process.env.SUPABASE_URL;
-  const supabaseKey = process.env.SUPABASE_KEY;
-
-  if (!supabaseUrl || !supabaseKey) {
-    console.error("ERRO: SUPABASE_URL ou SUPABASE_KEY não configurados.");
-    process.exit(1);
-  }
-
-  const supabase = createClient(supabaseUrl, supabaseKey);
-
   // Schedule Favorita Sync: Every Monday at 08:00
-  // Cron expression: 0 8 * * 1
   cron.schedule("0 8 * * 1", async () => {
     console.log("Running scheduled Favorita Sync...");
-    await runFavoritaSync(supabase);
+    try {
+      const supabase = getSupabase();
+      await runFavoritaSync(supabase);
+    } catch (err) {
+      console.error("Scheduled sync failed (Supabase not configured):", err);
+    }
   });
 
   // API Route for manual Favorita Sync
   app.post("/api/sync-favorita", async (req, res) => {
-    const result = await runFavoritaSync(supabase);
-    if (result.success) {
-      res.json(result);
-    } else {
-      res.status(500).json(result);
+    try {
+      const supabase = getSupabase();
+      const result = await runFavoritaSync(supabase);
+      if (result.success) {
+        res.json(result);
+      } else {
+        res.status(500).json(result);
+      }
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
     }
   });
 

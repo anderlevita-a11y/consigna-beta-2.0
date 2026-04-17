@@ -234,8 +234,13 @@ export function Bags() {
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2 text-sm text-zinc-400">
                         <User className="w-4 h-4" />
-                        <span>{bag.customer?.nome || bag.reseller_name || 'Sem Cliente'}</span>
+                        <span>{bag.customer?.nome || 'Sem Cliente'}</span>
                       </div>
+                      {bag.notes && (
+                        <p className="text-[10px] text-zinc-500 line-clamp-1 italic">
+                          {bag.notes}
+                        </p>
+                      )}
                       {!bag.customer_id && bag.status === 'open' && (
                         <button 
                           onClick={(e) => {

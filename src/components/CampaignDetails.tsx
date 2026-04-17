@@ -684,7 +684,7 @@ export function CampaignDetails({ campaign, onBack, onAddBag, onEditBag }: Campa
                         <div className="flex items-center justify-between">
                           <div>
                             <p className="font-bold text-zinc-800">{bag.customer?.nome || 'Sem Cliente'}</p>
-                            <p className="text-[10px] text-zinc-400">Rev: {bag.reseller_name || '-'}</p>
+                            <p className="text-[10px] text-zinc-400 max-w-[150px] truncate">Obs: {bag.notes || '-'}</p>
                           </div>
                           {!bag.customer_id && (bag.status === 'open' || bag.status === 'overdue') && (
                             <button 

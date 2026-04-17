@@ -36,6 +36,12 @@ import {
   Cell,
   Legend
 } from 'recharts';
+import { MiscellaneousChargeManager } from './MiscellaneousChargeManager';
+import { Profile } from '../types';
+
+interface FinancialControlProps {
+  profile: Profile | null;
+}
 
 interface Transaction {
   id: string;
@@ -61,7 +67,7 @@ const DEFAULT_CATEGORIES: CategoryState = {
 
 const COLORS = ['#38a89d', '#4a1d33', '#f59e0b', '#ef4444', '#8b5cf6', '#3b82f6', '#10b981'];
 
-export function FinancialControl() {
+export function FinancialControl({ profile }: FinancialControlProps) {
   const { addNotification } = useNotifications();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [categories, setCategories] = useState<CategoryState>(DEFAULT_CATEGORIES);
@@ -158,6 +164,45 @@ export function FinancialControl() {
     setNewCategoryName('');
     setIsAddingCategory(false);
   };
+
+  useEffect(() => {
+    const checkInstallmentReminders = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) return;
+
+        const today = new Date().toISOString().split('T')[0];
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        const tomorrowStr = tomorrow.toISOString().split('T')[0];
+
+        const { data, error } = await supabase
+          .from('miscellaneous_charge_installments')
+          .select('*, charge:miscellaneous_charges(description, customer:customers(nome))')
+          .eq('status', 'pending')
+          .or(`due_date.eq.${today},due_date.eq.${tomorrowStr}`);
+
+        if (error) throw error;
+
+        data?.forEach(inst => {
+          const chargeDesc = (inst as any).charge?.description || 'Cobrança Avulsa';
+          const customerName = (inst as any).charge?.customer?.nome || 'Cliente';
+          const type = inst.due_date === today ? 'warning' : 'info';
+          const title = inst.due_date === today ? 'Parcela Vence Hoje' : 'Parcela Vence Amanhã';
+          
+          addNotification({
+            type,
+            title,
+            message: `A parcela ${inst.installment_number} de "${chargeDesc}" (${customerName}) vence ${inst.due_date === today ? 'hoje' : 'amanhã'}! Valor: R$ ${inst.value.toFixed(2)}`
+          });
+        });
+      } catch (err) {
+        console.error('Error checking installment reminders:', err);
+      }
+    };
+
+    checkInstallmentReminders();
+  }, []);
 
   const stats = useMemo(() => {
     const income = transactions
@@ -690,6 +735,8 @@ export function FinancialControl() {
           </table>
         </div>
       </div>
+
+      <MiscellaneousChargeManager profile={profile} />
 
       {/* Add Transaction Modal */}
       <AnimatePresence>

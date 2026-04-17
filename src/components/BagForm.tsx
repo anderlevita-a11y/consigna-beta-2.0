@@ -27,8 +27,10 @@ export function BagForm({ onClose, onSave, campaignId, bagId }: BagFormProps) {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<string>('');
-  const [resellerName, setResellerName] = useState('');
+  const [notes, setNotes] = useState('');
   const [noStock, setNoStock] = useState(false);
+  const [isInstallmentPlan, setIsInstallmentPlan] = useState(false);
+  const [installmentsCount, setInstallmentsCount] = useState<number>(1);
   const [items, setItems] = useState<BagItem[]>([]);
   const [originalItems, setOriginalItems] = useState<BagItem[]>([]);
   const [productSearch, setProductSearch] = useState('');
@@ -116,7 +118,9 @@ export function BagForm({ onClose, onSave, campaignId, bagId }: BagFormProps) {
         if (bagError) throw bagError;
         if (bag) {
           setSelectedCustomer(bag.customer_id || '');
-          setResellerName(bag.reseller_name || '');
+          setNotes(bag.notes || '');
+          setIsInstallmentPlan(!!bag.installments && bag.installments > 1);
+          setInstallmentsCount(bag.installments || 1);
           
           const { data: bagItems, error: itemsError } = await supabase
             .from('bag_items')
@@ -272,7 +276,8 @@ export function BagForm({ onClose, onSave, campaignId, bagId }: BagFormProps) {
           .from('bags')
           .update({
             customer_id: selectedCustomer || null,
-            reseller_name: resellerName || null,
+            notes: notes || null,
+            installments: isInstallmentPlan ? installmentsCount : 1,
             total_value: totalValue,
             total_items: totalItems,
             updated_at: new Date().toISOString()
@@ -281,7 +286,10 @@ export function BagForm({ onClose, onSave, campaignId, bagId }: BagFormProps) {
           .select()
           .single();
         
-        if (bagError) throw bagError;
+        if (bagError) {
+          console.error('Erro ao salvar sacola:', bagError);
+          throw bagError;
+        }
         bag = updatedBag;
 
         // Delete old items
@@ -315,7 +323,8 @@ export function BagForm({ onClose, onSave, campaignId, bagId }: BagFormProps) {
             bag_number: `M${nextNumber.toString().padStart(4, '0')}`,
             customer_id: selectedCustomer || null,
             campaign_id: campaignId || null,
-            reseller_name: resellerName || null,
+            notes: notes || null,
+            installments: isInstallmentPlan ? installmentsCount : 1,
             status: 'open',
             total_value: totalValue,
             total_items: totalItems,
@@ -325,7 +334,10 @@ export function BagForm({ onClose, onSave, campaignId, bagId }: BagFormProps) {
           .select()
           .single();
 
-        if (bagError) throw bagError;
+        if (bagError) {
+          console.error('Erro ao inserir sacola:', bagError);
+          throw bagError;
+        }
         bag = newBag;
       }
 
@@ -508,7 +520,8 @@ export function BagForm({ onClose, onSave, campaignId, bagId }: BagFormProps) {
                           const match = products.find(p => 
                             p.ean === searchLower || 
                             p.name.toLowerCase() === searchLower ||
-                            p.label_name?.toLowerCase() === searchLower
+                            p.label_name?.toLowerCase() === searchLower ||
+                            (p.ean_variations || []).some(v => v.toLowerCase() === searchLower)
                           );
 
                           if (match) {
@@ -547,28 +560,67 @@ export function BagForm({ onClose, onSave, campaignId, bagId }: BagFormProps) {
                 </div>
 
                 <div className="space-y-2">
-                  <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Revendedora</label>
-                  <input 
-                    type="text" 
-                    placeholder="Nome da revendedora (opcional)"
-                    value={resellerName}
-                    onChange={(e) => setResellerName(e.target.value)}
-                    className="w-full bg-white border border-zinc-200 rounded-xl px-4 py-3 text-sm text-zinc-800 focus:border-emerald-500 outline-none transition-all"
+                  <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Anotações</label>
+                  <textarea 
+                    placeholder="Observações ou anotações sobre esta sacola..."
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    rows={3}
+                    className="w-full bg-white border border-zinc-200 rounded-xl px-4 py-3 text-sm text-zinc-800 focus:border-emerald-500 outline-none transition-all resize-none"
                   />
                 </div>
               </div>
 
-              <div className="bg-zinc-50 rounded-2xl p-4 flex items-center gap-3">
-                <input 
-                  type="checkbox" 
-                  id="noStock"
-                  checked={noStock}
-                  onChange={(e) => setNoStock(e.target.checked)}
-                  className="w-5 h-5 rounded border-zinc-300 text-emerald-600 focus:ring-emerald-500"
-                />
-                <label htmlFor="noStock" className="text-sm font-medium text-zinc-600 cursor-pointer">
-                  Criar sacola sem usar o estoque
-                </label>
+              <div className="bg-zinc-50 rounded-2xl p-4 flex flex-col gap-4">
+                <div className="flex items-center gap-3">
+                  <input 
+                    type="checkbox" 
+                    id="noStock"
+                    checked={noStock}
+                    onChange={(e) => setNoStock(e.target.checked)}
+                    className="w-5 h-5 rounded border-zinc-300 text-emerald-600 focus:ring-emerald-500"
+                  />
+                  <label htmlFor="noStock" className="text-sm font-medium text-zinc-600 cursor-pointer">
+                    Criar sacola sem usar o estoque
+                  </label>
+                </div>
+
+                <div className="flex flex-col gap-3">
+                  <div className="flex items-center gap-3">
+                    <input 
+                      type="checkbox" 
+                      id="installmentPlan"
+                      checked={isInstallmentPlan}
+                      onChange={(e) => {
+                        setIsInstallmentPlan(e.target.checked);
+                        if (e.target.checked && installmentsCount < 2) {
+                          setInstallmentsCount(2);
+                        }
+                      }}
+                      className="w-5 h-5 rounded border-zinc-300 text-emerald-600 focus:ring-emerald-500"
+                    />
+                    <label htmlFor="installmentPlan" className="text-sm font-medium text-zinc-600 cursor-pointer">
+                      Parcelar valor da sacola
+                    </label>
+                  </div>
+
+                  {isInstallmentPlan && (
+                    <div className="pl-8 animate-in slide-in-from-left-2 duration-200">
+                      <div className="flex items-center gap-4">
+                        <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Nº de Parcelas</label>
+                        <select
+                          value={installmentsCount}
+                          onChange={(e) => setInstallmentsCount(Number(e.target.value))}
+                          className="bg-white border border-zinc-200 rounded-lg px-3 py-1.5 text-sm outline-none focus:border-emerald-500"
+                        >
+                          {[2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(n => (
+                            <option key={n} value={n}>{n}x</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div className="overflow-x-auto">
@@ -658,6 +710,15 @@ export function BagForm({ onClose, onSave, campaignId, bagId }: BagFormProps) {
                 <span className="text-lg font-bold text-zinc-800">Valor Total</span>
                 <span className="text-2xl font-bold text-[#00a86b]">R$ {totalValue.toFixed(2)}</span>
               </div>
+              {isInstallmentPlan && (
+                <div className="flex flex-col items-end gap-1 pt-2">
+                  <span className="text-xs font-bold text-zinc-400 uppercase tracking-widest">Plano de Parcelamento</span>
+                  <p className="text-emerald-600 font-black text-xl">
+                    {Math.max(2, installmentsCount)}x de R$ {(totalValue / Math.max(2, installmentsCount)).toFixed(2)}
+                  </p>
+                  <p className="text-[10px] text-zinc-400 italic">Total parcelado</p>
+                </div>
+              )}
             </div>
 
             <button 

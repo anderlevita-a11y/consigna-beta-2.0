@@ -32,6 +32,31 @@ export interface Profile {
   estado?: string;
 }
 
+export interface MiscellaneousCharge {
+  id: string;
+  user_id: string;
+  customer_id?: string;
+  description: string;
+  total_value: number;
+  installments_count: number;
+  apply_late_fees: boolean;
+  created_at: string;
+  customer?: {
+    nome: string;
+    cpf?: string;
+  };
+}
+
+export interface MiscellaneousChargeInstallment {
+  id: string;
+  charge_id: string;
+  installment_number: number;
+  value: number;
+  due_date: string;
+  status: 'pending' | 'paid';
+  paid_at?: string;
+}
+
 export interface AppLegalSettings {
   id: string;
   privacy_policy: string;
@@ -105,12 +130,13 @@ export interface Bag {
   bag_number: string;
   customer_id?: string;
   campaign_id?: string;
-  reseller_name?: string;
+  notes?: string;
   status: string;
   total_value: number;
   total_items: number;
   payment_status: string;
   received_amount?: number;
+  installments?: number;
   created_at: string;
   closed_at?: string;
   customer?: Customer;

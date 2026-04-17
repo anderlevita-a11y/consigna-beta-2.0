@@ -29,7 +29,7 @@ const isConfigured = Boolean(
 );
 
 if (!isConfigured) {
-  console.warn('Supabase credentials missing or invalid. Please check your environment variables (VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY).');
+  console.warn('⚠️ Supabase credentials missing or invalid. Please check your environment variables (VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY). In AI Studio, configure these in the Secrets panel.');
 }
 
 export const supabase = createClient(

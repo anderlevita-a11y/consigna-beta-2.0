@@ -84,7 +84,7 @@ export function Sidebar({ activeTab, setActiveTab, isOpen, onClose, profile, cla
   const trialEnd = isTrial && profile?.vencimento ? new Date(profile.vencimento) : null;
   const isTrialExpired = isTrial && trialEnd && trialEnd.getTime() < new Date().getTime();
   
-  const hasAccess = isAdmin || ((!!profile?.access_key_code || profile?.plano_tipo === 'pro') && !isBlocked && !isTrialExpired);
+  const hasAccess = isAdmin || ((!!profile?.access_key_code || profile?.plano_tipo === 'pro') && !isBlocked && !isTrialExpired && !!profile?.whatsapp);
 
   const handleTabClick = (id: string, isPublic: boolean) => {
     if (!hasAccess && !isPublic) return;

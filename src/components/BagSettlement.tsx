@@ -317,7 +317,8 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
     const item = items.find(i => 
       i.product.ean === searchLower || 
       i.product.name.toLowerCase() === searchLower ||
-      (i.product.label_name && i.product.label_name.toLowerCase() === searchLower)
+      (i.product.label_name && i.product.label_name.toLowerCase() === searchLower) ||
+      (i.product.ean_variations || []).some(v => v.toLowerCase() === searchLower)
     );
     
     if (item) {
@@ -335,7 +336,8 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
         const search = searchProduct.toLowerCase().trim();
         return (item.product.name?.toLowerCase() || '').includes(search) ||
                (item.product.label_name?.toLowerCase() || '').includes(search) ||
-               String(item.product.ean || '').toLowerCase().includes(search);
+               String(item.product.ean || '').toLowerCase().includes(search) ||
+               (item.product.ean_variations || []).some(v => v.toLowerCase().includes(search));
       }).slice(0, 10)
     : [];
 
@@ -636,6 +638,15 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
                     <span className="text-lg font-bold text-zinc-800">A Pagar</span>
                     <span className="text-2xl font-black text-emerald-500">R$ {amountToPay.toFixed(2)}</span>
                   </div>
+
+                  {bag.installments && bag.installments > 1 && (
+                    <div className="flex flex-col items-end gap-1 mt-4 pt-4 border-t border-zinc-50">
+                      <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Plano de Parcelamento</span>
+                      <p className="text-emerald-600 font-black text-lg">
+                        {bag.installments}x de R$ {(amountToPay / bag.installments).toFixed(2)}
+                      </p>
+                    </div>
+                  )}
 
                   {numericReceivedAmount > 0 && numericReceivedAmount < amountToPay && (
                     <div className="pt-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-0">
