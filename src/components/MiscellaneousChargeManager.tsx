@@ -21,10 +21,11 @@ import {
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useNotifications } from './NotificationCenter';
-import { cn, formatMoney, formatMoneyInput, parseMoney } from '../lib/utils';
+import { cn, formatError, formatMoney, formatMoneyInput, parseMoney } from '../lib/utils';
 import { Customer, MiscellaneousCharge, MiscellaneousChargeInstallment, Profile } from '../types';
-import { addDays, format, parseISO } from 'date-fns';
+import { addDays, format, parseISO, differenceInDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { ConfirmationModal } from './ConfirmationModal';
 
 interface MiscellaneousChargeManagerProps {
   profile: Profile | null;
@@ -38,6 +39,7 @@ export function MiscellaneousChargeManager({ profile }: MiscellaneousChargeManag
   const [charges, setCharges] = useState<MiscellaneousCharge[]>([]);
   const [installmentsMap, setInstallmentsMap] = useState<Record<string, MiscellaneousChargeInstallment[]>>({});
   const [expandedCharge, setExpandedCharge] = useState<string | null>(null);
+  const [chargeToDelete, setChargeToDelete] = useState<string | null>(null);
 
   // Form State
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
@@ -47,8 +49,27 @@ export function MiscellaneousChargeManager({ profile }: MiscellaneousChargeManag
   const [description, setDescription] = useState('');
   const [totalValue, setTotalValue] = useState('');
   const [dueDate, setDueDate] = useState(new Date().toISOString().split('T')[0]);
+  const [originalDueDate, setOriginalDueDate] = useState('');
   const [installmentsCount, setInstallmentsCount] = useState(1);
   const [applyLateFees, setApplyLateFees] = useState(true);
+
+  const calculateLateFees = (value: number, dueDateStr: string) => {
+    const dueDate = parseISO(dueDateStr);
+    const today = new Date();
+    
+    if (today <= dueDate) return { total: value, multa: 0, juros: 0, daysPast: 0 };
+
+    const daysPast = differenceInDays(today, dueDate);
+    const multa = value * 0.02;
+    const juros = value * (0.01 * (daysPast / 30));
+    
+    return {
+      total: value + multa + juros,
+      multa,
+      juros,
+      daysPast
+    };
+  };
 
   useEffect(() => {
     fetchCharges();
@@ -132,27 +153,42 @@ export function MiscellaneousChargeManager({ profile }: MiscellaneousChargeManag
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
 
-      const valueNum = parseMoney(totalValue);
+      const baseValueNum = parseMoney(totalValue);
+      let valueWithFees = baseValueNum;
+      
+      if (applyLateFees && originalDueDate) {
+        const fees = calculateLateFees(baseValueNum, originalDueDate);
+        valueWithFees = fees.total;
+      }
+
       const { data: charge, error: chargeError } = await supabase
         .from('miscellaneous_charges')
         .insert([{
           user_id: session.user.id,
           customer_id: selectedCustomer.id,
           description,
-          total_value: valueNum,
+          total_value: valueWithFees,
           installments_count: installmentsCount,
-          apply_late_fees: applyLateFees
+          apply_late_fees: applyLateFees,
+          original_due_date: originalDueDate || null
         }])
         .select()
         .single();
 
-      if (chargeError) throw chargeError;
+      if (chargeError) {
+        console.error('Erro ao inserir cobrança:', chargeError);
+        throw chargeError;
+      }
 
-      // Create installments
-      const installmentValue = valueNum / installmentsCount;
+      // Create installments with precision handling
       const installments = [];
+      const baseInstallmentValue = Math.floor((valueWithFees / installmentsCount) * 100) / 100;
+      const remainder = Math.round((valueWithFees - (baseInstallmentValue * installmentsCount)) * 100) / 100;
+
       for (let i = 1; i <= installmentsCount; i++) {
+        const installmentValue = i === installmentsCount ? (baseInstallmentValue + remainder) : baseInstallmentValue;
         const installmentDueDate = addDays(parseISO(dueDate), (i - 1) * 30); // Approx 30 days per installment
+        
         installments.push({
           charge_id: charge.id,
           installment_number: i,
@@ -166,7 +202,10 @@ export function MiscellaneousChargeManager({ profile }: MiscellaneousChargeManag
         .from('miscellaneous_charge_installments')
         .insert(installments);
 
-      if (installmentsError) throw installmentsError;
+      if (installmentsError) {
+        console.error('Erro ao inserir parcelas:', installmentsError);
+        throw installmentsError;
+      }
 
       addNotification({ type: 'success', title: 'Sucesso', message: 'Cobrança cadastrada com sucesso!' });
       setShowForm(false);
@@ -174,7 +213,11 @@ export function MiscellaneousChargeManager({ profile }: MiscellaneousChargeManag
       fetchCharges();
     } catch (err) {
       console.error('Error saving charge:', err);
-      addNotification({ type: 'error', title: 'Erro', message: 'Erro ao salvar cobrança' });
+      addNotification({ 
+        type: 'error', 
+        title: 'Erro ao salvar cobrança', 
+        message: formatError(err) 
+      });
     } finally {
       setSaving(false);
     }
@@ -186,6 +229,7 @@ export function MiscellaneousChargeManager({ profile }: MiscellaneousChargeManag
     setDescription('');
     setTotalValue('');
     setDueDate(new Date().toISOString().split('T')[0]);
+    setOriginalDueDate('');
     setInstallmentsCount(1);
     setApplyLateFees(true);
   };
@@ -210,7 +254,27 @@ export function MiscellaneousChargeManager({ profile }: MiscellaneousChargeManag
     if (!customer) return;
 
     let message = `*COBRANÇA AVULSA - ${charge.description}*\n\n`;
-    message += `Olá ${customer.nome}, consta uma pendência em seu nome no valor total de R$ ${charge.total_value.toFixed(2)}.\n\n`;
+    
+    const feesBaseDate = charge.original_due_date || (installments[0]?.due_date);
+    const fees = charge.apply_late_fees && feesBaseDate ? calculateLateFees(charge.total_value, feesBaseDate) : null;
+
+    if (charge.original_due_date) {
+      message += `*Vencimento Original:* ${format(parseISO(charge.original_due_date), 'dd/MM/yyyy')}\n`;
+    }
+    
+    message += `Olá ${customer.nome}, consta uma pendência em seu nome.\n\n`;
+    
+    if (fees && fees.daysPast > 0) {
+      message += `*Valor Original:* R$ ${charge.total_value.toFixed(2)}\n`;
+      message += `*Multa (2%):* R$ ${fees.multa.toFixed(2)}\n`;
+      message += `*Juros Mora:* R$ ${fees.juros.toFixed(2)} (${fees.daysPast} dias de atraso)\n`;
+      message += `*Valor Atualizado (Dívida Total):* R$ ${fees.total.toFixed(2)}\n\n`;
+    } else {
+      message += `*Valor da Dívida:* R$ ${charge.total_value.toFixed(2)}\n\n`;
+    }
+
+    message += `*Acordo de Pagamento Negociado:*\n`;
+    message += `Condição: ${charge.installments_count}x de R$ ${(charge.total_value / charge.installments_count).toFixed(2)}\n\n`;
     
     if (charge.installments_count > 1) {
       message += `*Detalhamento das Parcelas:*\n`;
@@ -222,26 +286,33 @@ export function MiscellaneousChargeManager({ profile }: MiscellaneousChargeManag
     }
 
     if (charge.apply_late_fees) {
-      message += `\n_Atenção: Atrasos sujeitos a multa de 2% e juros de 1% ao mês._\n`;
+      message += `\n_Atenção: Atrasos sujeitos a multa de 2% e juros de 1% ao mês. Em caso de inadimplência acarretará ação de cobrança e custas processuais._\n`;
     }
 
-    message += `\nPara mais informações, entre em contato comigo.`;
+    message += `\n*Cliente:* ${customer.nome}`;
+    message += customer.cpf ? `\n*CPF:* ${customer.cpf}` : "";
+    message += `\n\nAssinatura: ___________________________`;
+
+    message += `\n\nPara mais informações, entre em contato comigo.`;
 
     const encoded = encodeURIComponent(message);
     window.open(`https://wa.me/?text=${encoded}`, '_blank');
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('Deseja realmente excluir esta cobrança?')) return;
+  const handleDelete = async () => {
+    if (!chargeToDelete) return;
     try {
       const { error } = await supabase
         .from('miscellaneous_charges')
         .delete()
-        .eq('id', id);
+        .eq('id', chargeToDelete);
       if (error) throw error;
+      setChargeToDelete(null);
       fetchCharges();
+      addNotification({ type: 'success', title: 'Excluído', message: 'Cobrança excluída com sucesso' });
     } catch (err) {
       console.error('Error deleting charge:', err);
+      addNotification({ type: 'error', title: 'Erro', message: 'Erro ao excluir cobrança' });
     }
   };
 
@@ -290,6 +361,7 @@ export function MiscellaneousChargeManager({ profile }: MiscellaneousChargeManag
                         type="text"
                         placeholder="Nome da cliente..."
                         value={customerSearch}
+                        maxLength={100}
                         onChange={(e) => setCustomerSearch(e.target.value)}
                         className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl pl-12 pr-4 py-4 text-sm focus:border-amber-500 outline-none transition-all"
                       />
@@ -336,6 +408,7 @@ export function MiscellaneousChargeManager({ profile }: MiscellaneousChargeManag
                   <textarea 
                     required
                     value={description}
+                    maxLength={255}
                     onChange={(e) => setDescription(e.target.value)}
                     placeholder="Ex: Ref. compra de perfumes importados (Lançamento avulso)"
                     rows={3}
@@ -353,13 +426,14 @@ export function MiscellaneousChargeManager({ profile }: MiscellaneousChargeManag
                       type="text"
                       inputMode="numeric"
                       value={totalValue}
+                      maxLength={20}
                       onChange={(e) => setTotalValue(formatMoneyInput(e.target.value))}
                       placeholder="0,00"
                       className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl px-5 py-4 text-sm font-black text-zinc-800 focus:border-amber-500 outline-none transition-all"
                     />
                   </div>
                   <div className="space-y-2">
-                    <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest ml-1">Data de Vencimento (Inicial)</label>
+                    <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest ml-1">Vencimento Negociação</label>
                     <input 
                       required
                       type="date"
@@ -389,6 +463,17 @@ export function MiscellaneousChargeManager({ profile }: MiscellaneousChargeManag
                       </button>
                     ))}
                   </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest ml-1">Data de Vencimento Original (Para cálculo de juros)</label>
+                  <input 
+                    type="date"
+                    value={originalDueDate}
+                    onChange={(e) => setOriginalDueDate(e.target.value)}
+                    className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl px-5 py-4 text-sm focus:border-amber-500 outline-none transition-all"
+                  />
+                  <p className="text-[10px] text-zinc-400 ml-1 italic">Opcional: Informe a data original da dívida para registro documental.</p>
                 </div>
 
                 <div className="bg-amber-50/50 border border-amber-100 rounded-2xl p-5 space-y-4">
@@ -461,6 +546,11 @@ export function MiscellaneousChargeManager({ profile }: MiscellaneousChargeManag
                        <span className="text-[10px] bg-zinc-100 text-zinc-500 px-2 py-0.5 rounded-full font-bold">
                         {charge.installments_count} {charge.installments_count === 1 ? 'Parcela' : 'Parcelas'}
                       </span>
+                      {charge.original_due_date && (
+                        <span className="text-[10px] bg-zinc-100 text-zinc-500 px-2 py-0.5 rounded-full font-bold">
+                          Venc. Original: {format(parseISO(charge.original_due_date), 'dd/MM/yyyy')}
+                        </span>
+                      )}
                       {charge.apply_late_fees && (
                         <span className="text-[10px] bg-amber-50 text-amber-600 px-2 py-0.5 rounded-full font-bold">
                           Juros Automáticos
@@ -473,7 +563,27 @@ export function MiscellaneousChargeManager({ profile }: MiscellaneousChargeManag
                 <div className="flex items-center gap-6">
                   <div className="text-right">
                     <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-1">Valor Total</p>
-                    <p className="text-lg font-black text-zinc-800">R$ {charge.total_value.toFixed(2)}</p>
+                    {(() => {
+                      const feesBaseDate = charge.original_due_date;
+                      const fees = charge.apply_late_fees && feesBaseDate ? calculateLateFees(charge.total_value, feesBaseDate) : null;
+                      
+                      if (fees && fees.daysPast > 0) {
+                        return (
+                          <div className="space-y-0.5 group/fees relative">
+                            <p className="text-[10px] text-zinc-400 line-through">R$ {charge.total_value.toFixed(2)}</p>
+                            <p className="text-lg font-black text-red-600">R$ {fees.total.toFixed(2)}</p>
+                            <div className="absolute right-0 top-full mt-1 hidden group-hover/fees:block z-20 bg-zinc-800 text-white p-2 rounded-lg text-[10px] w-40 shadow-xl border border-zinc-700">
+                              <p className="mb-1 border-b border-zinc-700 pb-1 font-bold">Detalhamento:</p>
+                              <div className="flex justify-between"><span>Base:</span> <span>R$ {charge.total_value.toFixed(2)}</span></div>
+                              <div className="flex justify-between"><span>Multa (2%):</span> <span>R$ {fees.multa.toFixed(2)}</span></div>
+                              <div className="flex justify-between"><span>Juros ({fees.daysPast}d):</span> <span>R$ {fees.juros.toFixed(2)}</span></div>
+                            </div>
+                          </div>
+                        );
+                      }
+                      
+                      return <p className="text-lg font-black text-zinc-800">R$ {charge.total_value.toFixed(2)}</p>;
+                    })()}
                   </div>
 
                   <div className="flex items-center gap-2">
@@ -501,7 +611,7 @@ export function MiscellaneousChargeManager({ profile }: MiscellaneousChargeManag
                       <Megaphone className="w-5 h-5" />
                     </button>
                     <button 
-                      onClick={() => handleDelete(charge.id)}
+                      onClick={() => setChargeToDelete(charge.id)}
                       className="p-2.5 hover:bg-red-50 text-zinc-300 hover:text-red-500 rounded-xl transition-all"
                       title="Excluir"
                     >
@@ -539,7 +649,18 @@ export function MiscellaneousChargeManager({ profile }: MiscellaneousChargeManag
                                 </span>
                               </td>
                               <td className="px-6 py-3 text-right">
-                                <span className="text-xs font-bold text-zinc-800">R$ {inst.value.toFixed(2)}</span>
+                                {(() => {
+                                  const fees = charge.apply_late_fees && inst.status === 'pending' ? calculateLateFees(inst.value, inst.due_date) : null;
+                                  if (fees && fees.daysPast > 0) {
+                                    return (
+                                      <div className="text-right">
+                                        <p className="text-[9px] text-zinc-400 line-through">R$ {inst.value.toFixed(2)}</p>
+                                        <p className="text-xs font-bold text-red-600">R$ {fees.total.toFixed(2)}</p>
+                                      </div>
+                                    );
+                                  }
+                                  return <span className="text-xs font-bold text-zinc-800">R$ {inst.value.toFixed(2)}</span>;
+                                })()}
                               </td>
                               <td className="px-6 py-3 text-center">
                                 {inst.status === 'paid' ? (
@@ -582,14 +703,21 @@ export function MiscellaneousChargeManager({ profile }: MiscellaneousChargeManag
                             <p>Eu, <span className="font-bold text-zinc-800">{charge.customer?.nome || '[Nome do Cliente]'}</span>, CPF nº <span className="font-bold text-zinc-800">{charge.customer?.cpf || '[CPF]'}</span>, declaro-me devedor(a) da importância de <span className="font-bold text-zinc-800">R$ {charge.total_value.toFixed(2)}</span>, referente a <span className="italic underline underline-offset-4">{charge.description}</span>.</p>
                             
                             <p>Comprometo-me a efetuar o pagamento conforme o cronograma de parcelas descrito nesta nota.</p>
+
+                            <div className="bg-zinc-50/50 p-4 rounded-xl border border-zinc-100 space-y-1.5 mt-6">
+                               <p className="text-[9px] font-black text-zinc-400 uppercase tracking-widest">Informações Legais</p>
+                               <p className="text-[10px] text-zinc-500 leading-relaxed italic">
+                                  Atenção: Atrasos sujeitos a multa de 2% e juros de 1% ao mês. Em caso de inadimplência acarretará ação de cobrança e custas processuais.
+                               </p>
+                             </div>
                          </div>
 
-                         <div className="pt-12 flex flex-col items-center gap-4">
-                            <div className="w-full h-px bg-zinc-200 mt-8"></div>
+                         <div className="pt-16 flex flex-col items-center gap-4">
+                            <div className="w-full max-w-[300px] h-px bg-zinc-200"></div>
                             <div className="text-center">
-                              <p className="text-sm font-bold text-zinc-800">{charge.customer?.nome}</p>
-                              <p className="text-[10px] text-zinc-400">Assinatura do Devedor</p>
-                              <p className="text-[10px] text-zinc-400 mt-1 uppercase tracking-tighter">CPF: {charge.customer?.cpf || '---'}</p>
+                              <p className="text-sm font-black text-zinc-800 uppercase tracking-tight leading-none">{charge.customer?.nome}</p>
+                              <p className="text-[9px] text-zinc-400 font-bold uppercase tracking-widest mt-1.5">Assinatura do Devedor(a)</p>
+                              <p className="text-[10px] text-zinc-500 mt-1 uppercase">CPF: {charge.customer?.cpf || '---'}</p>
                             </div>
                          </div>
                       </div>
@@ -601,6 +729,15 @@ export function MiscellaneousChargeManager({ profile }: MiscellaneousChargeManag
           ))}
         </div>
       </div>
+      <ConfirmationModal
+        isOpen={!!chargeToDelete}
+        title="Excluir Cobrança"
+        message="Tem certeza que deseja excluir esta cobrança? Todas as parcelas vinculadas também serão removidas."
+        onConfirm={handleDelete}
+        onCancel={() => setChargeToDelete(null)}
+        variant="danger"
+        confirmText="Excluir"
+      />
     </div>
   );
 }

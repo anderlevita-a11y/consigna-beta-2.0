@@ -212,6 +212,38 @@ export function AdminPanel({ currentProfile }: { currentProfile: Profile | null 
       }
     }
 
+    // Check if miscellaneous_charges table exists
+    const { error: miscError } = await supabase.from('miscellaneous_charges').select('id').limit(1);
+    if (miscError && miscError.message.includes('does not exist')) {
+      errors.push("A tabela 'miscellaneous_charges' não existe.");
+    }
+
+    // Check if miscellaneous_charge_installments table exists
+    const { error: instError } = await supabase.from('miscellaneous_charge_installments').select('id').limit(1);
+    if (instError && instError.message.includes('does not exist')) {
+      errors.push("A tabela 'miscellaneous_charge_installments' não existe.");
+    }
+
+    // Check miscellaneous_charges columns
+    const { error: miscColumnError } = await supabase.from('miscellaneous_charges').select('installments_count, apply_late_fees, original_due_date').limit(1);
+    if (miscColumnError) {
+      if (miscColumnError.message.includes('column') && miscColumnError.message.includes('installments_count')) {
+        errors.push("A coluna 'installments_count' está faltando na tabela 'miscellaneous_charges'.");
+      }
+      if (miscColumnError.message.includes('column') && miscColumnError.message.includes('apply_late_fees')) {
+        errors.push("A coluna 'apply_late_fees' está faltando na tabela 'miscellaneous_charges'.");
+      }
+      if (miscColumnError.message.includes('column') && miscColumnError.message.includes('original_due_date')) {
+        errors.push("A coluna 'original_due_date' está faltando na tabela 'miscellaneous_charges'.");
+      }
+    }
+
+    // Check products for image_urls
+    const { error: prodColError } = await supabase.from('products').select('image_urls').limit(1);
+    if (prodColError && prodColError.message.includes('column') && prodColError.message.includes('image_urls')) {
+      errors.push("A coluna 'image_urls' está faltando na tabela 'products'.");
+    }
+
     setSchemaErrors(errors);
     setLoading(false);
   }
@@ -991,7 +1023,10 @@ Data da última atualização: 09 de marco. Responsável Legal: Anderson Rodrigu
           <div className="bg-white/50 p-4 rounded-xl border border-red-100">
             <p className="text-xs font-bold text-red-800 mb-2 uppercase tracking-wider">Execute este SQL no Editor do Supabase:</p>
             <pre className="text-[10px] font-mono bg-zinc-900 text-zinc-300 p-4 rounded-lg overflow-x-auto">
-{`-- Adicionar coluna status na tabela customers
+{`-- Ativar extensão pgcrypto se necessário
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+-- Adicionar coluna status na tabela customers
 ALTER TABLE customers ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'active';
 
 -- Adicionar colunas PIX na tabela profiles
@@ -1005,11 +1040,14 @@ ALTER TABLE profiles ALTER COLUMN status_pagamento SET DEFAULT 'TRIAL';
 
 -- Adicionar colunas na tabela products
 ALTER TABLE products ADD COLUMN IF NOT EXISTS photo_url TEXT;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS image_urls TEXT[] DEFAULT '{}';
 ALTER TABLE products ADD COLUMN IF NOT EXISTS has_grid BOOLEAN DEFAULT false;
 ALTER TABLE products ADD COLUMN IF NOT EXISTS label_name TEXT;
 ALTER TABLE products ADD COLUMN IF NOT EXISTS ean_variations TEXT[] DEFAULT '{}';
 
 -- Adicionar colunas na tabela central_products
+ALTER TABLE central_products ADD COLUMN IF NOT EXISTS photo_url TEXT;
+ALTER TABLE central_products ADD COLUMN IF NOT EXISTS image_urls TEXT[] DEFAULT '{}';
 ALTER TABLE central_products ADD COLUMN IF NOT EXISTS ean_variations TEXT[] DEFAULT '{}';
 
 -- 2. Corrigir tabela bags (renomear reseller_name para notes e adicionar parcelas)
@@ -1040,8 +1078,25 @@ CREATE TABLE IF NOT EXISTS miscellaneous_charges (
   total_value NUMERIC(15,2) NOT NULL,
   installments_count INTEGER DEFAULT 1,
   apply_late_fees BOOLEAN DEFAULT true,
+  original_due_date DATE,
   created_at TIMESTAMPTZ DEFAULT now()
 );
+
+-- Garantir colunas se a tabela já existia
+DO $$ 
+BEGIN 
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'miscellaneous_charges' AND column_name = 'installments_count') THEN
+    ALTER TABLE miscellaneous_charges ADD COLUMN installments_count INTEGER DEFAULT 1;
+  END IF;
+  
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'miscellaneous_charges' AND column_name = 'apply_late_fees') THEN
+    ALTER TABLE miscellaneous_charges ADD COLUMN apply_late_fees BOOLEAN DEFAULT true;
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'miscellaneous_charges' AND column_name = 'original_due_date') THEN
+    ALTER TABLE miscellaneous_charges ADD COLUMN original_due_date DATE;
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS miscellaneous_charge_installments (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -1052,6 +1107,18 @@ CREATE TABLE IF NOT EXISTS miscellaneous_charge_installments (
   status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'paid')),
   paid_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- Habilitar RLS para cobranças avulsas
+ALTER TABLE miscellaneous_charges ENABLE ROW LEVEL SECURITY;
+ALTER TABLE miscellaneous_charge_installments ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Usuários gerenciam suas próprias cobranças" ON miscellaneous_charges;
+CREATE POLICY "Usuários gerenciam suas próprias cobranças" ON miscellaneous_charges FOR ALL TO authenticated USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Usuários gerenciam parcelas de suas cobranças" ON miscellaneous_charge_installments;
+CREATE POLICY "Usuários gerenciam parcelas de suas cobranças" ON miscellaneous_charge_installments FOR ALL TO authenticated USING (
+  EXISTS (SELECT 1 FROM miscellaneous_charges WHERE id = charge_id AND user_id = auth.uid())
 );
 
 -- Criar tabela app_legal_settings se não existir

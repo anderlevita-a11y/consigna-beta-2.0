@@ -601,6 +601,7 @@ export function StoreSettings() {
               <input 
                 type="text"
                 value={settings.store_name || ''}
+                maxLength={100}
                 onChange={(e) => setSettings({ ...settings, store_name: e.target.value })}
                 className="w-full bg-zinc-50 border border-zinc-100 rounded-xl py-3 px-4 text-sm focus:ring-2 focus:ring-[#FF007F]/10 focus:border-[#FF007F] outline-none transition-all"
               />
@@ -614,6 +615,7 @@ export function StoreSettings() {
                   <input 
                     type="text"
                     value={settings.store_slug || ''}
+                    maxLength={50}
                     onChange={(e) => setSettings({ ...settings, store_slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') })}
                     placeholder="minha-loja"
                     className="w-full bg-zinc-50 border border-zinc-100 rounded-xl py-3 pl-10 pr-4 text-sm focus:ring-2 focus:ring-[#FF007F]/10 focus:border-[#FF007F] outline-none transition-all"
@@ -761,6 +763,7 @@ export function StoreSettings() {
               <input 
                 type="text"
                 value={newCategory}
+                maxLength={50}
                 onChange={(e) => setNewCategory(e.target.value)}
                 placeholder="Nova categoria..."
                 className="flex-1 bg-zinc-50 border border-zinc-100 rounded-xl py-3 px-4 text-sm outline-none"
@@ -815,6 +818,7 @@ export function StoreSettings() {
                 <input 
                   type="text"
                   value={settings.whatsapp_number || ''}
+                  maxLength={20}
                   onChange={(e) => setSettings({ ...settings, whatsapp_number: e.target.value })}
                   placeholder="5511999999999"
                   className="w-full bg-zinc-50 border border-zinc-100 rounded-xl py-3 pl-11 pr-4 text-sm outline-none"
@@ -829,6 +833,7 @@ export function StoreSettings() {
                 <input 
                   type="text"
                   value={settings.instagram_handle || ''}
+                  maxLength={50}
                   onChange={(e) => setSettings({ ...settings, instagram_handle: e.target.value })}
                   placeholder="@sualoja"
                   className="w-full bg-zinc-50 border border-zinc-100 rounded-xl py-3 pl-11 pr-4 text-sm outline-none"
@@ -843,6 +848,7 @@ export function StoreSettings() {
                 <input 
                   type="text"
                   value={settings.instagram_post_url || ''}
+                  maxLength={255}
                   onChange={(e) => setSettings({ ...settings, instagram_post_url: e.target.value })}
                   placeholder="https://instagram.com/p/..."
                   className="w-full bg-zinc-50 border border-zinc-100 rounded-xl py-3 pl-11 pr-4 text-sm outline-none"
@@ -857,6 +863,7 @@ export function StoreSettings() {
                 <input 
                   type="text"
                   value={settings.shipping_text || ''}
+                  maxLength={100}
                   onChange={(e) => setSettings({ ...settings, shipping_text: e.target.value })}
                   placeholder="Entrega em todo Brasil"
                   className="w-full bg-zinc-50 border border-zinc-100 rounded-xl py-3 pl-11 pr-4 text-sm outline-none"
@@ -922,6 +929,7 @@ export function StoreSettings() {
               <input 
                 type="text"
                 value={settings.pix_key || ''}
+                maxLength={255}
                 onChange={(e) => setSettings({ ...settings, pix_key: e.target.value })}
                 placeholder="E-mail, CPF ou Chave Aleatória"
                 className="w-full bg-zinc-50 border border-zinc-100 rounded-xl py-3 px-4 text-sm outline-none"
@@ -953,6 +961,7 @@ export function StoreSettings() {
               <input 
                 type="text"
                 value={settings.scrolling_text || ''}
+                maxLength={200}
                 onChange={(e) => setSettings({ ...settings, scrolling_text: e.target.value })}
                 className="w-full bg-zinc-50 border border-zinc-100 rounded-xl py-3 px-4 text-sm outline-none focus:border-[#FF007F] transition-all"
               />
@@ -961,6 +970,7 @@ export function StoreSettings() {
               <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Mensagem de Boas-vindas</label>
               <textarea 
                 value={settings.welcome_message || ''}
+                maxLength={300}
                 onChange={(e) => setSettings({ ...settings, welcome_message: e.target.value })}
                 rows={3}
                 className="w-full bg-zinc-50 border border-zinc-100 rounded-xl py-3 px-4 text-sm outline-none focus:border-[#FF007F] transition-all resize-none"
@@ -970,6 +980,7 @@ export function StoreSettings() {
               <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Texto do Rodapé</label>
               <textarea 
                 value={settings.footer_text || ''}
+                maxLength={300}
                 onChange={(e) => setSettings({ ...settings, footer_text: e.target.value })}
                 rows={3}
                 className="w-full bg-zinc-50 border border-zinc-100 rounded-xl py-3 px-4 text-sm outline-none focus:border-[#FF007F] transition-all resize-none"

@@ -106,6 +106,7 @@ export function Products() {
     sale_price: string | number;
     current_stock: string | number;
     photo_url: string;
+    image_urls: string[];
     has_grid: boolean;
     category: string;
     is_visible_in_store: boolean;
@@ -121,6 +122,7 @@ export function Products() {
     sale_price: '0,00',
     current_stock: '',
     photo_url: '',
+    image_urls: ['', '', ''],
     has_grid: false,
     category: '',
     is_visible_in_store: true,
@@ -406,13 +408,12 @@ export function Products() {
     }
   };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, index?: number) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     setUploading(true);
     try {
-      // Ensure session is fresh to avoid "exp" claim errors
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error('Sessão expirada. Por favor, faça login novamente.');
 
@@ -430,7 +431,19 @@ export function Products() {
         .from('products')
         .getPublicUrl(filePath);
 
-      setFormData(prev => ({ ...prev, photo_url: publicUrl }));
+      if (typeof index === 'number') {
+        const newUrls = [...formData.image_urls];
+        newUrls[index] = publicUrl;
+        
+        // If it's the first image, also update photo_url for backward compatibility
+        if (index === 0) {
+          setFormData(prev => ({ ...prev, image_urls: newUrls, photo_url: publicUrl }));
+        } else {
+          setFormData(prev => ({ ...prev, image_urls: newUrls }));
+        }
+      } else {
+        setFormData(prev => ({ ...prev, photo_url: publicUrl }));
+      }
     } catch (err) {
       console.error('Error uploading image:', err);
       addNotification({
@@ -504,6 +517,7 @@ export function Products() {
       sale_price: '0,00',
       current_stock: '',
       photo_url: '',
+      image_urls: ['', '', ''],
       has_grid: false,
       category: selectedCategory !== 'Todos' ? selectedCategory : '',
       is_visible_in_store: true,
@@ -524,6 +538,9 @@ export function Products() {
       sale_price: formatMoney(product.sale_price || 0),
       current_stock: product.current_stock?.toString() || '',
       photo_url: product.photo_url || '',
+      image_urls: product.image_urls && product.image_urls.length > 0 
+        ? [...product.image_urls, '', '', ''].slice(0, 3) 
+        : [product.photo_url || '', '', ''],
       has_grid: product.has_grid || false,
       category: product.category || '',
       is_visible_in_store: product.is_visible_in_store !== false,
@@ -651,6 +668,10 @@ export function Products() {
     const user = session?.user;
       if (!user) return;
 
+      // Filter empty image URLs and ensure at least photo_url is set if available
+      const filteredImageUrls = (formData.image_urls || []).filter(url => url.trim() !== '');
+      const photoUrl = filteredImageUrls[0] || formData.photo_url || '';
+
       // Convert empty EAN or '0' to null to avoid unique constraint violations on placeholders
       const trimmedEan = formData.ean?.trim();
       const finalEan = (trimmedEan === '' || trimmedEan === '0') ? null : trimmedEan;
@@ -658,6 +679,8 @@ export function Products() {
       const dataToSave = {
         ...formData,
         ean: finalEan,
+        photo_url: photoUrl,
+        image_urls: filteredImageUrls,
         cost_price: parseMoney(formData.cost_price.toString()),
         sale_price: parseMoney(formData.sale_price.toString()),
         current_stock: formData.has_grid 
@@ -743,6 +766,7 @@ export function Products() {
         sale_price: centralProduct.sale_price,
         current_stock: 0,
         photo_url: centralProduct.photo_url,
+        image_urls: centralProduct.image_urls || (centralProduct.photo_url ? [centralProduct.photo_url] : []),
         has_grid: centralProduct.has_grid,
         ean_variations: centralProduct.ean_variations || [],
         is_visible_in_store: true
@@ -1200,6 +1224,7 @@ export function Products() {
                   required
                   type="text" 
                   value={formData.name}
+                  maxLength={100}
                   onChange={e => setFormData({...formData, name: e.target.value})}
                   className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm focus:border-emerald-500 outline-none transition-all"
                 />
@@ -1209,6 +1234,7 @@ export function Products() {
                 <input 
                   type="text" 
                   value={formData.label_name}
+                  maxLength={50}
                   onChange={e => setFormData({...formData, label_name: e.target.value})}
                   className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm focus:border-emerald-500 outline-none transition-all"
                 />
@@ -1220,6 +1246,7 @@ export function Products() {
               <input 
                 type="text" 
                 value={formData.ean}
+                maxLength={20}
                 onChange={e => setFormData({...formData, ean: e.target.value})}
                 className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm focus:border-emerald-500 outline-none transition-all"
               />
@@ -1229,6 +1256,7 @@ export function Products() {
               <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Descrição do Produto</label>
               <textarea 
                 value={formData.description}
+                maxLength={500}
                 onChange={e => setFormData({...formData, description: e.target.value})}
                 placeholder="Descreva o produto para a loja virtual..."
                 rows={4}
@@ -1243,6 +1271,7 @@ export function Products() {
                   type="text" 
                   inputMode="numeric"
                   value={formData.cost_price}
+                  maxLength={15}
                   onChange={e => {
                     setFormData({...formData, cost_price: formatMoneyInput(e.target.value)});
                   }}
@@ -1255,6 +1284,7 @@ export function Products() {
                   type="text" 
                   inputMode="numeric"
                   value={formData.sale_price}
+                  maxLength={15}
                   onChange={e => {
                     setFormData({...formData, sale_price: formatMoneyInput(e.target.value)});
                   }}
@@ -1267,6 +1297,7 @@ export function Products() {
                   type="text" 
                   inputMode="decimal"
                   value={formData.current_stock}
+                  maxLength={10}
                   onChange={e => {
                     const val = e.target.value.replace(/[^0-9.,]/g, '');
                     setFormData({...formData, current_stock: val});
@@ -1294,6 +1325,7 @@ export function Products() {
                     <input
                       type="text"
                       value={newCategoryName}
+                      maxLength={50}
                       onChange={e => setNewCategoryName(e.target.value)}
                       placeholder="Nome da categoria"
                       className="flex-1 bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm focus:border-emerald-500 outline-none transition-all"
@@ -1328,39 +1360,31 @@ export function Products() {
               </div>
 
               <div className="space-y-2">
-                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Descrição do Produto</label>
-                <textarea 
-                  value={formData.description || ''}
-                  onChange={e => setFormData({...formData, description: e.target.value})}
-                  placeholder="Descreva as características do produto..."
-                  rows={4}
-                  className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm focus:border-emerald-500 outline-none transition-all resize-none"
-                />
-              </div>
-
-              <div className="bg-zinc-50/50 border border-zinc-100 rounded-2xl p-6 flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-xl bg-white border border-zinc-100 flex items-center justify-center">
-                    <Eye className="w-5 h-5 text-zinc-400" />
+                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Visível na Loja</label>
+                <div className="bg-zinc-50/50 border border-zinc-100 rounded-2xl p-6 flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <div className="w-10 h-10 rounded-xl bg-white border border-zinc-100 flex items-center justify-center">
+                      <Eye className="w-5 h-5 text-zinc-400" />
+                    </div>
+                    <div>
+                      <p className="font-bold text-zinc-700 text-sm">Visível na Loja</p>
+                      <p className="text-[10px] text-zinc-400">Mostrar este produto na vitrine virtual</p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="font-bold text-zinc-700 text-sm">Visível na Loja</p>
-                    <p className="text-[10px] text-zinc-400">Mostrar este produto na vitrine virtual</p>
-                  </div>
+                  <button 
+                    type="button"
+                    onClick={() => setFormData({...formData, is_visible_in_store: !formData.is_visible_in_store})}
+                    className={cn(
+                      "w-12 h-6 rounded-full transition-all relative",
+                      formData.is_visible_in_store ? "bg-emerald-500" : "bg-zinc-200"
+                    )}
+                  >
+                    <div className={cn(
+                      "absolute top-1 w-4 h-4 bg-white rounded-full transition-all",
+                      formData.is_visible_in_store ? "left-7" : "left-1"
+                    )} />
+                  </button>
                 </div>
-                <button 
-                  type="button"
-                  onClick={() => setFormData({...formData, is_visible_in_store: !formData.is_visible_in_store})}
-                  className={cn(
-                    "w-12 h-6 rounded-full transition-all relative",
-                    formData.is_visible_in_store ? "bg-emerald-500" : "bg-zinc-200"
-                  )}
-                >
-                  <div className={cn(
-                    "absolute top-1 w-4 h-4 bg-white rounded-full transition-all",
-                    formData.is_visible_in_store ? "left-7" : "left-1"
-                  )} />
-                </button>
               </div>
             </div>
 
@@ -1400,32 +1424,52 @@ export function Products() {
               </div>
             </div>
 
-            <div className="space-y-2">
-              <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Foto do Produto</label>
-              <input 
-                type="file" 
-                ref={fileInputRef}
-                onChange={handleFileUpload}
-                accept="image/*"
-                className="hidden"
-              />
-              <div 
-                onClick={() => fileInputRef.current?.click()}
-                className="border-2 border-dashed border-zinc-100 rounded-2xl p-12 flex flex-col items-center justify-center gap-4 hover:border-emerald-500/50 transition-all cursor-pointer group bg-zinc-50/30"
-              >
-                {uploading ? (
-                  <Loader2 className="w-8 h-8 animate-spin text-emerald-500" />
-                ) : formData.photo_url ? (
-                  <div className="flex flex-col items-center gap-2">
-                    <img src={formData.photo_url} alt="Preview" className="w-20 h-20 object-cover rounded-lg" referrerPolicy="no-referrer" />
-                    <p className="text-[10px] text-emerald-600 font-bold uppercase">Foto Carregada</p>
+            <div className="space-y-4">
+              <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest block">Fotos do Produto (Máx. 3)</label>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                {[0, 1, 2].map((index) => (
+                  <div key={index} className="space-y-2">
+                    <p className="text-[9px] font-bold text-zinc-400 uppercase tracking-tighter">Foto {index + 1}</p>
+                    <div 
+                      onClick={() => {
+                        const input = document.createElement('input');
+                        input.type = 'file';
+                        input.accept = 'image/*';
+                        input.onchange = (e: any) => handleFileUpload(e, index);
+                        input.click();
+                      }}
+                      className="aspect-square border-2 border-dashed border-zinc-100 rounded-2xl flex flex-col items-center justify-center gap-2 hover:border-emerald-500/50 transition-all cursor-pointer group bg-zinc-50/30 overflow-hidden relative"
+                    >
+                      {uploading ? (
+                        <Loader2 className="w-6 h-6 animate-spin text-emerald-500" />
+                      ) : formData.image_urls[index] ? (
+                        <>
+                          <img src={formData.image_urls[index]} alt={`Preview ${index}`} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                            <Upload className="w-6 h-6 text-white" />
+                          </div>
+                          <button 
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const newUrls = [...formData.image_urls];
+                              newUrls[index] = '';
+                              setFormData(prev => ({ ...prev, image_urls: newUrls }));
+                            }}
+                            className="absolute top-2 right-2 p-1 bg-white/20 hover:bg-white/40 rounded-full backdrop-blur-md transition-all"
+                          >
+                            <X className="w-3 h-3 text-white" />
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <Upload className="w-6 h-6 text-zinc-300 group-hover:text-emerald-500 transition-all" />
+                          <p className="text-[10px] text-zinc-400 font-medium">Carregar</p>
+                        </>
+                      )}
+                    </div>
                   </div>
-                ) : (
-                  <>
-                    <Upload className="w-8 h-8 text-zinc-300 group-hover:text-emerald-500 transition-all" />
-                    <p className="text-xs text-zinc-400 font-medium">Clique para carregar foto</p>
-                  </>
-                )}
+                ))}
               </div>
             </div>
 
@@ -1505,6 +1549,7 @@ export function Products() {
                   <input 
                     type="text"
                     value={gridForm.color}
+                    maxLength={20}
                     onChange={e => setGridForm({...gridForm, color: e.target.value})}
                     placeholder="Ex: Azul"
                     className="w-full bg-zinc-50 border border-zinc-100 rounded-xl px-4 py-3 text-sm focus:border-emerald-500 outline-none transition-all"
@@ -1515,6 +1560,7 @@ export function Products() {
                   <input 
                     type="text"
                     value={gridForm.size}
+                    maxLength={10}
                     onChange={e => setGridForm({...gridForm, size: e.target.value})}
                     placeholder="Ex: M"
                     className="w-full bg-zinc-50 border border-zinc-100 rounded-xl px-4 py-3 text-sm focus:border-emerald-500 outline-none transition-all"
@@ -1526,6 +1572,7 @@ export function Products() {
                     type="text"
                     inputMode="decimal"
                     value={gridForm.quantity}
+                    maxLength={10}
                     onChange={e => setGridForm({...gridForm, quantity: e.target.value.replace(/[^0-9.,]/g, '')})}
                     placeholder="0"
                     className="w-full bg-zinc-50 border border-zinc-100 rounded-xl px-4 py-3 text-sm focus:border-emerald-500 outline-none transition-all"

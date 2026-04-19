@@ -16,13 +16,19 @@ import {
   Search,
   Tag,
   Loader2,
-  Save
+  Save,
+  RefreshCcw,
+  Megaphone,
+  Receipt,
+  Share2,
+  X
 } from 'lucide-react';
 import { cn, formatError, formatMoney, formatMoneyInput, parseMoney } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { supabase } from '../lib/supabase';
 import { useNotifications } from './NotificationCenter';
 import { ConfirmationModal } from './ConfirmationModal';
+import { format } from 'date-fns';
 import { 
   AreaChart, 
   Area, 
@@ -82,16 +88,26 @@ export function FinancialControl({ profile }: FinancialControlProps) {
     isOpen: boolean;
     title: string;
     message: string;
+    variant: 'danger' | 'warning' | 'info';
     onConfirm: () => void;
   }>({
     isOpen: false,
     title: '',
     message: '',
+    variant: 'info',
     onConfirm: () => {}
   });
 
   const [dueReminders, setDueReminders] = useState<Transaction[]>([]);
   const [isDueModalOpen, setIsDueModalOpen] = useState(false);
+
+  // Reports data moved from Reports tab
+  const [delinquents, setDelinquents] = useState<any[]>([]);
+  const [finalizedSales, setFinalizedSales] = useState<any[]>([]);
+  const [selectedBagForPayment, setSelectedBagForPayment] = useState<any | null>(null);
+  const [paymentAmount, setPaymentAmount] = useState<string>('');
+  const [isProcessingPayment, setIsProcessingPayment] = useState(false);
+  const [loadingReports, setLoadingReports] = useState(false);
 
   // Form State
   const [newTransaction, setNewTransaction] = useState<any>({
@@ -134,15 +150,12 @@ export function FinancialControl({ profile }: FinancialControlProps) {
           if (catData?.categories) {
             setCategories(catData.categories);
           }
+
+          // Load reports data (Delinquency and Finalized Sales)
+          await fetchReportsData(user.id);
         }
       } catch (err) {
         console.error('Error loading financial data:', err);
-        // Fallback to localStorage if needed
-        const savedTransactions = localStorage.getItem('financial_data');
-        if (savedTransactions) setTransactions(JSON.parse(savedTransactions));
-        
-        const savedCategories = localStorage.getItem('financial_categories');
-        if (savedCategories) setCategories(JSON.parse(savedCategories));
       } finally {
         setLoading(false);
       }
@@ -203,6 +216,273 @@ export function FinancialControl({ profile }: FinancialControlProps) {
 
     checkInstallmentReminders();
   }, []);
+
+  async function fetchReportsData(userId: string) {
+    setLoadingReports(true);
+    try {
+      // 1. Finalized Sales (Closed Bags)
+      const { data: closedBags } = await supabase
+        .from('bags')
+        .select('*, customer:customers(nome)')
+        .eq('user_id', userId)
+        .eq('status', 'closed')
+        .order('created_at', { ascending: false })
+        .limit(100);
+
+      setFinalizedSales(closedBags || []);
+
+      // 2. Delinquents (Closed Bags pending/partial + Overdue Open Bags)
+      const { data: pendingBags } = await supabase
+        .from('bags')
+        .select('*, customer:customers(nome, cpf), campaign:campaigns(name, return_date)')
+        .eq('user_id', userId)
+        .or('status.eq.closed,status.eq.open')
+        .limit(30000);
+
+      const today = new Date().toISOString().split('T')[0];
+      const filteredDelinquents = (pendingBags || []).filter(bag => {
+        if (bag.status === 'closed') {
+          return ['pending', 'partial'].includes(bag.payment_status);
+        }
+        if (bag.status === 'open') {
+          const returnDate = bag.campaign?.return_date;
+          return returnDate && returnDate < today;
+        }
+        return false;
+      }).slice(0, 50);
+
+      setDelinquents(filteredDelinquents);
+    } catch (err) {
+      console.error('Error fetching reports data:', err);
+    } finally {
+      setLoadingReports(false);
+    }
+  }
+
+  const handleWhatsAppShare = async (bag: any) => {
+    try {
+      const { data: items } = await supabase
+        .from('bag_items')
+        .select('*')
+        .eq('bag_id', bag.id)
+        .limit(30000);
+
+      if (!items) return;
+
+      const { data: campaign } = await supabase
+        .from('campaigns')
+        .select('discount_pct')
+        .eq('id', bag.campaign_id)
+        .single();
+
+      const discountPct = campaign?.discount_pct || 0;
+      const totalGross = bag.total_value || 0;
+      const discountAmount = totalGross * (discountPct / 100);
+      const finalAmount = totalGross - discountAmount;
+
+      const customerName = bag.customer?.nome || 'Cliente';
+      const customerCPF = bag.customer?.cpf || '---';
+      let message = `*Resumo da Sacola #${bag.bag_number.replace(/\D/g, '')}*\n`;
+      message += `Cliente: ${customerName}\n`;
+      if (customerCPF !== '---') {
+        message += `CPF: ${customerCPF}\n`;
+      }
+      message += `Data: ${format(new Date(bag.created_at), "dd/MM/yyyy")}\n\n`;
+      message += `*Itens:*\n`;
+      
+      items.forEach(item => {
+        const productName = item.product_name || 'Produto';
+        const sold = item.quantity - (item.returned_quantity || 0);
+        if (sold > 0) {
+          message += `- ${productName}\n  ${sold} un x R$ ${item.unit_price.toFixed(2)}\n`;
+        }
+      });
+      
+      message += `\nSubtotal: R$ ${totalGross.toFixed(2)}`;
+      message += `\nDesconto Campanha (${discountPct}%): R$ ${discountAmount.toFixed(2)}`;
+      message += `\n*Total a Pagar: R$ ${finalAmount.toFixed(2)}*`;
+      
+      if (bag.received_amount && bag.received_amount > 0) {
+        message += `\nValor Pago: R$ ${bag.received_amount.toFixed(2)}`;
+        const debt = finalAmount - bag.received_amount;
+        if (debt > 0) {
+          message += `\n*Saldo Devedor: R$ ${debt.toFixed(2)}*`;
+        }
+      }
+
+      message += `\n\n__________________________\nAssinatura: ${customerName}\nCPF: ${customerCPF}`;
+      
+      const encodedMessage = encodeURIComponent(message);
+      window.open(`https://wa.me/?text=${encodedMessage}`, '_blank');
+    } catch (err) {
+      console.error('Error sharing on WhatsApp:', err);
+    }
+  };
+
+  const handleReceivePayment = async () => {
+    if (!selectedBagForPayment || !paymentAmount) return;
+    
+    setIsProcessingPayment(true);
+    try {
+      const amount = parseFloat(paymentAmount);
+      if (isNaN(amount) || amount <= 0) {
+        addNotification({
+          type: 'warning',
+          title: 'Valor inválido',
+          message: 'Por favor, insira um valor válido.'
+        });
+        return;
+      }
+
+      const newReceivedAmount = (selectedBagForPayment.received_amount || 0) + amount;
+      const totalToPay = selectedBagForPayment.total_value;
+      
+      const { error } = await supabase
+        .from('bags')
+        .update({
+          received_amount: newReceivedAmount,
+          payment_status: newReceivedAmount >= totalToPay ? 'paid' : 'partial'
+        })
+        .eq('id', selectedBagForPayment.id);
+
+      if (error) throw error;
+
+      const customerName = selectedBagForPayment.customer?.nome || 'Cliente';
+      const customerCPF = selectedBagForPayment.customer?.cpf || '---';
+      let message = `*Comprovante de Pagamento*\n`;
+      message += `Cliente: ${customerName}\n`;
+      if (customerCPF !== '---') {
+        message += `CPF: ${customerCPF}\n`;
+      }
+      message += `Sacola: #${selectedBagForPayment.bag_number}\n`;
+      message += `Data: ${format(new Date(), "dd/MM/yyyy HH:mm")}\n\n`;
+      message += `Valor Recebido: *R$ ${amount.toFixed(2)}*\n`;
+      message += `Total Pago: R$ ${newReceivedAmount.toFixed(2)}\n`;
+      
+      const debt = totalToPay - newReceivedAmount;
+      if (debt > 0) {
+        message += `Saldo Devedor: R$ ${debt.toFixed(2)}\n`;
+      } else {
+        message += `*Dívida Quitada!* 🎉\n`;
+      }
+      
+      message += `\nObrigado pela preferência!`;
+      message += `\n\n__________________________\nAssinatura: ${customerName}\nCPF: ${customerCPF}`;
+
+      const encodedMessage = encodeURIComponent(message);
+      window.open(`https://wa.me/?text=${encodedMessage}`, '_blank');
+
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) await fetchReportsData(session.user.id);
+
+      setSelectedBagForPayment(null);
+      setPaymentAmount('');
+    } catch (err) {
+      console.error('Error processing payment:', err);
+      addNotification({
+        type: 'error',
+        title: 'Erro no pagamento',
+        message: formatError(err)
+      });
+    } finally {
+      setIsProcessingPayment(false);
+    }
+  };
+
+  const handleShareReceipt = (bag: any) => {
+    const customerName = bag.customer?.nome || 'Cliente';
+    const customerCPF = bag.customer?.cpf || '---';
+    let message = `*Comprovante de Pagamento*\n`;
+    message += `Cliente: ${customerName}\n`;
+    if (customerCPF !== '---') {
+      message += `CPF: ${customerCPF}\n`;
+    }
+    message += `Sacola: #${bag.bag_number}\n\n`;
+    message += `Valor Total: R$ ${bag.total_value.toFixed(2)}\n`;
+    message += `Valor Pago: *R$ ${(bag.received_amount || 0).toFixed(2)}*\n`;
+    
+    const debt = bag.total_value - (bag.received_amount || 0);
+    if (debt > 0) {
+      message += `Saldo Devedor: R$ ${debt.toFixed(2)}\n`;
+    } else {
+      message += `*Dívida Totalmente Quitada!* 🎉\n`;
+    }
+    
+    message += `\nObrigado pela preferência!`;
+    message += `\n\n__________________________\nAssinatura: ${customerName}\nCPF: ${customerCPF}`;
+
+    const encodedMessage = encodeURIComponent(message);
+    window.open(`https://wa.me/?text=${encodedMessage}`, '_blank');
+  };
+
+  const handleReverseSale = async (bag: any) => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Extornar Venda',
+      message: `Deseja realmente extornar a venda da sacola #${bag.bag_number}? A sacola voltará para o status "Aberta" e o pagamento será zerado.`,
+      variant: 'warning',
+      onConfirm: async () => {
+        try {
+          const { data: items } = await supabase
+            .from('bag_items')
+            .select('*, product:products(id, current_stock, has_grid, grid_data)')
+            .eq('bag_id', bag.id);
+          
+          if (items) {
+            for (const item of items) {
+              if (item.returned_quantity > 0) {
+                const product = item.product as any;
+                if (product) {
+                  let updateData: any = {
+                    current_stock: Math.max(0, Number(product.current_stock || 0) - item.returned_quantity)
+                  };
+
+                  if (product.has_grid && product.grid_data && item.color && item.size) {
+                    const newGridData = product.grid_data.map((g: any) => {
+                      if (g.color === item.color && g.size === item.size) {
+                        return { ...g, quantity: Math.max(0, (g.quantity || 0) - item.returned_quantity) };
+                      }
+                      return g;
+                    });
+                    updateData.grid_data = newGridData;
+                  }
+
+                  await supabase.from('products').update(updateData).eq('id', product.id);
+                }
+              }
+            }
+          }
+
+          const { error } = await supabase.from('bags').update({
+            status: 'open',
+            payment_status: 'pending',
+            received_amount: 0,
+            closed_at: null
+          }).eq('id', bag.id);
+
+          if (error) throw error;
+
+          addNotification({
+            type: 'success',
+            title: 'Venda extornada',
+            message: `A sacola #${bag.bag_number} foi reaberta.`
+          });
+          
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session) await fetchReportsData(session.user.id);
+        } catch (err) {
+          console.error('Error reversing sale:', err);
+          addNotification({
+            type: 'error',
+            title: 'Erro ao extornar',
+            message: formatError(err)
+          });
+        } finally {
+          setConfirmModal(prev => ({ ...prev, isOpen: false }));
+        }
+      }
+    });
+  };
 
   const stats = useMemo(() => {
     const income = transactions
@@ -419,6 +699,7 @@ export function FinancialControl({ profile }: FinancialControlProps) {
       isOpen: true,
       title: 'Excluir Lançamento',
       message: 'Deseja realmente excluir este lançamento? Esta ação não pode ser desfeita.',
+      variant: 'danger',
       onConfirm: async () => {
         try {
           const { error } = await supabase
@@ -738,6 +1019,237 @@ export function FinancialControl({ profile }: FinancialControlProps) {
 
       <MiscellaneousChargeManager profile={profile} />
 
+      {/* Reports Tables Section */}
+      <div className="space-y-8 mt-8">
+        {/* Delinquency Table */}
+        <div className="bg-white border border-zinc-200 rounded-[32px] overflow-hidden shadow-sm">
+          <div className="p-4 sm:p-8 border-b border-zinc-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <h3 className="text-lg font-bold text-zinc-800 text-center sm:text-left">Lista de Inadimplência (Cobrança)</h3>
+            <span className="bg-red-50 text-red-600 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest w-fit mx-auto sm:mx-0">
+              {delinquents.length} Pendentes
+            </span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-zinc-50/50">
+                  <th className="px-8 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Cliente</th>
+                  <th className="px-8 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Campanha</th>
+                  <th className="px-8 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Sacola</th>
+                  <th className="px-8 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Total</th>
+                  <th className="px-8 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Pago</th>
+                  <th className="px-8 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Dívida</th>
+                  <th className="px-8 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest text-right">Ações</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-100">
+                {loadingReports ? (
+                  <tr>
+                    <td colSpan={7} className="px-8 py-12 text-center">
+                      <Loader2 className="w-6 h-6 text-[#38a89d] animate-spin mx-auto" />
+                    </td>
+                  </tr>
+                ) : delinquents.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="px-8 py-20 text-center text-zinc-400 italic">
+                      Nenhuma inadimplência registrada.
+                    </td>
+                  </tr>
+                ) : (
+                  delinquents.map(bag => (
+                    <tr key={bag.id} className="hover:bg-zinc-50/50 transition-colors">
+                      <td className="px-8 py-4 font-bold text-zinc-800 text-sm">{bag.customer?.nome}</td>
+                      <td className="px-8 py-4 text-zinc-500 text-sm">{(bag as any).campaign?.name || '---'}</td>
+                      <td className="px-8 py-4 text-zinc-500 text-sm">#{bag.bag_number}</td>
+                      <td className="px-8 py-4 font-bold text-zinc-800 text-sm">R$ {bag.total_value.toFixed(2)}</td>
+                      <td className="px-8 py-4 text-emerald-600 text-sm font-bold">R$ {(bag.received_amount || 0).toFixed(2)}</td>
+                      <td className="px-8 py-4 text-red-600 text-sm font-bold">R$ {Math.max(0, bag.total_value - (bag.received_amount || 0)).toFixed(2)}</td>
+                      <td className="px-8 py-4 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <button 
+                            onClick={() => setSelectedBagForPayment(bag)}
+                            className="p-2 hover:bg-emerald-50 text-emerald-600 rounded-lg transition-colors"
+                            title="Receber Pagamento"
+                          >
+                            <DollarSign className="w-4 h-4" />
+                          </button>
+                          <button 
+                            onClick={() => handleShareReceipt(bag)}
+                            className="p-2 hover:bg-blue-50 text-blue-500 rounded-lg transition-colors"
+                            title="Compartilhar Comprovante"
+                          >
+                            <Receipt className="w-4 h-4" />
+                          </button>
+                          <button 
+                            onClick={() => handleWhatsAppShare(bag)}
+                            className="p-2 hover:bg-emerald-50 text-emerald-500 rounded-lg transition-colors"
+                            title="Compartilhar Resumo WhatsApp"
+                          >
+                            <Megaphone className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Finalized Sales Table */}
+        <div className="bg-white border border-zinc-200 rounded-[32px] overflow-hidden shadow-sm">
+          <div className="p-4 sm:p-8 border-b border-zinc-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <h3 className="text-lg font-bold text-zinc-800 text-center sm:text-left">Vendas Finalizadas</h3>
+            <span className="bg-emerald-50 text-emerald-600 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest w-fit mx-auto sm:mx-0">
+              {finalizedSales.length} Sacolas
+            </span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-zinc-50/50">
+                  <th className="px-8 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Data</th>
+                  <th className="px-8 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Cliente</th>
+                  <th className="px-8 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Total</th>
+                  <th className="px-8 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest text-right">Ações</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-100">
+                {loadingReports ? (
+                  <tr>
+                    <td colSpan={4} className="px-8 py-12 text-center text-zinc-400 italic">
+                      <Loader2 className="w-6 h-6 text-[#38a89d] animate-spin mx-auto" />
+                    </td>
+                  </tr>
+                ) : finalizedSales.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="px-8 py-20 text-center text-zinc-400 italic">
+                      Nenhuma venda finalizada registrada.
+                    </td>
+                  </tr>
+                ) : (
+                  finalizedSales.map(bag => (
+                    <tr key={bag.id} className="hover:bg-zinc-50/50 transition-colors">
+                      <td className="px-8 py-4 text-zinc-500 text-sm">
+                        {format(new Date(bag.created_at), "dd/MM/yyyy")}
+                      </td>
+                      <td className="px-8 py-4 font-bold text-zinc-800 text-sm">{bag.customer?.nome}</td>
+                      <td className="px-8 py-4 font-bold text-zinc-800 text-sm">R$ {bag.total_value.toFixed(2)}</td>
+                      <td className="px-8 py-4 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <button 
+                            onClick={() => handleWhatsAppShare(bag)}
+                            className="p-2 hover:bg-emerald-50 text-emerald-500 rounded-lg transition-colors"
+                            title="Compartilhar WhatsApp"
+                          >
+                            <Megaphone className="w-4 h-4" />
+                          </button>
+                          <button 
+                            onClick={() => handleReverseSale(bag)}
+                            className="p-2 hover:bg-red-50 text-red-400 rounded-lg transition-colors"
+                            title="Extornar Venda"
+                          >
+                            <RefreshCcw className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      {/* Payment Modal moved from Reports */}
+      {selectedBagForPayment && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
+          <div className="bg-white rounded-[32px] w-full max-w-md overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="p-8 space-y-6">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-emerald-50 rounded-xl flex items-center justify-center">
+                    <DollarSign className="w-5 h-5 text-emerald-600" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-zinc-800">Receber Pagamento</h3>
+                    <p className="text-xs text-zinc-500">Sacola #{selectedBagForPayment.bag_number}</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setSelectedBagForPayment(null)}
+                  className="p-2 hover:bg-zinc-100 rounded-full transition-colors"
+                >
+                  <X className="w-5 h-5 text-zinc-400" />
+                </button>
+              </div>
+
+              <div className="bg-zinc-50 rounded-2xl p-6 space-y-3">
+                <div className="flex justify-between text-sm">
+                  <span className="text-zinc-500">Total da Sacola</span>
+                  <span className="font-bold text-zinc-800">R$ {selectedBagForPayment.total_value.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-zinc-500">Já Recebido</span>
+                  <span className="font-bold text-emerald-600">R$ {(selectedBagForPayment.received_amount || 0).toFixed(2)}</span>
+                </div>
+                <div className="pt-3 border-t border-zinc-200 flex justify-between items-center">
+                  <span className="text-sm font-bold text-zinc-800">Saldo Devedor</span>
+                  <span className="text-xl font-black text-red-600">
+                    R$ {Math.max(0, selectedBagForPayment.total_value - (selectedBagForPayment.received_amount || 0)).toFixed(2)}
+                  </span>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Valor a Receber (R$)</label>
+                <input 
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="0,00"
+                  value={paymentAmount}
+                  onChange={(e) => {
+                    const val = e.target.value.replace(',', '.');
+                    if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                      setPaymentAmount(val);
+                    }
+                  }}
+                  className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-2xl font-black text-zinc-800 focus:outline-none focus:border-emerald-500 transition-all"
+                  autoFocus
+                />
+                <div className="flex gap-2">
+                  <button 
+                    onClick={() => setPaymentAmount(Math.max(0, selectedBagForPayment.total_value - (selectedBagForPayment.received_amount || 0)).toString())}
+                    className="text-[10px] font-bold text-emerald-600 hover:bg-emerald-50 px-2 py-1 rounded-lg transition-colors"
+                  >
+                    Receber Valor Total
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button 
+                  onClick={() => setSelectedBagForPayment(null)}
+                  className="flex-1 px-6 py-4 rounded-2xl font-bold text-zinc-500 hover:bg-zinc-50 transition-all"
+                >
+                  Cancelar
+                </button>
+                <button 
+                  onClick={handleReceivePayment}
+                  disabled={isProcessingPayment || !paymentAmount}
+                  className="flex-[2] bg-emerald-500 hover:bg-emerald-600 text-white px-6 py-4 rounded-2xl font-bold transition-all shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  {isProcessingPayment ? <Loader2 className="w-5 h-5 animate-spin" /> : <Share2 className="w-5 h-5" />}
+                  Confirmar e Compartilhar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Add Transaction Modal */}
       <AnimatePresence>
         {isModalOpen && (
@@ -803,6 +1315,7 @@ export function FinancialControl({ profile }: FinancialControlProps) {
                       required
                       type="text"
                       value={newTransaction.description || ''}
+                      maxLength={150}
                       onChange={(e) => setNewTransaction({ ...newTransaction, description: e.target.value })}
                       placeholder="Ex: Venda de Produto X"
                       className="w-full bg-zinc-50 border border-zinc-100 rounded-xl p-4 text-sm focus:ring-2 focus:ring-[#38a89d]/10 focus:border-[#38a89d] outline-none transition-all"
@@ -817,6 +1330,7 @@ export function FinancialControl({ profile }: FinancialControlProps) {
                         type="text"
                         inputMode="numeric"
                         value={newTransaction.amount}
+                        maxLength={15}
                         onChange={(e) => setNewTransaction({ ...newTransaction, amount: formatMoneyInput(e.target.value) })}
                         placeholder="0,00"
                         className="w-full bg-zinc-50 border border-zinc-100 rounded-xl p-4 text-sm focus:ring-2 focus:ring-[#38a89d]/10 focus:border-[#38a89d] outline-none transition-all"
@@ -902,14 +1416,15 @@ export function FinancialControl({ profile }: FinancialControlProps) {
                     
                     {isAddingCategory ? (
                       <div className="flex gap-2">
-                        <input 
-                          autoFocus
-                          type="text"
-                          value={newCategoryName}
-                          onChange={(e) => setNewCategoryName(e.target.value)}
-                          placeholder="Nome da categoria..."
-                          className="flex-1 bg-zinc-50 border border-zinc-100 rounded-xl p-4 text-sm focus:ring-2 focus:ring-[#38a89d]/10 focus:border-[#38a89d] outline-none transition-all"
-                          onKeyDown={(e) => {
+                <input 
+                  autoFocus
+                  type="text"
+                  value={newCategoryName}
+                  maxLength={50}
+                  onChange={(e) => setNewCategoryName(e.target.value)}
+                  placeholder="Nome da categoria..."
+                  className="flex-1 bg-zinc-50 border border-zinc-100 rounded-xl p-4 text-sm focus:ring-2 focus:ring-[#38a89d]/10 focus:border-[#38a89d] outline-none transition-all"
+                  onKeyDown={(e) => {
                             if (e.key === 'Enter') {
                               e.preventDefault();
                               handleAddCategory();
@@ -1014,6 +1529,7 @@ export function FinancialControl({ profile }: FinancialControlProps) {
         isOpen={confirmModal.isOpen}
         title={confirmModal.title}
         message={confirmModal.message}
+        variant={confirmModal.variant}
         onConfirm={confirmModal.onConfirm}
         onCancel={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
       />

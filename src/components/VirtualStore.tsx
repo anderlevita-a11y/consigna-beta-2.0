@@ -19,9 +19,12 @@ import {
   Minus,
   Camera,
   Upload,
-  Loader2
+  Loader2,
+  Copy,
+  Check
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { QRCodeSVG } from 'qrcode.react';
 import { supabase } from '../lib/supabase';
 import { StoreSettings, ProductReview } from '../types';
 import { cn, formatError } from '../lib/utils';
@@ -37,6 +40,7 @@ interface Product {
   price_discounted: number;
   discount_percentage: number;
   image_url: string;
+  image_urls?: string[];
   category: string;
   is_best_seller: boolean;
   is_ready_to_ship: boolean;
@@ -62,10 +66,13 @@ export function VirtualStore({ slug }: { slug?: string }) {
   const [loading, setLoading] = useState(true);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [isQuickViewOpen, setIsQuickViewOpen] = useState(false);
+  const [activeImageIndex, setActiveImageIndex] = useState(0);
   const [activeCategory, setActiveCategory] = useState('Todos');
   const [settings, setSettings] = useState<StoreSettings | null>(null);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
+  const [isPixModalOpen, setIsPixModalOpen] = useState(false);
+  const [pixCopied, setPixCopied] = useState(false);
   const [reviews, setReviews] = useState<ProductReview[]>([]);
   const [isReviewing, setIsReviewing] = useState(false);
   const [newReview, setNewReview] = useState({
@@ -195,6 +202,7 @@ export function VirtualStore({ slug }: { slug?: string }) {
           price_discounted: p.sale_price, // Will apply global discount later in render
           discount_percentage: 0,
           image_url: p.photo_url || "https://images.unsplash.com/photo-1518310383802-640c2de311b2?q=80&w=800&auto=format&fit=crop",
+          image_urls: p.image_urls || (p.photo_url ? [p.photo_url] : []),
           category: p.category || "Geral",
           is_best_seller: false,
           is_ready_to_ship: p.current_stock > 0,
@@ -398,7 +406,10 @@ export function VirtualStore({ slug }: { slug?: string }) {
 
   const closeQuickView = () => {
     setIsQuickViewOpen(false);
-    setTimeout(() => setSelectedProduct(null), 300);
+    setTimeout(() => {
+      setSelectedProduct(null);
+      setActiveImageIndex(0);
+    }, 300);
   };
 
   const filteredProducts = products.filter(p => {
@@ -496,6 +507,25 @@ export function VirtualStore({ slug }: { slug?: string }) {
 
     const encodedMessage = encodeURIComponent(message);
     window.open(`https://wa.me/${settings.whatsapp_number}?text=${encodedMessage}`, '_blank');
+  };
+
+  const copyPixKey = () => {
+    if (!settings?.pix_key) return;
+    navigator.clipboard.writeText(settings.pix_key);
+    setPixCopied(true);
+    setTimeout(() => setPixCopied(false), 2000);
+  };
+
+  const handlePixCheckout = () => {
+    if (!settings?.pix_key) {
+      addNotification({
+        type: 'warning',
+        title: 'PIX Indisponível',
+        message: 'Chave PIX não configurada pela loja.'
+      });
+      return;
+    }
+    setIsPixModalOpen(true);
   };
 
   if (loading) {
@@ -832,13 +862,50 @@ export function VirtualStore({ slug }: { slug?: string }) {
                 <X className="w-5 h-5 text-zinc-500" />
               </button>
 
-              <div className="w-full md:w-1/2 aspect-[3/4] md:aspect-auto">
-                <img 
-                  src={selectedProduct.image_url} 
-                  alt={selectedProduct.name}
-                  className="w-full h-full object-cover"
-                  referrerPolicy="no-referrer"
-                />
+              <div className="w-full md:w-1/2 flex flex-col">
+                <div className="relative aspect-[3/4] md:aspect-auto md:flex-1 overflow-hidden group/modal">
+                  <AnimatePresence mode="wait">
+                    <motion.img 
+                      key={activeImageIndex}
+                      initial={{ opacity: 0, x: 20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: -20 }}
+                      src={selectedProduct.image_urls && selectedProduct.image_urls.length > 0 ? selectedProduct.image_urls[activeImageIndex] : selectedProduct.image_url} 
+                      alt={selectedProduct.name}
+                      className="w-full h-full object-cover"
+                      referrerPolicy="no-referrer"
+                    />
+                  </AnimatePresence>
+                  
+                  {selectedProduct.image_urls && selectedProduct.image_urls.length > 1 && (
+                    <div className="absolute inset-x-4 bottom-6 flex justify-center gap-2">
+                      {selectedProduct.image_urls.map((_, idx) => (
+                        <button
+                          key={idx}
+                          onClick={() => setActiveImageIndex(idx)}
+                          className={`w-2 h-2 rounded-full transition-all ${idx === activeImageIndex ? 'bg-white w-6' : 'bg-white/40'}`}
+                        />
+                      ))}
+                    </div>
+                  )}
+
+                  {selectedProduct.image_urls && selectedProduct.image_urls.length > 1 && (
+                    <div className="absolute inset-y-0 inset-x-2 flex items-center justify-between opacity-0 group-hover/modal:opacity-100 transition-opacity">
+                      <button 
+                        onClick={() => setActiveImageIndex(prev => (prev > 0 ? prev - 1 : selectedProduct.image_urls!.length - 1))}
+                        className="p-2 bg-white/20 backdrop-blur-md hover:bg-white/40 rounded-full text-white transition-all transform -translate-x-4 group-hover/modal:translate-x-0"
+                      >
+                        <ChevronRight className="w-5 h-5 rotate-180" />
+                      </button>
+                      <button 
+                        onClick={() => setActiveImageIndex(prev => (prev < selectedProduct.image_urls!.length - 1 ? prev + 1 : 0))}
+                        className="p-2 bg-white/20 backdrop-blur-md hover:bg-white/40 rounded-full text-white transition-all transform translate-x-4 group-hover/modal:translate-x-0"
+                      >
+                        <ChevronRight className="w-5 h-5" />
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div className="w-full md:w-1/2 p-8 flex flex-col justify-center overflow-y-auto">
@@ -1005,6 +1072,7 @@ export function VirtualStore({ slug }: { slug?: string }) {
                           type="text"
                           placeholder="Seu nome"
                           value={newReview.customer_name}
+                          maxLength={50}
                           onChange={(e) => setNewReview(prev => ({ ...prev, customer_name: e.target.value }))}
                           className="w-full bg-white border border-zinc-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#FF007F]/10 focus:border-[#FF007F] transition-all"
                         />
@@ -1045,6 +1113,7 @@ export function VirtualStore({ slug }: { slug?: string }) {
                           placeholder="O que você achou deste produto?"
                           rows={3}
                           value={newReview.comment}
+                          maxLength={500}
                           onChange={(e) => setNewReview(prev => ({ ...prev, comment: e.target.value }))}
                           className="w-full bg-white border border-zinc-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#FF007F]/10 focus:border-[#FF007F] transition-all resize-none"
                         />
@@ -1318,6 +1387,7 @@ export function VirtualStore({ slug }: { slug?: string }) {
                   type="text"
                   placeholder="Seu nome"
                   value={newReview.customer_name}
+                  maxLength={100}
                   onChange={(e) => setNewReview(prev => ({ ...prev, customer_name: e.target.value }))}
                   className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl px-4 py-3.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#FF007F]/10 focus:border-[#FF007F] transition-all"
                 />
@@ -1355,6 +1425,7 @@ export function VirtualStore({ slug }: { slug?: string }) {
                   placeholder="Conte-nos sua experiência..."
                   rows={4}
                   value={newReview.comment}
+                  maxLength={200}
                   onChange={(e) => setNewReview(prev => ({ ...prev, comment: e.target.value }))}
                   className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl px-4 py-3.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#FF007F]/10 focus:border-[#FF007F] transition-all resize-none"
                 />
@@ -1509,18 +1580,122 @@ export function VirtualStore({ slug }: { slug?: string }) {
                       </div>
                     </div>
                   </div>
-                  <button 
-                    onClick={handleCheckout}
-                    className="w-full bg-zinc-900 text-white py-4 rounded-2xl text-sm font-bold shadow-xl hover:bg-[#FF007F] transition-all flex items-center justify-center gap-2"
-                    style={{ backgroundColor: settings?.primary_color }}
-                  >
-                    <MessageCircle className="w-5 h-5" />
-                    Finalizar Compra no WhatsApp
-                  </button>
+                  <div className="pt-6 border-t border-zinc-100 flex flex-col gap-3">
+                    <button 
+                      onClick={handleCheckout}
+                      className="w-full bg-zinc-900 text-white py-4 rounded-2xl text-sm font-bold shadow-xl hover:bg-[#FF007F] transition-all flex items-center justify-center gap-2"
+                      style={{ backgroundColor: settings?.primary_color }}
+                    >
+                      <MessageCircle className="w-5 h-5" />
+                      Finalizar no WhatsApp
+                    </button>
+                    {settings?.pix_key && (
+                      <button 
+                        onClick={handlePixCheckout}
+                        className="w-full bg-white border-2 border-zinc-900 text-zinc-900 py-4 rounded-2xl text-sm font-bold hover:bg-zinc-50 transition-all flex items-center justify-center gap-2"
+                        style={{ borderColor: settings?.primary_color, color: settings?.primary_color }}
+                      >
+                        <QrCode className="w-5 h-5" />
+                        Pagar com PIX
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
             </motion.div>
           </>
+        )}
+      </AnimatePresence>
+
+      {/* PIX Modal */}
+      <AnimatePresence>
+        {isPixModalOpen && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsPixModalOpen(false)}
+              className="absolute inset-0 bg-black/80 backdrop-blur-md"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative w-full max-w-sm bg-white rounded-[40px] p-8 shadow-2xl flex flex-col items-center text-center space-y-6"
+            >
+              <button 
+                onClick={() => setIsPixModalOpen(false)}
+                className="absolute top-6 right-6 p-2 bg-zinc-100 hover:bg-zinc-200 rounded-full transition-colors"
+              >
+                <X className="w-4 h-4 text-zinc-500" />
+              </button>
+
+              <div className="w-16 h-16 bg-zinc-50 rounded-full flex items-center justify-center">
+                <QrCode className="w-8 h-8 text-[#FF007F]" style={{ color: settings?.primary_color }} />
+              </div>
+
+              <div>
+                <h3 className="text-xl font-serif italic text-zinc-900">Pagamento PIX</h3>
+                <p className="text-sm text-zinc-500 mt-2">Escaneie o código ou copie a chave abaixo</p>
+              </div>
+
+              <div className="bg-white p-4 rounded-3xl border-2 border-zinc-50 shadow-sm">
+                <QRCodeSVG 
+                  value={settings?.pix_key || ''} 
+                  size={200}
+                  level="H"
+                  includeMargin={true}
+                />
+              </div>
+
+              <div className="w-full space-y-4">
+                <div className="flex justify-between items-center px-4 py-2 bg-zinc-50 rounded-2xl border border-zinc-100">
+                  <div className="text-left overflow-hidden">
+                    <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Valor Total</p>
+                    <p className="text-lg font-bold text-zinc-900 truncate">R$ {cartTotal.toFixed(2)}</p>
+                  </div>
+                  {settings?.global_discount && settings.global_discount > 0 && (
+                    <span className="bg-emerald-50 text-emerald-600 text-[10px] font-bold px-2 py-1 rounded-full border border-emerald-100">
+                      -{settings.global_discount}% OFF
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex flex-col gap-2">
+                  <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Chave PIX</p>
+                  <div className="flex items-center gap-2 p-3 bg-zinc-50 rounded-2xl border border-zinc-100 group">
+                    <p className="flex-1 text-xs font-mono text-zinc-600 break-all text-left px-2">
+                      {settings?.pix_key}
+                    </p>
+                    <button 
+                      onClick={copyPixKey}
+                      className="p-2 bg-white text-zinc-500 hover:text-[#FF007F] rounded-xl shadow-sm transition-all active:scale-95"
+                      style={{ color: pixCopied ? '#10b981' : undefined }}
+                    >
+                      {pixCopied ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="w-full space-y-3">
+                <button 
+                  onClick={() => {
+                    setIsPixModalOpen(false);
+                    handleCheckout();
+                  }}
+                  className="w-full bg-zinc-900 text-white py-4 rounded-2xl text-sm font-bold shadow-xl hover:shadow-[#FF007F]/20 transition-all"
+                  style={{ backgroundColor: settings?.primary_color }}
+                >
+                  Confirmar e Avisar no WhatsApp
+                </button>
+                <p className="text-[10px] text-zinc-400 font-medium italic">
+                  Após o pagamento, envie o comprovante para agilizar o envio.
+                </p>
+              </div>
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
 

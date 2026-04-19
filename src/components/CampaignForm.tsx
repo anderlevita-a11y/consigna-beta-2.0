@@ -128,6 +128,7 @@ export function CampaignForm({ onClose, onSave, initialData }: CampaignFormProps
                 required
                 placeholder="Ex: Campanha de Outono"
                 value={formData.name}
+                maxLength={100}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                 className="w-full bg-white border border-zinc-200 rounded-xl px-4 py-4 text-zinc-800 focus:border-emerald-500 outline-none transition-all placeholder:text-zinc-300"
               />

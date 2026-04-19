@@ -239,6 +239,7 @@ export function CustomerForm({ customer, onClose, onSave }: CustomerFormProps) {
                     required
                     name="nome"
                     value={formData.nome || ''}
+                    maxLength={100}
                     onChange={handleChange}
                     className="w-full bg-white border border-zinc-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 transition-all"
                   />
@@ -251,6 +252,7 @@ export function CustomerForm({ customer, onClose, onSave }: CustomerFormProps) {
                     name="cpf"
                     placeholder="000.000.000-00"
                     value={formData.cpf || ''}
+                    maxLength={14}
                     onChange={handleChange}
                     className="w-full bg-white border border-zinc-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 transition-all"
                   />
@@ -273,6 +275,7 @@ export function CustomerForm({ customer, onClose, onSave }: CustomerFormProps) {
                       name="gender"
                       placeholder="Ex: Feminino"
                       value={formData.gender || ''}
+                      maxLength={20}
                       onChange={handleChange}
                       className="w-full bg-white border border-zinc-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 transition-all"
                     />
@@ -286,6 +289,7 @@ export function CustomerForm({ customer, onClose, onSave }: CustomerFormProps) {
                       name="nationality"
                       placeholder="Ex: Brasileira"
                       value={formData.nationality || ''}
+                      maxLength={30}
                       onChange={handleChange}
                       className="w-full bg-white border border-zinc-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 transition-all"
                     />
@@ -296,6 +300,7 @@ export function CustomerForm({ customer, onClose, onSave }: CustomerFormProps) {
                       name="naturalness"
                       placeholder="Ex: São Paulo"
                       value={formData.naturalness || ''}
+                      maxLength={50}
                       onChange={handleChange}
                       className="w-full bg-white border border-zinc-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 transition-all"
                     />
@@ -309,6 +314,7 @@ export function CustomerForm({ customer, onClose, onSave }: CustomerFormProps) {
                       name="instagram"
                       placeholder="@usuario"
                       value={formData.instagram || ''}
+                      maxLength={50}
                       onChange={handleChange}
                       className="w-full bg-white border border-zinc-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 transition-all"
                     />
@@ -320,6 +326,7 @@ export function CustomerForm({ customer, onClose, onSave }: CustomerFormProps) {
                       name="whatsapp"
                       placeholder="(00) 00000-0000"
                       value={formData.whatsapp || ''}
+                      maxLength={20}
                       onChange={handleChange}
                       className="w-full bg-white border border-zinc-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 transition-all"
                     />
@@ -426,6 +433,7 @@ export function CustomerForm({ customer, onClose, onSave }: CustomerFormProps) {
                       name="cep"
                       placeholder="00000-000"
                       value={formData.cep || ''}
+                      maxLength={9}
                       onChange={handleChange}
                       className="w-full bg-white border border-zinc-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 transition-all"
                     />
@@ -435,6 +443,7 @@ export function CustomerForm({ customer, onClose, onSave }: CustomerFormProps) {
                     <input 
                       name="bairro"
                       value={formData.bairro || ''}
+                      maxLength={100}
                       onChange={handleChange}
                       className="w-full bg-white border border-zinc-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 transition-all"
                     />
@@ -447,6 +456,7 @@ export function CustomerForm({ customer, onClose, onSave }: CustomerFormProps) {
                     name="logradouro"
                     placeholder="Rua, Avenida..."
                     value={formData.logradouro || ''}
+                    maxLength={150}
                     onChange={handleChange}
                     className="w-full bg-white border border-zinc-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 transition-all"
                   />
@@ -457,6 +467,7 @@ export function CustomerForm({ customer, onClose, onSave }: CustomerFormProps) {
                   <input 
                     name="address_number"
                     value={formData.address_number || ''}
+                    maxLength={50}
                     onChange={handleChange}
                     className="w-full bg-white border border-zinc-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 transition-all"
                   />
@@ -468,6 +479,7 @@ export function CustomerForm({ customer, onClose, onSave }: CustomerFormProps) {
                     <input 
                       name="cidade"
                       value={formData.cidade || ''}
+                      maxLength={50}
                       onChange={handleChange}
                       className="w-full bg-white border border-zinc-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 transition-all"
                     />
@@ -477,6 +489,7 @@ export function CustomerForm({ customer, onClose, onSave }: CustomerFormProps) {
                     <input 
                       name="estado"
                       value={formData.estado || ''}
+                      maxLength={2}
                       onChange={handleChange}
                       className="w-full bg-white border border-zinc-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 transition-all"
                     />

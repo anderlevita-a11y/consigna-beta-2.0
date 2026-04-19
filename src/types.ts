@@ -40,6 +40,7 @@ export interface MiscellaneousCharge {
   total_value: number;
   installments_count: number;
   apply_late_fees: boolean;
+  original_due_date?: string;
   created_at: string;
   customer?: {
     nome: string;
@@ -92,6 +93,7 @@ export interface Product {
   sale_price: number;
   current_stock: number;
   photo_url?: string;
+  image_urls?: string[];
   user_id?: string;
   has_grid?: boolean;
   category?: string;

@@ -564,6 +564,7 @@ export function BagForm({ onClose, onSave, campaignId, bagId }: BagFormProps) {
                   <textarea 
                     placeholder="Observações ou anotações sobre esta sacola..."
                     value={notes}
+                    maxLength={500}
                     onChange={(e) => setNotes(e.target.value)}
                     rows={3}
                     className="w-full bg-white border border-zinc-200 rounded-xl px-4 py-3 text-sm text-zinc-800 focus:border-emerald-500 outline-none transition-all resize-none"
