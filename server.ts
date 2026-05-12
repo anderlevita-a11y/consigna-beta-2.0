@@ -322,6 +322,38 @@ async function startServer() {
     }
   });
 
+  // API Route for AbacatePay Payment Link
+  app.post("/api/abacate-pay/create-link", async (req, res) => {
+    try {
+      const token = process.env.ABACATEPAY_TOKEN;
+      if (!token) {
+        console.error("ABACATEPAY_TOKEN não configurado.");
+        return res.status(500).json({ error: "Configuração de pagamento incompleta (token ausente)." });
+      }
+
+      // Using global fetch (Node 18+)
+      const response = await fetch("https://api.abacatepay.com/v2/payment-links/create", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(req.body),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        console.error("AbacatePay sub-request error:", data);
+        return res.status(response.status).json(data);
+      }
+
+      res.json(data);
+    } catch (err: any) {
+      console.error("AbacatePay creation error:", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({

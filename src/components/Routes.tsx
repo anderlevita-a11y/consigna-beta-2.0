@@ -720,6 +720,70 @@ export function Routes() {
     }
   };
 
+  const handleReopenRoute = async (routeId: string) => {
+    try {
+      const { error } = await supabase
+        .from('routes')
+        .update({ status: 'pending' })
+        .eq('id', routeId);
+
+      if (error) throw error;
+
+      setRoutes(routes.map(r => r.id === routeId ? { ...r, status: 'pending' } : r));
+      if (activeRoute?.id === routeId) {
+        setActiveRoute({ ...activeRoute, status: 'pending' });
+      }
+      
+      addNotification({
+        type: 'success',
+        title: 'Sucesso',
+        message: 'Rota reaberta com sucesso!'
+      });
+    } catch (err) {
+      console.error('Error reopening route:', err);
+      addNotification({
+        type: 'error',
+        title: 'Erro ao reabrir',
+        message: 'Erro ao reabrir rota'
+      });
+    }
+  };
+
+  const handleDeleteStop = async (stopId: string) => {
+    if (!activeRoute) return;
+    
+    try {
+      setLoading(true);
+      const { error } = await supabase
+        .from('route_stops')
+        .delete()
+        .eq('id', stopId);
+
+      if (error) throw error;
+
+      const updatedStops = activeRoute.stops?.filter(s => s.id !== stopId) || [];
+      const updatedRoute = { ...activeRoute, stops: updatedStops };
+      
+      setActiveRoute(updatedRoute);
+      setRoutes(routes.map(r => r.id === activeRoute.id ? updatedRoute : r));
+      
+      addNotification({
+        type: 'success',
+        title: 'Sucesso',
+        message: 'Cliente removido da rota!'
+      });
+    } catch (err: any) {
+      console.error('Error deleting stop:', err);
+      addNotification({
+        type: 'error',
+        title: 'Erro ao remover',
+        message: formatError(err)
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   if (view === 'create') {
     return (
       <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
@@ -1012,13 +1076,21 @@ export function Routes() {
               <Share2 className="w-4 h-4" />
               Compartilhar Agenda
             </button>
-            {activeRoute.status !== 'completed' && (
+            {activeRoute.status !== 'completed' ? (
               <button 
                 onClick={() => handleFinishRoute(activeRoute.id)}
                 className="flex items-center justify-center gap-2 bg-[#00a86b] hover:bg-[#008f5b] text-white px-6 py-3 sm:py-2.5 rounded-xl font-bold text-sm transition-all shadow-lg shadow-emerald-500/20 w-full sm:w-auto"
               >
                 <CheckCircle2 className="w-4 h-4" />
                 Finalizar Rota
+              </button>
+            ) : (
+              <button 
+                onClick={() => handleReopenRoute(activeRoute.id)}
+                className="flex items-center justify-center gap-2 bg-amber-500 hover:bg-amber-600 text-white px-6 py-3 sm:py-2.5 rounded-xl font-bold text-sm transition-all shadow-lg shadow-amber-500/20 w-full sm:w-auto"
+              >
+                <Clock className="w-4 h-4" />
+                Reabrir Rota
               </button>
             )}
           </div>
@@ -1090,6 +1162,13 @@ export function Routes() {
                         title="Mover para baixo"
                       >
                         <ArrowDown className="w-4 h-4" />
+                      </button>
+                      <button 
+                        onClick={() => handleDeleteStop(stop.id)}
+                        className="p-2 hover:bg-red-50 text-red-500 rounded-lg transition-colors"
+                        title="Remover da Rota"
+                      >
+                        <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
                     
@@ -1176,6 +1255,13 @@ export function Routes() {
                         
                         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
                           <button 
+                            onClick={() => handleDeleteStop(stop.id)}
+                            className="p-2 hover:bg-red-50 text-red-500 rounded-lg transition-colors"
+                            title="Remover da Rota"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                          <button 
                             onClick={() => handleMarkVisited(stop.id, stop.status)}
                             className="px-4 py-2 rounded-xl text-xs font-bold transition-all w-full sm:w-auto flex items-center justify-center gap-2 bg-white text-emerald-600 border border-emerald-200 hover:bg-emerald-50"
                           >
@@ -1190,10 +1276,10 @@ export function Routes() {
               </div>
             ) : null}
 
-            {activeRoute.status !== 'completed' && (
-              <div className="pt-6 mt-6 border-t border-zinc-100">
-                <h4 className="text-sm font-bold text-zinc-400 uppercase tracking-widest mb-4">Adicionar Cliente Manualmente</h4>
-                <div className="relative mb-4">
+            <div className="pt-6 mt-6 border-t border-zinc-100">
+              <h4 className="text-sm font-bold text-zinc-400 uppercase tracking-widest mb-4">Gerenciar Clientes</h4>
+              <p className="text-xs text-zinc-500 mb-4 italic">Adicione novos clientes à rota acima.</p>
+              <div className="relative mb-4">
                   <Search className="w-4 h-4 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2" />
                   <input
                     type="text"
@@ -1226,12 +1312,11 @@ export function Routes() {
                   </div>
                 )}
               </div>
-            )}
+            </div>
           </div>
         </div>
-      </div>
-    );
-  }
+      );
+    }
 
   const nextStop = activeRoute?.stops
     ?.filter(s => s.status === 'pending')
@@ -1287,6 +1372,18 @@ export function Routes() {
                   )}>
                     {route.status === 'completed' ? 'Finalizada' : 'Pendente'}
                   </span>
+                  {route.status === 'completed' && (
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleReopenRoute(route.id);
+                      }}
+                      className="p-2 hover:bg-amber-50 text-amber-500 rounded-lg transition-colors"
+                      title="Reabrir Rota"
+                    >
+                      <Clock className="w-4 h-4" />
+                    </button>
+                  )}
                   <button 
                     onClick={(e) => {
                       e.stopPropagation();

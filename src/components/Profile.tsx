@@ -23,7 +23,6 @@ import {
 import { supabase } from '../lib/supabase';
 import { Profile, PaymentReceipt } from '../types';
 import { cn, formatError } from '../lib/utils';
-import { loadStripe } from '@stripe/stripe-js';
 import { useNotifications } from './NotificationCenter';
 import { ConfirmationModal } from './ConfirmationModal';
 
@@ -43,7 +42,6 @@ export function ProfileScreen() {
   const [profile, setProfile] = useState<any>(null);
   const [receipts, setReceipts] = useState<PaymentReceipt[]>([]);
   const [uploadingReceipt, setUploadingReceipt] = useState(false);
-  const [upgrading, setUpgrading] = useState(false);
   const [legalSettings, setLegalSettings] = useState<any>(null);
   const [showLegalModal, setShowLegalModal] = useState(false);
   const [legalTab, setLegalTab] = useState<'privacy' | 'terms'>('privacy');
@@ -61,6 +59,7 @@ export function ProfileScreen() {
     variant: 'info',
     onConfirm: () => {}
   });
+  const [creatingPayment, setCreatingPayment] = useState(false);
 
   useEffect(() => {
     async function fetchReceipts(userId: string) {
@@ -99,6 +98,54 @@ export function ProfileScreen() {
     }
     fetchProfile();
   }, []);
+
+  const handleAbacatePay = async (planId: string) => {
+    setCreatingPayment(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user) throw new Error('Usuário não autenticado');
+
+      const response = await fetch('/api/abacate-pay/create-link', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          frequency: "MULTIPLE_PAYMENTS",
+          items: [
+            {
+              id: planId,
+              quantity: 1
+            }
+          ],
+          methods: ["PIX", "CARD"]
+        })
+      });
+
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Erro ao criar link de pagamento');
+
+      if (data.data?.url) {
+        window.open(data.data.url, '_blank');
+        addNotification({
+          type: 'success',
+          title: 'Link Gerado',
+          message: 'O link de pagamento foi aberto em uma nova aba.'
+        });
+      } else {
+        throw new Error('URL de pagamento não retornada');
+      }
+    } catch (err: any) {
+      console.error(err);
+      addNotification({
+        type: 'error',
+        title: 'Erro no Pagamento',
+        message: formatError(err)
+      });
+    } finally {
+      setCreatingPayment(false);
+    }
+  };
 
   const handleUploadReceipt = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -151,36 +198,6 @@ export function ProfileScreen() {
       });
     } finally {
       setUploadingReceipt(false);
-    }
-  };
-
-  const handleUpgrade = async () => {
-    setUpgrading(true);
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const user = session?.user;
-      if (!user) throw new Error('Usuário não autenticado');
-
-      // Use the direct Stripe Payment Link provided by the user
-      const paymentLink = 'https://buy.stripe.com/00w9AL9hc7yb5cvcta1sQ00';
-      
-      // Append user ID and email to the payment link so the webhook can identify the user
-      const url = new URL(paymentLink);
-      url.searchParams.append('client_reference_id', user.id);
-      if (user.email) {
-        url.searchParams.append('prefilled_email', user.email);
-      }
-
-      window.location.href = url.toString();
-    } catch (err: any) {
-      console.error(err);
-      addNotification({
-        type: 'error',
-        title: 'Erro no checkout',
-        message: formatError(err)
-      });
-    } finally {
-      setUpgrading(false);
     }
   };
 
@@ -670,7 +687,7 @@ export function ProfileScreen() {
             <div className="space-y-1">
               <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Status do Acesso</p>
               <h4 className="text-lg font-bold text-zinc-800 flex items-center gap-2">
-                {profile?.role === 'admin' ? 'Administrador' : (['pro', 'starter'].includes(profile?.plano_tipo) ? 'Assinante Starter' : (isTrial ? 'Período de Teste' : (profile?.access_key_code ? 'Acesso Starter Liberado' : 'Aguardando Liberação')))}
+                {profile?.role === 'admin' ? 'Administrador' : (['pro', 'starter'].includes(profile?.plano_tipo) ? 'Assinatura Mensal' : (isTrial ? 'Período de Teste' : (profile?.access_key_code ? 'Assinatura Mensal Liberada' : 'Aguardando Liberação')))}
                 {(profile?.role === 'admin' || profile?.access_key_code || ['pro', 'starter'].includes(profile?.plano_tipo)) && (
                   <span className={cn("text-[10px] px-2 py-0.5 rounded-lg uppercase font-bold", isTrial ? "bg-blue-100 text-blue-700" : "bg-emerald-100 text-emerald-700")}>
                     {isTrial ? 'Trial' : 'Ativo'}
@@ -687,9 +704,9 @@ export function ProfileScreen() {
               {/* Pro-rated Table */}
               <div className="mt-4 p-4 bg-white border border-zinc-100 rounded-2xl shadow-sm space-y-3">
                 <h5 className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Valor Proporcional (Até dia 08)</h5>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 gap-3">
                   <div className="p-2 bg-purple-50 rounded-lg border border-purple-100">
-                    <p className="text-[9px] text-purple-600 font-bold uppercase">Starter</p>
+                    <p className="text-[9px] text-purple-600 font-bold uppercase">Assinatura Mensal</p>
                     <p className="text-sm font-black text-purple-900">R$ {(() => {
                       const payDate = new Date();
                       let next8th = new Date(payDate.getFullYear(), payDate.getMonth(), 8, 12, 0, 0);
@@ -697,17 +714,6 @@ export function ProfileScreen() {
                       const diffTime = next8th.getTime() - payDate.getTime();
                       const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
                       return ((39.99 / 30) * diffDays).toFixed(2);
-                    })()}</p>
-                  </div>
-                  <div className="p-2 bg-orange-50 rounded-lg border border-orange-100">
-                    <p className="text-[9px] text-orange-600 font-bold uppercase">Pro</p>
-                    <p className="text-sm font-black text-orange-900">R$ {(() => {
-                      const payDate = new Date();
-                      let next8th = new Date(payDate.getFullYear(), payDate.getMonth(), 8, 12, 0, 0);
-                      if (payDate.getDate() >= 8) next8th.setMonth(next8th.getMonth() + 1);
-                      const diffTime = next8th.getTime() - payDate.getTime();
-                      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                      return ((79.99 / 30) * diffDays).toFixed(2);
                     })()}</p>
                   </div>
                 </div>
@@ -837,7 +843,7 @@ export function ProfileScreen() {
                   {diffDays > 1 ? `Faltam ${diffDays} dias para o fim do teste` : (diffDays === 1 ? 'Termina amanhã' : 'Teste expirado')}
                 </p>
               )}
-              {['pro', 'starter'].includes(profile?.plano_tipo) && <p className="text-xs text-emerald-600 font-bold">Plano Starter Ativo via Stripe</p>}
+              {['pro', 'starter'].includes(profile?.plano_tipo) && <p className="text-xs text-emerald-600 font-bold">Assinatura Mensal Ativa</p>}
             </div>
             <div className="flex-1 max-w-md space-y-2">
               <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest flex items-center gap-2">
@@ -846,10 +852,10 @@ export function ProfileScreen() {
               <input 
                 type="text" 
                 readOnly
-                value={profile?.access_key_code || (['pro', 'starter'].includes(profile?.plano_tipo) ? 'ASSINATURA_STARTER' : 'Acesso não liberado')} 
+                value={profile?.access_key_code || (['pro', 'starter'].includes(profile?.plano_tipo) ? 'ASSINATURA_MENSAL' : 'Acesso não liberado')} 
                 className="w-full bg-white border border-zinc-200 rounded-xl px-4 py-3 text-sm text-zinc-500 font-mono outline-none shadow-sm cursor-not-allowed"
               />
-              <p className="text-[10px] text-zinc-400">O seu acesso é liberado manualmente pelo administrador ou via assinatura Starter (R$ 39,99/mês).</p>
+              <p className="text-[10px] text-zinc-400">O seu acesso é liberado manualmente pelo administrador ou via Assinatura Mensal (R$ 39,99/mês).</p>
               
               {(profile?.role === 'admin' || !['pro', 'starter'].includes(profile?.plano_tipo)) && (
                 <div className="mt-8 space-y-8">
@@ -863,86 +869,38 @@ export function ProfileScreen() {
                   </div>
 
                   <div className="grid grid-cols-1 gap-6">
-                    {/* Plano Starter - Purple */}
-                    {profile?.role === 'admin' && (
-                      <div className="bg-purple-50 border border-purple-100 rounded-[32px] p-8 space-y-6 shadow-sm transition-all hover:shadow-md">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-3">
-                            <div className="w-12 h-12 rounded-2xl bg-purple-100 flex items-center justify-center text-purple-600">
-                              <Sparkles className="w-6 h-6" />
-                            </div>
-                            <div>
-                              <h4 className="font-bold text-purple-900">Plano Starter</h4>
-                              <p className="text-xs text-purple-600">Liberação automática via Stripe</p>
-                            </div>
-                          </div>
-                          <div className="text-right">
-                            <div className="flex items-baseline justify-end gap-1">
-                              <span className="text-sm font-bold text-purple-900">R$</span>
-                              <span className="text-3xl font-black text-purple-900 tracking-tight">39,99</span>
-                            </div>
-                            <span className="text-[10px] text-purple-500 font-bold uppercase tracking-widest">/mês</span>
-                          </div>
-                        </div>
-
-                        <div className="flex justify-center">
-                          <stripe-buy-button
-                            buy-button-id="buy_btn_1TAnyS0js7klPnUOyUiRC4VP"
-                            publishable-key="pk_live_51T5KER0js7klPnUOAaYz29LZPcJuCQTbm8yIhpjJKsTl7pMNOE6th3SptDjB0RqkgCYMcywqJBAK8umAgpK8JVPk00EZZHqUUp"
-                            client-reference-id={profile?.id}
-                          >
-                          </stripe-buy-button>
-                        </div>
-                        
-                        <p className="text-[10px] text-purple-700 text-center font-medium">
-                          Ideal para quem está começando e quer praticidade no pagamento.
-                        </p>
-                      </div>
-                    )}
-
-                    {/* Plano Pro - Orange */}
-                    <div className="bg-orange-50 border border-orange-100 rounded-[32px] p-8 space-y-6 shadow-sm transition-all hover:shadow-md">
+                    {/* Plano Starter - AbacatePay */}
+                    <div className="bg-purple-50 border border-purple-100 rounded-[32px] p-8 space-y-6 shadow-sm transition-all hover:shadow-md">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
-                          <div className="w-12 h-12 rounded-2xl bg-orange-100 flex items-center justify-center text-orange-600">
-                            <Crown className="w-6 h-6" />
+                          <div className="w-12 h-12 rounded-2xl bg-purple-100 flex items-center justify-center text-purple-600">
+                            <Sparkles className="w-6 h-6" />
                           </div>
                           <div>
-                            <h4 className="font-bold text-orange-900">Plano Distribuidor Romance primeira mensalidade</h4>
-                            <p className="text-xs text-orange-600">Libera todas as funções do sistema</p>
+                            <h4 className="font-bold text-purple-900">Assinatura Mensal</h4>
+                            <p className="text-xs text-purple-600">Pagamento via AbacatePay</p>
                           </div>
                         </div>
                         <div className="text-right">
                           <div className="flex items-baseline justify-end gap-1">
-                            <span className="text-sm font-bold text-orange-900">R$</span>
-                            <span className="text-3xl font-black text-orange-900 tracking-tight">30,00</span>
+                            <span className="text-sm font-bold text-purple-900">R$</span>
+                            <span className="text-3xl font-black text-purple-900 tracking-tight">39,99</span>
                           </div>
-                          <span className="text-[10px] text-orange-500 font-bold uppercase tracking-widest">/mês</span>
+                          <span className="text-[10px] text-purple-500 font-bold uppercase tracking-widest">/mês</span>
                         </div>
                       </div>
 
-                      <div className="space-y-4">
-                        <a 
-                          href="https://checkout.nubank.com.br/HvwxRsyDz9ir5yh"
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-600 text-white w-full py-4 rounded-2xl font-bold transition-all shadow-lg shadow-orange-500/20"
-                        >
-                          Pagar com NuBank
-                        </a>
-
-                        <div className="bg-white/50 rounded-2xl p-4 border border-orange-100">
-                          <div className="flex items-start gap-3">
-                            <div className="w-8 h-8 rounded-lg bg-orange-100 flex items-center justify-center text-orange-600 shrink-0">
-                              <Send className="w-4 h-4" />
-                            </div>
-                            <p className="text-[11px] text-orange-700 leading-relaxed">
-                              <strong>Liberação Manual:</strong> Após o pagamento, envie o comprovante para 
-                              <strong className="text-orange-900 block mt-1">(47) 99762-6121 (Anderson Rodrigues)</strong>
-                            </p>
-                          </div>
-                        </div>
-                      </div>
+                      <button 
+                        onClick={() => window.open('https://app.abacatepay.com/pay/bill_gDcujhxNTcxyw0FQ1ZDaWpn2', '_blank')}
+                        className="flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-700 text-white w-full py-4 rounded-2xl font-bold transition-all shadow-lg shadow-purple-500/20"
+                      >
+                        <CreditCard className="w-5 h-5" />
+                        Assinar com AbacatePay
+                      </button>
+                      
+                      <p className="text-[10px] text-purple-700 text-center font-medium">
+                        Liberação via PIX ou Cartão usando AbacatePay.
+                      </p>
                     </div>
                   </div>
                 </div>

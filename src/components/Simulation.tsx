@@ -228,6 +228,7 @@ export function Simulation() {
                 type="text" 
                 placeholder="Ex: Sacola da Maria - Março"
                 value={description}
+                maxLength={100}
                 onChange={e => setDescription(e.target.value)}
                 className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm focus:border-indigo-500 outline-none transition-all"
               />
@@ -242,39 +243,51 @@ export function Simulation() {
                   inputMode="numeric"
                   placeholder="0,00"
                   value={inputValue}
+                  maxLength={20}
                   onChange={e => setInputValue(formatMoneyInput(e.target.value))}
                   className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl pl-14 pr-6 py-4 text-2xl font-bold text-zinc-700 focus:border-indigo-500 outline-none transition-all"
                 />
               </div>
             </div>
 
-            <div className="space-y-2">
+            <div className="space-y-4">
               <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Despesas Adicionais (Opcional)</label>
               <div className="flex flex-col sm:flex-row gap-3">
-                <input 
-                  type="text" 
-                  placeholder="Descrição da despesa"
-                  value={expenseDesc}
-                  onChange={e => setExpenseDesc(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && handleAddExpense()}
-                  className="flex-[2] bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm focus:border-indigo-500 outline-none transition-all"
-                />
-                <input 
-                  type="text" 
-                  inputMode="numeric"
-                  placeholder="0,00"
-                  value={inputExpenseValue}
-                  onChange={e => setInputExpenseValue(formatMoneyInput(e.target.value))}
-                  onKeyDown={e => e.key === 'Enter' && handleAddExpense()}
-                  className="flex-1 bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm focus:border-indigo-500 outline-none transition-all"
-                />
-                <button 
-                  type="button"
-                  onClick={handleAddExpense}
-                  className="bg-zinc-100 hover:bg-zinc-200 text-zinc-600 p-4 rounded-2xl transition-all flex items-center justify-center"
-                >
-                  <Plus className="w-5 h-5" />
-                </button>
+                <div className="flex-[2] space-y-1">
+                  <p className="text-[10px] text-zinc-400 font-medium ml-1">Descrição</p>
+                  <input 
+                    type="text" 
+                    placeholder="Descrição da despesa"
+                    value={expenseDesc}
+                    maxLength={50}
+                    onChange={e => setExpenseDesc(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && handleAddExpense()}
+                    className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm focus:border-indigo-500 outline-none transition-all"
+                  />
+                </div>
+                <div className="flex-1 space-y-1">
+                  <p className="text-[10px] text-zinc-400 font-medium ml-1">Valor Despesa</p>
+                  <input 
+                    type="text" 
+                    inputMode="numeric"
+                    placeholder="0,00"
+                    value={inputExpenseValue}
+                    maxLength={20}
+                    onChange={e => setInputExpenseValue(formatMoneyInput(e.target.value))}
+                    onKeyDown={e => e.key === 'Enter' && handleAddExpense()}
+                    className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm focus:border-indigo-500 outline-none transition-all"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <p className="text-[10px] text-zinc-400 font-medium ml-1">Adicionar Despesa</p>
+                  <button 
+                    type="button"
+                    onClick={handleAddExpense}
+                    className="bg-blue-600 hover:bg-blue-700 text-white p-4 rounded-2xl transition-all flex items-center justify-center h-[52px] shadow-lg shadow-blue-500/20"
+                  >
+                    <Plus className="w-5 h-5" />
+                  </button>
+                </div>
               </div>
               
               {expenses.length > 0 && (

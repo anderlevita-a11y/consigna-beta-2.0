@@ -1325,6 +1325,7 @@ export function FinancialControl({ profile }: FinancialControlProps) {
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest ml-1">Valor (R$)</label>
+                      <p className="text-[10px] text-zinc-400 font-medium ml-1 mb-1">Valor da Despesa</p>
                       <input 
                         required
                         type="text"
