@@ -31,6 +31,7 @@ import { LabelCenter } from './LabelCenter';
 import { cn, printFallback, formatError, formatMoney, formatMoneyInput, parseMoney } from '../lib/utils';
 import { useNotifications } from './NotificationCenter';
 import { detectUserDuplicates, resolveDuplicates, getLinkedProductIds } from '../lib/syncCatalog';
+import { sanitizeString } from '../lib/sanitizer';
 
 export function Products() {
   const { addNotification } = useNotifications();
@@ -353,8 +354,8 @@ export function Products() {
       const productsToInsert = rows.map(row => {
         const cols = row.split('\t');
         // Sequence: nome produto, nome etiqueta, código EAN, custo, valor
-        const name = cols[0]?.trim() || 'Produto Sem Nome';
-        const label_name = cols[1]?.trim() || '';
+        const name = sanitizeString(cols[0] || 'Produto Sem Nome');
+        const label_name = sanitizeString(cols[1] || '');
         const ean = cols[2]?.trim() || '';
         const cost_price = parseFloat(cols[3]?.replace(',', '.') || '0');
         const sale_price = parseFloat(cols[4]?.replace(',', '.') || '0');
@@ -678,6 +679,10 @@ export function Products() {
 
       const dataToSave = {
         ...formData,
+        name: sanitizeString(formData.name),
+        label_name: sanitizeString(formData.label_name),
+        description: sanitizeString(formData.description),
+        category: sanitizeString(formData.category),
         ean: finalEan,
         photo_url: photoUrl,
         image_urls: filteredImageUrls,

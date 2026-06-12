@@ -28,6 +28,7 @@ import { supabase } from '../lib/supabase';
 import { useNotifications } from './NotificationCenter';
 import { WeeklyPlanner } from './WeeklyPlanner';
 import { DailyInsight } from '../types';
+import { ConfirmationModal } from './ConfirmationModal';
 
 interface Task {
   id: string;
@@ -92,6 +93,15 @@ export function SmartNotepad() {
   // Daily Insight State
   const [currentInsight, setCurrentInsight] = useState<DailyInsight | null>(null);
   const [insightExhausted, setInsightExhausted] = useState(false);
+
+  // Deletion state
+  const [deleteModal, setDeleteModal] = useState<{
+    isOpen: boolean;
+    feedbackId: string | null;
+  }>({
+    isOpen: false,
+    feedbackId: null
+  });
 
   // Load data from Supabase (with localStorage fallback)
   useEffect(() => {
@@ -275,6 +285,13 @@ export function SmartNotepad() {
       status: 'idea'
     };
     setContentIdeas([...contentIdeas, newIdea]);
+  };
+
+  const confirmDeleteFeedback = () => {
+    if (deleteModal.feedbackId) {
+      setFeedbacks(feedbacks.filter(item => item.id !== deleteModal.feedbackId));
+    }
+    setDeleteModal({ isOpen: false, feedbackId: null });
   };
 
   if (loading) {
@@ -675,10 +692,11 @@ export function SmartNotepad() {
                           <option value="suggestion">Sugestão</option>
                         </select>
                         <button 
-                          onClick={() => setFeedbacks(feedbacks.filter(item => item.id !== f.id))}
-                          className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 transition-all"
+                          onClick={() => setDeleteModal({ isOpen: true, feedbackId: f.id })}
+                          className="text-red-400 hover:text-red-600 transition-all p-1 hover:bg-red-50 rounded-md"
+                          title="Excluir Feedback"
                         >
-                          <Trash2 className="w-3 h-3" />
+                          <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </div>
                       <textarea 
@@ -723,6 +741,16 @@ export function SmartNotepad() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      <ConfirmationModal
+        isOpen={deleteModal.isOpen}
+        title="Excluir Feedback"
+        message="Tem certeza que deseja excluir este feedback de ouro? Esta ação não pode ser desfeita."
+        confirmText="Sim, excluir"
+        onConfirm={confirmDeleteFeedback}
+        onCancel={() => setDeleteModal({ isOpen: false, feedbackId: null })}
+        variant="danger"
+      />
     </div>
   );
 }

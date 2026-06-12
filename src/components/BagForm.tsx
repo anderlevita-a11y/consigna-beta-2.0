@@ -5,6 +5,7 @@ import { Product, Customer } from '../types';
 import { cn, formatError } from '../lib/utils';
 import { useNotifications } from './NotificationCenter';
 import { ConfirmationModal } from './ConfirmationModal';
+import { sanitizeString } from '../lib/sanitizer';
 
 interface BagFormProps {
   onClose: () => void;
@@ -222,6 +223,8 @@ export function BagForm({ onClose, onSave, campaignId, bagId }: BagFormProps) {
   const totalValue = items.reduce((sum, i) => sum + (i.product.sale_price * i.quantity), 0);
 
   const handleSubmit = async () => {
+    if (loading) return;
+
     if (items.length === 0) {
       addNotification({
         type: 'warning',
@@ -276,7 +279,7 @@ export function BagForm({ onClose, onSave, campaignId, bagId }: BagFormProps) {
           .from('bags')
           .update({
             customer_id: selectedCustomer || null,
-            notes: notes || null,
+            notes: sanitizeString(notes) || null,
             installments: isInstallmentPlan ? installmentsCount : 1,
             total_value: totalValue,
             total_items: totalItems,

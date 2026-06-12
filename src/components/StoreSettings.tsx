@@ -27,6 +27,7 @@ import { Product, ProductReview } from '../types';
 import { ConfirmationModal } from './ConfirmationModal';
 import { Star, Check, X as CloseIcon, Trash2 as TrashIcon } from 'lucide-react';
 import { useNotifications } from './NotificationCenter';
+import { sanitizeString } from '../lib/sanitizer';
 
 interface StoreSettings {
   store_name: string;
@@ -424,14 +425,28 @@ export function StoreSettings() {
     setMessage(null);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-    const user = session?.user;
+      const user = session?.user;
       if (!user) return;
+
+      // Sanitize string fields
+      const sanitizedSettings = {
+        ...settings,
+        store_name: sanitizeString(settings.store_name),
+        welcome_message: sanitizeString(settings.welcome_message),
+        whatsapp_number: sanitizeString(settings.whatsapp_number),
+        instagram_handle: sanitizeString(settings.instagram_handle),
+        scrolling_text: sanitizeString(settings.scrolling_text),
+        pix_key: sanitizeString(settings.pix_key),
+        footer_text: sanitizeString(settings.footer_text),
+        shipping_text: sanitizeString(settings.shipping_text),
+        instagram_post_url: sanitizeString(settings.instagram_post_url)
+      };
 
       const { error } = await supabase
         .from('store_settings')
         .upsert({
           user_id: user.id,
-          ...settings,
+          ...sanitizedSettings,
           updated_at: new Date().toISOString()
         });
 

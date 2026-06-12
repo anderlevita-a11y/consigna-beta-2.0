@@ -171,6 +171,8 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
 
 
   const handleReopen = async () => {
+    if (saving) return;
+
     setConfirmModal({
       isOpen: true,
       title: 'Reabrir Sacola',
@@ -179,9 +181,30 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
         setConfirmModal(prev => ({ ...prev, isOpen: false }));
         setSaving(true);
         try {
+          // Idempotency check: verify current status from DB
+          const { data: currentBag } = await supabase
+            .from('bags')
+            .select('status')
+            .eq('id', bag.id)
+            .single();
+          
+          if (currentBag?.status !== 'closed') {
+            onSave();
+            return;
+          }
+
           // 1. Revert stock and reset returned_quantity
           for (const item of items) {
-            if (item.returned_quantity > 0) {
+            // Fetch current state from DB to ensure idempotency
+            const { data: dbItem } = await supabase
+              .from('bag_items')
+              .select('returned_quantity')
+              .eq('id', item.id)
+              .single();
+            
+            const currentReturned = dbItem?.returned_quantity || 0;
+
+            if (currentReturned > 0) {
               const { data: product } = await supabase
                 .from('products')
                 .select('current_stock')
@@ -191,7 +214,7 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
               if (product) {
                 await supabase
                   .from('products')
-                  .update({ current_stock: Math.max(0, (product.current_stock || 0) - item.returned_quantity) })
+                  .update({ current_stock: Math.max(0, (product.current_stock || 0) - currentReturned) })
                   .eq('id', item.product.id);
               }
               
@@ -231,10 +254,33 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
   };
 
   const handleFinalize = async () => {
+    if (saving) return;
     setSaving(true);
     try {
-      // 1. Update bag items and return stock
+      // Idempotency check: verify current status from DB
+      const { data: currentBag } = await supabase
+        .from('bags')
+        .select('status')
+        .eq('id', bag.id)
+        .single();
+      
+      if (currentBag?.status === 'closed') {
+        onSave();
+        return;
+      }
+
+      // 1. Update bag items and return stock using differential adjustment
       for (const item of items) {
+        // Fetch current state from DB to ensure idempotency
+        const { data: dbItem } = await supabase
+          .from('bag_items')
+          .select('returned_quantity')
+          .eq('id', item.id)
+          .single();
+        
+        const prevReturned = dbItem?.returned_quantity || 0;
+        const diff = item.returned_quantity - prevReturned;
+
         // Update bag item
         const { error: itemError } = await supabase
           .from('bag_items')
@@ -243,8 +289,8 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
         
         if (itemError) throw itemError;
 
-        // Return to stock if there are returned items
-        if (item.returned_quantity > 0) {
+        // Return to stock based on the DIFFERENCE
+        if (diff !== 0) {
           const { data: product } = await supabase
             .from('products')
             .select('current_stock, has_grid, grid_data')
@@ -253,24 +299,26 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
           
           if (product) {
             let updateData: any = {
-              current_stock: Number(product.current_stock || 0) + item.returned_quantity
+              current_stock: Number(product.current_stock || 0) + diff
             };
 
             // Update grid data if product has grid
             if (product.has_grid && product.grid_data && item.color && item.size) {
               const newGridData = product.grid_data.map((g: any) => {
                 if (g.color === item.color && g.size === item.size) {
-                  return { ...g, quantity: (g.quantity || 0) + item.returned_quantity };
+                  return { ...g, quantity: (g.quantity || 0) + diff };
                 }
                 return g;
               });
               updateData.grid_data = newGridData;
             }
 
-            await supabase
+            const { error: stockError } = await supabase
               .from('products')
               .update(updateData)
               .eq('id', item.product.id);
+            
+            if (stockError) throw stockError;
           }
         }
       }

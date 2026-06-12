@@ -51,6 +51,7 @@ export function ProfileScreen() {
     title: string;
     message: string;
     variant: 'danger' | 'warning' | 'info';
+    requiredText?: string;
     onConfirm: () => void;
   }>({
     isOpen: false,
@@ -324,6 +325,85 @@ export function ProfileScreen() {
             message: formatError(err)
           });
         } finally {
+          setConfirmModal(prev => ({ ...prev, isOpen: false }));
+        }
+      }
+    });
+  };
+
+  const handleDeleteAccount = async () => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'EXCLUSÃO TOTAL DE DADOS',
+      message: 'Esta ação é IRREVERSÍVEL. Todos os seus dados, documentos, históricos de pagamento e configurações serão excluídos permanentemente de nossos servidores em conformidade com a LGPD. Deseja continuar?',
+      variant: 'danger',
+      requiredText: 'EXCLUIR',
+      onConfirm: async () => {
+        setSaving(true);
+        try {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (!session?.user) throw new Error('Usuário não autenticado');
+
+          const userId = session.user.id;
+
+          // 1. Delete associated data (Cascade)
+          // List of tables that might have user_id
+          const tables = [
+            'payment_receipts',
+            'bags',
+            'mystery_bags',
+            'customers',
+            'products',
+            'campaigns',
+            'routes',
+            'raffles',
+            'sweepstakes',
+            'goals',
+            'miscellaneous_charges',
+            'financial_transactions'
+          ];
+
+          for (const table of tables) {
+            await supabase.from(table).delete().eq('user_id', userId);
+          }
+
+          // 2. Delete storage files
+          // We don't have a list of all files, but we can try to delete the user folders
+          await supabase.storage.from('documents').remove([`${userId}/`]);
+          await supabase.storage.from('receipts').remove([`${userId}/`]);
+          await supabase.storage.from('products').remove([`${userId}/`]);
+
+          // 3. Delete Profile record
+          const { error: profileError } = await supabase
+            .from('profiles')
+            .delete()
+            .eq('id', userId);
+
+          if (profileError) throw profileError;
+
+          // 4. Sign Out
+          await supabase.auth.signOut();
+          
+          addNotification({
+            type: 'success',
+            title: 'Conta Excluída',
+            message: 'Todos os seus dados foram removidos com sucesso. A sessão será encerrada.'
+          });
+
+          // Redirect after a short delay
+          setTimeout(() => {
+            window.location.href = '/';
+          }, 2000);
+
+        } catch (err: any) {
+          console.error('Error deleting account:', err);
+          addNotification({
+            type: 'error',
+            title: 'Erro na Exclusão',
+            message: 'Não foi possível completar a exclusão. Por favor, contate o DPO.'
+          });
+        } finally {
+          setSaving(false);
           setConfirmModal(prev => ({ ...prev, isOpen: false }));
         }
       }
@@ -633,9 +713,20 @@ export function ProfileScreen() {
                 <MapPin className="w-5 h-5 text-emerald-600" />
                 <span className="text-sm font-bold text-zinc-700">Localização GPS</span>
               </div>
-              <span className="text-xs font-mono text-zinc-400 bg-white px-3 py-1 rounded-lg border border-zinc-100">
-                Lat: {profile?.latitude || '-27.136047'} | Lng: {profile?.longitude || '-48.604275'}
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-mono text-zinc-400 bg-white px-3 py-1 rounded-lg border border-zinc-100">
+                  Lat: {profile?.latitude || 'N/A'} | Lng: {profile?.longitude || 'N/A'}
+                </span>
+                {profile?.latitude && (
+                  <button 
+                    onClick={() => setProfile({ ...profile, latitude: null, longitude: null })}
+                    className="p-1 px-2 bg-red-50 text-red-500 rounded-lg hover:bg-red-100 transition-all text-[10px] font-bold"
+                    title="Resetar Localização"
+                  >
+                    RESET
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -910,6 +1001,85 @@ export function ProfileScreen() {
         </div>
       </section>
 
+      {/* Governança e Direitos do Titular (LGPD) */}
+      <section className="bg-white border border-zinc-200 rounded-2xl overflow-hidden shadow-sm">
+        <div className="p-4 sm:p-6 border-b border-zinc-100 bg-zinc-50/50 flex items-center gap-3">
+          <ShieldCheck className="w-5 h-5 text-emerald-600" />
+          <h3 className="font-bold text-zinc-800">Governança e Direitos do Titular (LGPD)</h3>
+        </div>
+        <div className="p-4 sm:p-6 space-y-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* DPO Channel */}
+            <div className="bg-zinc-50 rounded-2xl p-6 border border-zinc-100 space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center text-emerald-600">
+                  <Smartphone className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-zinc-800">Encarregado de Dados (DPO)</h4>
+                  <p className="text-[10px] text-zinc-500 uppercase tracking-widest">Canal Direto LGPD</p>
+                </div>
+              </div>
+              <p className="text-xs text-zinc-600 leading-relaxed">
+                Para exercer seus direitos de acesso, retificação ou dúvidas sobre como tratamos seus dados, entre em contato com nosso Encarregado.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <a 
+                  href="tel:47997626121" 
+                  className="flex items-center gap-2 px-4 py-2 bg-white border border-zinc-200 text-zinc-700 rounded-xl text-xs font-bold hover:bg-zinc-50 transition-all"
+                >
+                  47 997626121
+                </a>
+                <a 
+                  href="https://wa.me/5547997626121?text=Olá,%20gostaria%20de%20falar%20com%20o%20DPO%20sobre%20meus%20dados." 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2 px-4 py-2 bg-emerald-500 text-white rounded-xl text-xs font-bold hover:bg-emerald-600 transition-all shadow-sm shadow-emerald-500/20"
+                >
+                  <Send className="w-4 h-4" />
+                  WHATSAPP
+                </a>
+              </div>
+            </div>
+
+            {/* Deletion Rights */}
+            <div className="bg-red-50/30 rounded-2xl p-6 border border-red-100 space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center text-red-600">
+                  <Trash2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-red-800">Direito ao Esquecimento</h4>
+                  <p className="text-[10px] text-red-500 uppercase tracking-widest">Exclusão de Conta</p>
+                </div>
+              </div>
+              <p className="text-xs text-red-700/70 leading-relaxed">
+                Solicite a exclusão total e definitiva de todos os seus dados pessoais, históricos e documentos de nossos servidores. <strong>Esta ação não pode ser desfeita.</strong>
+              </p>
+              <button 
+                onClick={handleDeleteAccount}
+                className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-white border border-red-200 text-red-600 rounded-xl text-xs font-bold hover:bg-red-50 transition-all shadow-sm"
+              >
+                EXCLUIR TODOS OS MEUS DADOS
+              </button>
+            </div>
+          </div>
+
+          <div className="bg-zinc-50 rounded-2xl p-4 border border-blue-100">
+            <div className="flex items-start gap-3">
+              <ShieldAlert className="w-4 h-4 text-blue-600 mt-0.5" />
+              <div className="space-y-1">
+                <h5 className="text-[10px] font-black text-blue-900 uppercase tracking-widest">Compromisso com a Privacidade</h5>
+                <p className="text-[10px] text-blue-800/70 leading-relaxed">
+                  Nossa política de governança de dados assegura que suas informações são utilizadas exclusivamente para o funcionamento do sistema, 
+                  com criptografia e backups seguros. Você possui total controle e transparência sobre o ciclo de vida dos seus dados.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <div className="flex items-center justify-center gap-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">
         <button 
           onClick={() => { setLegalTab('privacy'); setShowLegalModal(true); }}
@@ -997,6 +1167,7 @@ export function ProfileScreen() {
         title={confirmModal.title}
         message={confirmModal.message}
         variant={confirmModal.variant}
+        requiredText={confirmModal.requiredText}
         onConfirm={confirmModal.onConfirm}
         onCancel={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
       />

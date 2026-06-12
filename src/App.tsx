@@ -31,6 +31,8 @@ import { Settings, Loader2, Megaphone, BarChart3, Ticket, Calculator, ShieldAler
 import { supabase } from './lib/supabase';
 import { Session } from '@supabase/supabase-js';
 import { StoreSettings as StoreSettingsType, ProductReview, Profile, AppLegalSettings } from './types';
+import { CookieBanner } from './components/CookieBanner';
+import { loadConditionalScript } from './lib/cookieConsent';
 
 import { NotificationProvider, NotificationCenter, SystemAlert, useNotifications } from './components/NotificationCenter';
 
@@ -43,6 +45,9 @@ export default function App() {
   const [showAllGoals, setShowAllGoals] = useState(false);
 
   useEffect(() => {
+    // Load Stripe script only after consent
+    loadConditionalScript('stripe-buy-button', 'https://js.stripe.com/v3/buy-button.js');
+
     const params = new URLSearchParams(window.location.search);
     const s = params.get('s') || params.get('store');
     if (s) {
@@ -95,6 +100,7 @@ export default function App() {
     return (
       <NotificationProvider>
         <PublicRaffle />
+        <CookieBanner />
         <NotificationCenter />
       </NotificationProvider>
     );
@@ -104,6 +110,7 @@ export default function App() {
     return (
       <NotificationProvider>
         <PublicMysteryBag />
+        <CookieBanner />
         <NotificationCenter />
       </NotificationProvider>
     );
@@ -113,6 +120,7 @@ export default function App() {
     return (
       <NotificationProvider>
         <PublicGoals />
+        <CookieBanner />
         <NotificationCenter />
       </NotificationProvider>
     );
@@ -122,6 +130,7 @@ export default function App() {
     return (
       <NotificationProvider>
         <PublicSweepstakes />
+        <CookieBanner />
         <NotificationCenter />
       </NotificationProvider>
     );
@@ -133,6 +142,7 @@ export default function App() {
         <div className="min-h-screen bg-white">
           <VirtualStore slug={storeSlug} />
         </div>
+        <CookieBanner />
         <NotificationCenter />
       </NotificationProvider>
     );
@@ -141,6 +151,7 @@ export default function App() {
   return (
     <NotificationProvider>
       <AppContent />
+      <CookieBanner />
     </NotificationProvider>
   );
 }

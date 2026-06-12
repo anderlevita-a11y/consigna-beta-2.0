@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase';
 import { Campaign } from '../types';
 import { useNotifications } from './NotificationCenter';
 import { cn, formatError } from '../lib/utils';
+import { sanitizeString } from '../lib/sanitizer';
 
 interface CampaignFormProps {
   onClose: () => void;
@@ -36,6 +37,7 @@ export function CampaignForm({ onClose, onSave, initialData }: CampaignFormProps
       const discount_pct = Number(discountPctInput.replace(',', '.')) || 0;
       const payload: any = {
         ...formData,
+        name: sanitizeString(formData.name),
         discount_pct,
         user_id: user.id,
         status: 'active',

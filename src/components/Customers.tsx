@@ -7,19 +7,29 @@ import {
   Phone,
   MapPin,
   MoreHorizontal,
-  Loader2
+  Loader2,
+  Trash2,
+  AlertTriangle,
+  Check
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { Customer } from '../types';
 import { CustomerForm } from './CustomerForm';
 import { cn } from '../lib/utils';
+import { useNotifications } from './NotificationCenter';
+import { ConfirmationModal } from './ConfirmationModal';
 
 export function Customers() {
+  const { addNotification } = useNotifications();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [isAdding, setIsAdding] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<Customer | undefined>();
+  const [showDuplicatesOnly, setShowDuplicatesOnly] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [customerToDelete, setCustomerToDelete] = useState<Customer | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     fetchCustomers();
@@ -58,16 +68,96 @@ export function Customers() {
     setIsAdding(true);
   };
 
+  const confirmDelete = async () => {
+    if (!customerToDelete) return;
+
+    setDeleting(true);
+    try {
+      const { error } = await supabase
+        .from('customers')
+        .delete()
+        .eq('id', customerToDelete.id);
+
+      if (error) throw error;
+
+      addNotification({
+        type: 'success',
+        title: 'Sucesso',
+        message: 'Cliente duplicado excluído com sucesso.'
+      });
+      fetchCustomers();
+    } catch (err: any) {
+      console.error('Error deleting customer:', err);
+      addNotification({
+        type: 'error',
+        title: 'Erro',
+        message: err.message || 'Erro ao excluir cliente.'
+      });
+    } finally {
+      setDeleting(false);
+      setDeleteDialogOpen(false);
+      setCustomerToDelete(null);
+    }
+  };
+
+  const handleDeleteDuplicate = async (customer: Customer) => {
+    setLoading(true);
+    try {
+      // Verificar se possui sacolas não finalizadas
+      const { data: bags, error: bagsError } = await supabase
+        .from('bags')
+        .select('id, bag_number')
+        .eq('customer_id', customer.id)
+        .neq('status', 'closed');
+
+      if (bagsError) throw bagsError;
+
+      if (bags && bags.length > 0) {
+        addNotification({
+          type: 'error',
+          title: 'Não é possível excluir',
+          message: `O cliente possui ${bags.length} sacola(s) em aberto (${bags.map(b => b.bag_number).join(', ')}). Finalize os acertos primeiro.`
+        });
+        return;
+      }
+
+      setCustomerToDelete(customer);
+      setDeleteDialogOpen(true);
+    } catch (err) {
+      console.error('Error checking bags:', err);
+      addNotification({
+        type: 'error',
+        title: 'Erro',
+        message: 'Erro ao verificar pendências do cliente.'
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   if (isAdding) {
     return <CustomerForm customer={editingCustomer} onClose={() => { setIsAdding(false); setEditingCustomer(undefined); }} onSave={handleSave} />;
   }
 
   const filteredCustomers = customers.filter(c => 
     c.nome?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    String(c.whatsapp || '').includes(searchTerm)
+    String(c.whatsapp || '').includes(searchTerm) ||
+    String(c.cpf || '').includes(searchTerm)
   );
 
-  const displayedCustomers = filteredCustomers.slice(0, 100);
+  const duplicateGroups = Object.values(
+    customers.reduce((acc, curr) => {
+      const cpf = curr.cpf?.replace(/\D/g, '');
+      if (!cpf) return acc;
+      if (!acc[cpf]) acc[cpf] = [];
+      acc[cpf].push(curr);
+      return acc;
+    }, {} as Record<string, Customer[]>)
+  ).filter(group => group.length > 1);
+
+  const displayedCustomers = showDuplicatesOnly 
+    ? duplicateGroups.flat() 
+    : filteredCustomers.slice(0, 100);
 
   return (
     <div className="space-y-6">
@@ -76,13 +166,34 @@ export function Customers() {
           <h2 className="text-xl sm:text-2xl font-bold text-zinc-800">Clientes</h2>
           <p className="text-sm text-zinc-500">Gerencie sua rede de vendedores e clientes.</p>
         </div>
-        <button 
-          onClick={() => setIsAdding(true)}
-          className="flex items-center justify-center gap-2 bg-[#00a86b] hover:bg-[#008f5b] text-white px-4 py-2.5 rounded-xl font-bold transition-all shadow-sm"
-        >
-          <Plus className="w-5 h-5" />
-          Novo Cliente
-        </button>
+        <div className="flex items-center gap-2">
+          {duplicateGroups.length > 0 && (
+            <button
+              onClick={() => setShowDuplicatesOnly(!showDuplicatesOnly)}
+              className={cn(
+                "flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-bold transition-all shadow-sm border",
+                showDuplicatesOnly 
+                  ? "bg-amber-50 border-amber-200 text-amber-700" 
+                  : "bg-white border-zinc-200 text-zinc-600 hover:bg-zinc-50"
+              )}
+            >
+              <AlertTriangle className="w-4 h-4" />
+              <span className="hidden sm:inline">
+                {showDuplicatesOnly ? 'Ver Todos' : `Duplicados (${duplicateGroups.length})`}
+              </span>
+              <span className="sm:hidden">
+                {showDuplicatesOnly ? 'Todos' : `Dup. (${duplicateGroups.length})`}
+              </span>
+            </button>
+          )}
+          <button 
+            onClick={() => setIsAdding(true)}
+            className="flex items-center justify-center gap-2 bg-[#00a86b] hover:bg-[#008f5b] text-white px-4 py-2.5 rounded-xl font-bold transition-all shadow-sm"
+          >
+            <Plus className="w-5 h-5" />
+            Novo Cliente
+          </button>
+        </div>
       </div>
 
       {/* Legenda de Ações */}
@@ -92,7 +203,13 @@ export function Customers() {
           <div className="p-1.5 bg-zinc-50 rounded-lg text-zinc-600">
             <MoreHorizontal className="w-3.5 h-3.5" />
           </div>
-          <span>Editar / Opções</span>
+          <span>Editar</span>
+        </div>
+        <div className="flex items-center gap-2 text-xs text-zinc-500">
+          <div className="p-1.5 bg-red-50 rounded-lg text-red-500">
+            <Trash2 className="w-3.5 h-3.5" />
+          </div>
+          <span>Excluir Duplicado</span>
         </div>
       </div>
 
@@ -130,6 +247,15 @@ export function Customers() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
+                    {showDuplicatesOnly && (
+                      <button 
+                        onClick={() => handleDeleteDuplicate(customer)}
+                        className="p-2 hover:bg-red-50 rounded-lg transition-colors text-red-400"
+                        title="Excluir Duplicado"
+                      >
+                        <Trash2 className="w-5 h-5" />
+                      </button>
+                    )}
                     <button 
                       onClick={() => handleEdit(customer)}
                       className="p-2 hover:bg-zinc-50 rounded-lg transition-colors text-zinc-400 hover:text-emerald-600"
@@ -172,7 +298,7 @@ export function Customers() {
                 </div>
               </div>
             ))}
-            {filteredCustomers.length > 100 && (
+            {filteredCustomers.length > 100 && !showDuplicatesOnly && (
               <div className="col-span-full py-4 text-center text-xs text-zinc-500 bg-zinc-50 rounded-xl">
                 Mostrando os primeiros 100 resultados de {filteredCustomers.length}. Use a busca para encontrar mais clientes.
               </div>
@@ -180,6 +306,19 @@ export function Customers() {
           </>
         )}
       </div>
+
+      <ConfirmationModal
+        isOpen={deleteDialogOpen}
+        title="Excluir Cliente Duplicado"
+        message={`Tem certeza que deseja excluir o cadastro duplicado de "${customerToDelete?.nome}"? Esta ação não pode ser desfeita.`}
+        confirmText={deleting ? 'Excluindo...' : 'Confirmar Exclusão'}
+        onConfirm={confirmDelete}
+        onCancel={() => {
+          setDeleteDialogOpen(false);
+          setCustomerToDelete(null);
+        }}
+        variant="danger"
+      />
     </div>
   );
 }

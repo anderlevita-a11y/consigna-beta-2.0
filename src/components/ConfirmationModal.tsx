@@ -1,5 +1,6 @@
 import React from 'react';
 import { AlertCircle, X } from 'lucide-react';
+import { cn } from '../lib/utils';
 
 interface ConfirmationModalProps {
   isOpen: boolean;
@@ -10,6 +11,7 @@ interface ConfirmationModalProps {
   confirmText?: string;
   cancelText?: string;
   variant?: 'danger' | 'warning' | 'info';
+  requiredText?: string;
 }
 
 export function ConfirmationModal({
@@ -20,9 +22,14 @@ export function ConfirmationModal({
   onCancel,
   confirmText = 'Confirmar',
   cancelText = 'Cancelar',
-  variant = 'info'
+  variant = 'info',
+  requiredText
 }: ConfirmationModalProps) {
+  const [inputValue, setInputValue] = React.useState('');
+
   if (!isOpen) return null;
+
+  const isConfirmDisabled = requiredText && inputValue !== requiredText;
 
   const variantStyles = {
     danger: 'bg-red-600 hover:bg-red-700 shadow-red-500/20',
@@ -54,20 +61,48 @@ export function ConfirmationModal({
           </button>
         </div>
         
-        <div className="p-8">
+        <div className="p-8 space-y-4">
           <p className="text-zinc-600 leading-relaxed">{message}</p>
+          
+          {requiredText && (
+            <div className="space-y-2 mt-4 animate-in slide-in-from-top-2 duration-300">
+              <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest block">
+                Digite <span className="text-red-600">"{requiredText}"</span> para confirmar
+              </label>
+              <input 
+                type="text"
+                autoFocus
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3 text-sm focus:border-red-500 outline-none transition-colors font-mono"
+                placeholder={requiredText}
+              />
+            </div>
+          )}
         </div>
 
         <div className="p-6 bg-zinc-50 flex flex-col sm:flex-row gap-3">
           <button
-            onClick={onCancel}
+            onClick={() => {
+              setInputValue('');
+              onCancel();
+            }}
             className="flex-1 px-6 py-3 rounded-2xl font-bold text-zinc-500 hover:text-zinc-800 hover:bg-zinc-100 transition-all text-sm"
           >
             {cancelText}
           </button>
           <button
-            onClick={onConfirm}
-            className={`flex-1 px-6 py-3 rounded-2xl font-bold text-white transition-all shadow-lg text-sm ${variantStyles[variant]}`}
+            onClick={() => {
+              if (!isConfirmDisabled) {
+                setInputValue('');
+                onConfirm();
+              }
+            }}
+            disabled={isConfirmDisabled}
+            className={cn(
+              "flex-1 px-6 py-3 rounded-2xl font-bold text-white transition-all shadow-lg text-sm",
+              isConfirmDisabled ? "bg-zinc-300 shadow-none cursor-not-allowed opacity-50" : variantStyles[variant]
+            )}
           >
             {confirmText}
           </button>

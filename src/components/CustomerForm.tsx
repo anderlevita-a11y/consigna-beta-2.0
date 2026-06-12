@@ -3,6 +3,7 @@ import {
   X, 
   Save, 
   MapPin, 
+  RotateCcw,
   Camera, 
   Upload, 
   Loader2,
@@ -17,6 +18,7 @@ import { supabase } from '../lib/supabase';
 import { Customer, Bag, BagItem } from '../types';
 import { cn } from '../lib/utils';
 import { useNotifications } from './NotificationCenter';
+import { sanitizeString, isValidCPF, isValidPhone } from '../lib/sanitizer';
 
 interface CustomerFormProps {
   customer?: Customer;
@@ -140,11 +142,55 @@ export function CustomerForm({ customer, onClose, onSave }: CustomerFormProps) {
 
     try {
       const { data: { session } } = await supabase.auth.getSession();
-    const user = session?.user;
+      const user = session?.user;
       if (!user) throw new Error('Usuário não autenticado');
 
-      // Remove immutable fields from formData
+      // Validation
+      if (formData.cpf && !isValidCPF(formData.cpf)) {
+        addNotification({ type: 'warning', title: 'Validação', message: 'CPF informado é inválido.' });
+        setLoading(false);
+        return;
+      }
+
+      // Check for existing customer with same CPF
+      if (formData.cpf) {
+        const { data: existing, error: checkError } = await supabase
+          .from('customers')
+          .select('id, nome')
+          .eq('cpf', formData.cpf)
+          .eq('user_id', user.id)
+          .neq('id', customer?.id || '00000000-0000-0000-0000-000000000000')
+          .maybeSingle();
+
+        if (checkError) throw checkError;
+
+        if (existing) {
+          addNotification({ 
+            type: 'error', 
+            title: 'Cliente já cadastrado', 
+            message: `Este CPF já está vinculado ao cliente: ${existing.nome}` 
+          });
+          setLoading(false);
+          return;
+        }
+      }
+
+      if (formData.whatsapp && !isValidPhone(formData.whatsapp)) {
+        addNotification({ type: 'warning', title: 'Validação', message: 'WhatsApp informado é inválido.' });
+        setLoading(false);
+        return;
+      }
+
+      // Remove immutable fields from formData and Sanitize
       const { id, created_at, ...saveData } = formData as any;
+      
+      // Basic string sanitization for all string fields
+      Object.keys(saveData).forEach(key => {
+        if (typeof saveData[key] === 'string') {
+          saveData[key] = sanitizeString(saveData[key]);
+        }
+      });
+
       saveData.credit_limit = Number(creditLimitInput.replace(',', '.')) || 0;
 
       // Ensure empty strings are sent as null to avoid Supabase errors (especially for dates and numbers)
@@ -199,6 +245,15 @@ export function CustomerForm({ customer, onClose, onSave }: CustomerFormProps) {
     } else {
       addNotification({ type: 'warning', title: 'GPS', message: 'Geolocalização não suportada pelo seu navegador.' });
     }
+  };
+
+  const handleResetLocation = () => {
+    setFormData(prev => ({
+      ...prev,
+      latitude: undefined,
+      longitude: undefined
+    }));
+    addNotification({ type: 'info', title: 'GPS', message: 'Localização GPS removida.' });
   };
 
   return (
@@ -537,21 +592,33 @@ export function CustomerForm({ customer, onClose, onSave }: CustomerFormProps) {
                   )}
                 </div>
 
-                <button 
-                  type="button"
-                  onClick={handleGetLocation}
-                  className="w-full bg-zinc-900 text-white py-4 rounded-2xl font-bold flex flex-col items-center justify-center gap-1 hover:bg-zinc-800 transition-all shadow-lg shadow-zinc-900/10"
-                >
-                  <div className="flex items-center gap-3">
-                    <MapPin className="w-5 h-5" />
-                    {formData.latitude && formData.longitude ? 'Atualizar Localização GPS' : 'Indicar Localização GPS'}
-                  </div>
+                <div className="flex gap-2">
+                  <button 
+                    type="button"
+                    onClick={handleGetLocation}
+                    className="flex-1 bg-zinc-900 text-white py-4 rounded-2xl font-bold flex flex-col items-center justify-center gap-1 hover:bg-zinc-800 transition-all shadow-lg shadow-zinc-900/10"
+                  >
+                    <div className="flex items-center gap-3">
+                      <MapPin className="w-5 h-5" />
+                      {formData.latitude && formData.longitude ? 'Atualizar Localização GPS' : 'Indicar Localização GPS'}
+                    </div>
+                    {formData.latitude && formData.longitude && (
+                      <span className="text-xs text-zinc-400 font-normal">
+                        Lat: {formData.latitude.toFixed(6)}, Lng: {formData.longitude.toFixed(6)}
+                      </span>
+                    )}
+                  </button>
                   {formData.latitude && formData.longitude && (
-                    <span className="text-xs text-zinc-400 font-normal">
-                      Lat: {formData.latitude.toFixed(6)}, Lng: {formData.longitude.toFixed(6)}
-                    </span>
+                    <button 
+                      type="button"
+                      onClick={handleResetLocation}
+                      className="p-4 bg-red-50 text-red-500 rounded-2xl hover:bg-red-100 transition-colors border border-red-100 flex items-center justify-center"
+                      title="Resetar Localização"
+                    >
+                      <RotateCcw className="w-5 h-5" />
+                    </button>
                   )}
-                </button>
+                </div>
               </div>
             </div>
           </div>

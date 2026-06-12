@@ -6,11 +6,35 @@ import { chromium } from "playwright-chromium";
 import { createClient } from "@supabase/supabase-js";
 import dotenv from "dotenv";
 import cron from "node-cron";
+import rateLimit from "express-rate-limit";
 
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Rate Limiters
+const generalApiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // Limit each IP to 100 requests per windowMs
+  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
+  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+  message: {
+    status: 429,
+    message: "Muitas requisições originadas deste IP, por favor tente novamente em 15 minutos."
+  }
+});
+
+const heavyApiLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 5, // Limit each IP to 5 requests per hour for expensive operations
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    status: 429,
+    message: "Limite de sincronização atingido. Por favor, aguarde uma hora para tentar novamente."
+  }
+});
 
 async function runFavoritaSync(supabase: any) {
   console.log(`[${new Date().toISOString()}] Starting Favorita Sync...`);
@@ -294,6 +318,9 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
+  // Essential for rate limiting behind reverse proxy (Like AI Studio / Cloud Run)
+  app.set('trust proxy', 1);
+
   app.use(express.json());
 
   // Schedule Favorita Sync: Every Monday at 08:00
@@ -307,8 +334,8 @@ async function startServer() {
     }
   });
 
-  // API Route for manual Favorita Sync
-  app.post("/api/sync-favorita", async (req, res) => {
+  // API Route for manual Favorita Sync - applying heavy limiter
+  app.post("/api/sync-favorita", heavyApiLimiter, async (req, res) => {
     try {
       const supabase = getSupabase();
       const result = await runFavoritaSync(supabase);
@@ -322,8 +349,8 @@ async function startServer() {
     }
   });
 
-  // API Route for AbacatePay Payment Link
-  app.post("/api/abacate-pay/create-link", async (req, res) => {
+  // API Route for AbacatePay Payment Link - applying general limiter
+  app.post("/api/abacate-pay/create-link", generalApiLimiter, async (req, res) => {
     try {
       const token = process.env.ABACATEPAY_TOKEN;
       if (!token) {
