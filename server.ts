@@ -2,7 +2,7 @@ import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
 import { fileURLToPath } from "url";
-import { chromium } from "playwright-chromium";
+// Defer playwright import to runtime
 import { createClient } from "@supabase/supabase-js";
 import dotenv from "dotenv";
 import cron from "node-cron";
@@ -10,8 +10,19 @@ import rateLimit from "express-rate-limit";
 
 dotenv.config();
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// Define __dirname and __filename in a way that works for both ESM and CJS
+let __filename: string;
+let __dirname: string;
+
+try {
+  // ESM
+  __filename = fileURLToPath(import.meta.url);
+  __dirname = path.dirname(__filename);
+} catch (e) {
+  // CJS (after bundle)
+  __filename = (globalThis as any).__filename || "";
+  __dirname = (globalThis as any).__dirname || process.cwd();
+}
 
 // Rate Limiters
 const generalApiLimiter = rateLimit({
@@ -92,6 +103,7 @@ async function runFavoritaSync(supabase: any) {
     }
     console.log(`Loaded ${centralMap.size} products from central_products.`);
 
+    const { chromium } = await import("playwright-chromium");
     browser = await chromium.launch({ 
       headless: true,
       args: ['--no-sandbox', '--disable-setuid-sandbox'] 
@@ -397,8 +409,11 @@ async function startServer() {
   }
 
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`Server running on http://0.0.0.0:${PORT} (NODE_ENV: ${process.env.NODE_ENV || 'development'})`);
   });
 }
 
-startServer();
+startServer().catch(err => {
+  console.error("CRITICAL ERROR: Failed to start server:", err);
+  process.exit(1);
+});

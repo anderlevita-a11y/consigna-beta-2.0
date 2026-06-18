@@ -103,6 +103,7 @@ export function Products() {
     name: string;
     label_name: string;
     ean: string;
+    barcode: string;
     cost_price: string | number;
     sale_price: string | number;
     current_stock: string | number;
@@ -118,6 +119,7 @@ export function Products() {
     name: '',
     label_name: '',
     ean: '',
+    barcode: '',
     ean_variations: [],
     cost_price: '0,00',
     sale_price: '0,00',
@@ -514,6 +516,7 @@ export function Products() {
       name: '',
       label_name: '',
       ean: '',
+      barcode: '',
       cost_price: '0,00',
       sale_price: '0,00',
       current_stock: '',
@@ -535,6 +538,7 @@ export function Products() {
       name: product.name || '',
       label_name: product.label_name || '',
       ean: product.ean || '',
+      barcode: product.barcode || '',
       cost_price: formatMoney(product.cost_price || 0),
       sale_price: formatMoney(product.sale_price || 0),
       current_stock: product.current_stock?.toString() || '',
@@ -550,6 +554,47 @@ export function Products() {
       grid_data: product.grid_data || []
     });
     setView('form');
+  };
+
+  const handleAssignBarcode = () => {
+    // Buscar o maior código numérico de 6 dígitos entre os produtos existentes
+    const numericBarcodes = products
+      .map(p => {
+        const b = p.barcode || '';
+        return b.match(/^\d{6}$/) ? parseInt(b) : null;
+      })
+      .filter((n): n is number => n !== null);
+
+    // Se houver algum código de 6 dígitos, pega o maior. Senão, começa antes de 500850
+    const maxBarcode = numericBarcodes.length > 0 ? Math.max(...numericBarcodes) : 500849;
+    
+    // O novo código será o maior + 1, garantindo que seja pelo menos 500850
+    const nextValue = Math.max(maxBarcode + 1, 500850);
+    const newBarcode = nextValue.toString().padStart(6, '0');
+
+    // Verificar se já existe (para o caso de termos pulado algum se o max fosse menor que 500850)
+    const exists = products.some(p => p.barcode === newBarcode || p.ean === newBarcode);
+    if (exists) {
+      let finalBarcode = nextValue;
+      while (products.some(p => p.barcode === (finalBarcode + 1).toString().padStart(6, '0') || p.ean === (finalBarcode + 1).toString().padStart(6, '0'))) {
+        finalBarcode++;
+      }
+      const guaranteedBarcode = (finalBarcode + 1).toString().padStart(6, '0');
+      setFormData(prev => ({ ...prev, barcode: guaranteedBarcode }));
+      addNotification({
+        type: 'success',
+        title: 'Código Gerado',
+        message: `O código de barras ${guaranteedBarcode} foi atribuído com sucesso.`
+      });
+      return;
+    }
+
+    setFormData(prev => ({ ...prev, barcode: newBarcode }));
+    addNotification({
+      type: 'success',
+      title: 'Código Gerado',
+      message: `O código de barras ${newBarcode} foi atribuído com sucesso.`
+    });
   };
 
   const handleDelete = (id: string) => {
@@ -661,13 +706,13 @@ export function Products() {
     setEanVariationInput('');
   };
 
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSave = async (e: React.FormEvent): Promise<Product | null> => {
+    if (e) e.preventDefault();
     setSaving(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-    const user = session?.user;
-      if (!user) return;
+      const user = session?.user;
+      if (!user) return null;
 
       // Filter empty image URLs and ensure at least photo_url is set if available
       const filteredImageUrls = (formData.image_urls || []).filter(url => url.trim() !== '');
@@ -684,6 +729,7 @@ export function Products() {
         description: sanitizeString(formData.description),
         category: sanitizeString(formData.category),
         ean: finalEan,
+        barcode: formData.barcode?.trim() || null,
         photo_url: photoUrl,
         image_urls: filteredImageUrls,
         cost_price: parseMoney(formData.cost_price.toString()),
@@ -693,20 +739,40 @@ export function Products() {
           : (Number(formData.current_stock.toString().replace(',', '.')) || 0)
       };
 
+      let savedData: Product | null = null;
+
       if (editingProduct) {
-        const { error } = await supabase
+        const { data, error } = await supabase
           .from('products')
           .update(dataToSave)
-          .eq('id', editingProduct.id);
+          .eq('id', editingProduct.id)
+          .select()
+          .single();
         if (error) throw error;
+        savedData = data;
       } else {
-        const { error } = await supabase
+        const { data, error } = await supabase
           .from('products')
-          .insert([{ ...dataToSave, user_id: user.id, is_visible_in_store: true }]);
+          .insert([{ ...dataToSave, user_id: user.id, is_visible_in_store: true }])
+          .select()
+          .single();
         if (error) throw error;
+        savedData = data;
       }
-      setView('list');
+
+      addNotification({
+        type: 'success',
+        title: 'Sucesso',
+        message: editingProduct ? 'Produto atualizado com sucesso!' : 'Produto cadastrado com sucesso!'
+      });
+
+      // Se for apenas o clique em "Salvar" normal (via submit do form e for um evento real do browser)
+      if (e && e.type === 'submit' && (e as any).nativeEvent) {
+        setView('list');
+      }
+      
       fetchProducts(); // Refresh the list
+      return savedData;
     } catch (err: any) {
       console.error('Error saving product:', err);
       if (err.code === '23505') {
@@ -1077,6 +1143,7 @@ export function Products() {
     if (!quickEntrySearch.trim()) return;
 
     const product = products.find(p => 
+      (p.barcode && p.barcode.trim() === quickEntrySearch.trim()) ||
       (p.ean && p.ean.trim() === quickEntrySearch.trim()) || 
       p.name.toLowerCase().trim() === quickEntrySearch.trim().toLowerCase()
     );
@@ -1088,6 +1155,7 @@ export function Products() {
       const searchTerm = quickEntrySearch.trim().toLowerCase();
       const partialMatches = products.filter(p => 
         p.name.toLowerCase().includes(searchTerm) ||
+        (p.barcode && p.barcode.toLowerCase().includes(searchTerm)) ||
         (p.ean && p.ean.includes(searchTerm))
       );
       
@@ -1178,11 +1246,15 @@ export function Products() {
   const isRestrictedPlan = profile?.status_pagamento === 'STARTER' || profile?.status_pagamento === 'TRIAL';
 
   const filteredProducts = products.filter(p => {
-    const search = searchTerm.toLowerCase().trim();
-    const matchesSearch = (p.name?.toLowerCase() || '').includes(search) ||
-                          (p.label_name?.toLowerCase() || '').includes(search) ||
-                          String(p.ean || '').toLowerCase().includes(search) ||
-                          (p.ean_variations || []).some(v => v.toLowerCase().includes(search));
+    const normalize = (str: string) => 
+      (str || '').normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+
+    const search = normalize(searchTerm);
+    const matchesSearch = normalize(p.name).includes(search) ||
+                          normalize(p.label_name || '').includes(search) ||
+                          normalize(p.barcode || '').includes(search) ||
+                          normalize(p.ean || '').includes(search) ||
+                          (p.ean_variations || []).some(v => normalize(v).includes(search));
     const matchesCategory = selectedCategory === 'Todos' || p.category === selectedCategory;
     return matchesSearch && matchesCategory;
   });
@@ -1246,15 +1318,42 @@ export function Products() {
               </div>
             </div>
 
-            <div className="space-y-2">
-              <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Código EAN</label>
-              <input 
-                type="text" 
-                value={formData.ean}
-                maxLength={20}
-                onChange={e => setFormData({...formData, ean: e.target.value})}
-                className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm focus:border-emerald-500 outline-none transition-all"
-              />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Código EAN</label>
+                <input 
+                  type="text" 
+                  value={formData.ean}
+                  maxLength={20}
+                  onChange={e => setFormData({...formData, ean: e.target.value})}
+                  className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm focus:border-emerald-500 outline-none transition-all"
+                  placeholder="Código EAN do fabricante"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Código de Barras Exclusivo</label>
+                <div className="flex gap-2">
+                  <input 
+                    type="text" 
+                    value={formData.barcode}
+                    maxLength={30}
+                    onChange={e => setFormData({...formData, barcode: e.target.value})}
+                    className="flex-1 bg-zinc-50 border border-zinc-100 rounded-2xl px-6 py-4 text-sm focus:border-emerald-500 outline-none transition-all"
+                    placeholder="Código para etiquetas internas"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAssignBarcode}
+                    className="px-6 bg-zinc-900 text-white rounded-2xl font-bold text-sm hover:bg-zinc-800 transition-colors flex items-center gap-2 whitespace-nowrap"
+                    title="Gerar código exclusivo"
+                  >
+                    <Barcode className="w-4 h-4" />
+                    Atribuir
+                  </button>
+                </div>
+                <p className="text-[10px] text-zinc-400 italic">Gere um código único para imprimir etiquetas na Central de Etiquetas.</p>
+              </div>
             </div>
 
             <div className="space-y-2">
@@ -1526,13 +1625,45 @@ export function Products() {
               )}
             </div>
 
-            <button 
-              type="submit"
-              disabled={saving}
-              className="w-full bg-[#00a86b] hover:bg-[#008f5b] text-white py-5 rounded-2xl font-bold transition-all shadow-lg shadow-emerald-500/20 disabled:opacity-50 flex items-center justify-center gap-2"
-            >
-              {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : editingProduct ? 'Salvar Alterações' : 'Cadastrar Produto'}
-            </button>
+            <div className="flex flex-col sm:flex-row gap-4 pt-4">
+              <button 
+                type="submit"
+                disabled={saving}
+                className="flex-1 bg-[#00a86b] hover:bg-[#008f5b] text-white py-5 rounded-2xl font-bold transition-all shadow-lg shadow-emerald-500/20 disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : editingProduct ? 'Salvar Alterações' : 'Cadastrar Produto'}
+              </button>
+
+              <button
+                type="button"
+                disabled={saving || (!formData.barcode && !formData.ean)}
+                onClick={async () => {
+                  const savedProduct = await handleSave(new Event('submit') as any);
+                  if (savedProduct) {
+                    setSelectedProductForLabels(savedProduct);
+                    setView('labels');
+                  }
+                }}
+                className="flex-1 bg-zinc-900 hover:bg-zinc-800 text-white py-5 rounded-2xl font-bold transition-all shadow-lg shadow-zinc-500/20 disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Salvar e Imprimir'}
+              </button>
+
+              {editingProduct && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedProductForLabels(editingProduct);
+                    setView('labels');
+                  }}
+                  className="px-8 py-5 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-2xl font-bold text-sm transition-all flex items-center justify-center gap-2"
+                  title="Enviar para Central de Etiquetas"
+                >
+                  <Printer className="w-5 h-5" />
+                  Imprimir Etiqueta
+                </button>
+              )}
+            </div>
           </form>
         </div>
 
@@ -1739,6 +1870,7 @@ export function Products() {
                     const search = quickEntrySearch.toLowerCase().trim();
                     return (p.name?.toLowerCase() || '').includes(search) ||
                            (p.label_name?.toLowerCase() || '').includes(search) ||
+                           (p.barcode && p.barcode.toLowerCase().includes(search)) ||
                            (p.ean && p.ean.toLowerCase().includes(search)) ||
                            (p.ean_variations || []).some(v => v.toLowerCase().includes(search));
                   })
@@ -2672,7 +2804,7 @@ export function Products() {
               <tr className="border-b border-zinc-100 bg-zinc-50">
                 <th className="px-6 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Produto</th>
                 <th className="px-6 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Nome Etiqueta</th>
-                <th className="px-6 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">EAN</th>
+                <th className="px-6 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Código</th>
                 <th className="px-6 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Preço</th>
                 <th className="px-6 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Estoque</th>
                 <th className="px-6 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Status</th>
@@ -2729,7 +2861,16 @@ export function Products() {
                       <td className="px-6 py-4">
                         <p className="text-xs text-zinc-500">{product.label_name || '-'}</p>
                       </td>
-                      <td className="px-6 py-4 text-sm text-zinc-500 font-mono">{product.ean || '-'}</td>
+                      <td className="px-6 py-4 text-xs text-zinc-500 font-mono">
+                        {product.barcode ? (
+                          <div className="flex flex-col">
+                            <span className="text-blue-600 font-bold">EXC: {product.barcode}</span>
+                            {product.ean && <span className="opacity-50 text-[10px]">EAN: {product.ean}</span>}
+                          </div>
+                        ) : (
+                          product.ean || '-'
+                        )}
+                      </td>
                       <td className="px-6 py-4 text-sm font-bold text-zinc-800">R$ {product.sale_price?.toFixed(2)}</td>
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-2">

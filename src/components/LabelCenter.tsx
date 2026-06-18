@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Printer, X, Package, Tag, Settings, Plus, Minus, Search, CheckCircle2, ChevronRight, LayoutTemplate, Edit3 } from 'lucide-react';
+import { Printer, X, Package, Tag, Settings, Plus, Minus, Search, CheckCircle2, ChevronRight, LayoutTemplate, Edit3, Trash2 } from 'lucide-react';
 import { Product, LabelModel as CustomLabelModel } from '../types';
 import { supabase } from '../lib/supabase';
 import { cn, formatError } from '../lib/utils';
 import { useNotifications } from './NotificationCenter';
 import JsBarcode from 'jsbarcode';
 import { LabelModelEditor } from './LabelModelEditor';
+import { ConfirmationModal } from './ConfirmationModal';
 
 interface LabelCenterProps {
   onClose: () => void;
@@ -78,6 +79,16 @@ const BARCODE_MODELS: LabelModel[] = [
     labelsPerRow: 3,
     margin: { top: 0.5, right: 0.5, bottom: 0.5, left: 0.5 },
     gap: { horizontal: 1.5, vertical: 0 }
+  },
+  {
+    id: 'zebra_jewelry_105x13',
+    name: 'Etiqueta Joias 105x13mm',
+    description: 'Etiquetas - Zebra/elgin/argox - uma por vez',
+    width: 105,
+    height: 13,
+    labelsPerRow: 1,
+    margin: { top: 0, right: 0, bottom: 0, left: 0 },
+    gap: { horizontal: 0, vertical: 0 }
   }
 ];
 
@@ -111,11 +122,83 @@ export function LabelCenter({ onClose, initialProduct }: LabelCenterProps) {
   const [selectedModel, setSelectedModel] = useState<string>('pimaco_6180');
   const [products, setProducts] = useState<Product[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedProducts, setSelectedProducts] = useState<{ product: Product; quantity: number }[]>(
-    initialProduct ? [{ product: initialProduct, quantity: 1 }] : []
-  );
+  const [selectedProducts, setSelectedProducts] = useState<{ product: Product; quantity: number }[]>([]);
   const [customModels, setCustomModels] = useState<CustomLabelModel[]>([]);
   const [showEditor, setShowEditor] = useState(false);
+  const [initialModelToEdit, setInitialModelToEdit] = useState<Partial<CustomLabelModel> | null>(null);
+  const [deleteModal, setDeleteModal] = useState<{ isOpen: boolean; modelId: string | null }>({
+    isOpen: false,
+    modelId: null
+  });
+
+  const handleDeleteModel = (e: React.MouseEvent, modelId: string) => {
+    e.stopPropagation();
+    setDeleteModal({ isOpen: true, modelId });
+  };
+
+  const confirmDeleteModel = async () => {
+    if (!deleteModal.modelId) return;
+
+    try {
+      const { error } = await supabase
+        .from('label_models')
+        .delete()
+        .eq('id', deleteModal.modelId);
+
+      if (error) throw error;
+      
+      addNotification({ type: 'success', title: 'Sucesso', message: 'Modelo excluído com sucesso!' });
+      if (selectedModel === deleteModal.modelId) {
+        setSelectedModel('pimaco_6180');
+      }
+      loadCustomModels();
+    } catch (error) {
+      console.error('Error deleting label model:', error);
+      addNotification({ type: 'error', title: 'Erro', message: 'Erro ao excluir modelo.' });
+    } finally {
+      setDeleteModal({ isOpen: false, modelId: null });
+    }
+  };
+
+  const handleEditModel = (modelId: string) => {
+    const isCustom = customModels.find(m => m.id === modelId);
+    if (isCustom) {
+      setInitialModelToEdit(isCustom);
+      setShowEditor(true);
+      return;
+    }
+
+    const standard = BARCODE_MODELS.find(m => m.id === modelId) || SHIPPING_MODELS.find(m => m.id === modelId);
+    if (standard) {
+      const isJewelry = standard.id === 'zebra_jewelry_105x13';
+      const customMapping: Partial<CustomLabelModel> = {
+        name: `Cópia de ${standard.name}`,
+        width: standard.width,
+        height: standard.height,
+        labels_per_row: standard.labelsPerRow,
+        rows_per_sheet: standard.rowsPerSheet,
+        margin_top: standard.margin?.top || 0,
+        margin_right: standard.margin?.right || 0,
+        margin_bottom: standard.margin?.bottom || 0,
+        margin_left: standard.margin?.left || 0,
+        gap_horizontal: standard.gap?.horizontal || 0,
+        gap_vertical: standard.gap?.vertical || 0,
+        product_name_config: isJewelry 
+          ? { enabled: true, x: 1, y: 1, fontSize: 6.5 }
+          : { enabled: true, x: 2, y: 2, fontSize: 10 },
+        product_price_config: isJewelry
+          ? { enabled: true, x: 1, y: 6.5, fontSize: 8.5 }
+          : { enabled: true, x: 2, y: 15, fontSize: 12 },
+        barcode_drawing_config: isJewelry
+          ? { enabled: true, x: 1, y: 3, width: 2.0, height: 40 }
+          : { enabled: true, x: 2, y: 6, width: 1.5, height: 40 },
+        barcode_number_config: { enabled: true, x: isJewelry ? 1 : 2, y: isJewelry ? 10 : 30, fontSize: 10 },
+        product_size_config: { enabled: false, x: 0, y: 0 }
+      };
+      setInitialModelToEdit(customMapping);
+      setShowEditor(true);
+    }
+  };
   const [shippingData, setShippingData] = useState({
     senderName: '',
     senderAddress: '',
@@ -126,9 +209,38 @@ export function LabelCenter({ onClose, initialProduct }: LabelCenterProps) {
   });
 
   useEffect(() => {
-    loadProducts();
-    loadCustomModels();
+    const init = async () => {
+      await Promise.all([loadProducts(), loadCustomModels()]);
+    };
+    init();
   }, []);
+
+  // Handle initial product through separate effect after products are loaded
+  useEffect(() => {
+    if (initialProduct) {
+      // Set search term immediately to the new barcode/EAN
+      const newCode = initialProduct.barcode || initialProduct.ean || '';
+      setSearchTerm(newCode);
+
+      // Refresh product list to make sure the background list reflects the saved state
+      loadProducts();
+
+      // Add to selected products immediately (replacing old version if it exists)
+      setSelectedProducts(prev => {
+        const exists = prev.find(p => p.product.id === initialProduct.id);
+        if (exists) {
+          return prev.map(p => p.product.id === initialProduct.id ? { ...p, product: initialProduct } : p);
+        }
+        return [{ product: initialProduct, quantity: 1 }, ...prev];
+      });
+
+      addNotification({
+        type: 'success',
+        title: 'Produto Carregado',
+        message: `${initialProduct.name} está pronto para impressão.`
+      });
+    }
+  }, [initialProduct?.id, initialProduct?.barcode, initialProduct?.ean]);
 
   const loadCustomModels = async () => {
     try {
@@ -158,7 +270,7 @@ export function LabelCenter({ onClose, initialProduct }: LabelCenterProps) {
         .from('products')
         .select('*')
         .eq('user_id', user.id)
-        .order('name');
+        .order('created_at', { ascending: false });
 
       if (data) setProducts(data);
     } catch (error) {
@@ -192,11 +304,16 @@ export function LabelCenter({ onClose, initialProduct }: LabelCenterProps) {
   };
 
   const filteredProducts = products.filter(p => {
-    const search = searchTerm.toLowerCase().trim();
-    return (p.name?.toLowerCase() || '').includes(search) ||
-           (p.label_name?.toLowerCase() || '').includes(search) ||
-           String(p.ean || '').toLowerCase().includes(search) ||
-           (p.ean_variations || []).some(v => v.toLowerCase().includes(search));
+    const normalize = (str: string) => 
+      (str || '').normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+    
+    if (!searchTerm) return true;
+    const search = normalize(searchTerm);
+    return normalize(p.name).includes(search) ||
+           normalize(p.label_name || '').includes(search) ||
+           normalize(p.barcode || '').includes(search) ||
+           normalize(p.ean || '').includes(search) ||
+           (p.ean_variations || []).some(v => normalize(v).includes(search));
   });
 
   const handlePrint = () => {
@@ -234,6 +351,8 @@ export function LabelCenter({ onClose, initialProduct }: LabelCenterProps) {
 
     const isCustom = (model as any).custom;
     const custom = isCustom ? (model as any).custom as CustomLabelModel : null;
+    const isJewelryModel = model.id === 'zebra_jewelry_105x13' || (model.width === 105 && model.height === 13);
+    const isElginModel = model.id === 'elgin_30x15_3';
 
     let htmlContent = `
       <!DOCTYPE html>
@@ -276,8 +395,8 @@ export function LabelCenter({ onClose, initialProduct }: LabelCenterProps) {
               margin-right: ${model.gap?.horizontal || 0}mm;
               margin-bottom: ${model.rowsPerSheet ? (model.gap?.vertical || 0) : 0}mm;
               display: flex;
-              flex-direction: column;
-              ${isCustom ? 'position: relative;' : 'justify-content: center; align-items: center;'}
+              flex-direction: ${isJewelryModel ? 'row' : 'column'};
+              ${isCustom ? 'position: relative;' : (isJewelryModel ? 'justify-content: flex-start; align-items: stretch;' : 'justify-content: center; align-items: center;')}
               overflow: hidden;
               page-break-inside: avoid;
               ${!model.rowsPerSheet ? 'border: 1px dashed #ccc;' : ''} /* Helper border for continuous rolls */
@@ -289,65 +408,78 @@ export function LabelCenter({ onClose, initialProduct }: LabelCenterProps) {
             /* Barcode specific styles */
             .barcode-label {
               text-align: center;
-              padding: ${model.id === 'elgin_30x15_3' ? '0.5mm' : '2mm'};
+              padding: ${isElginModel ? '0.5mm' : (isJewelryModel ? '0' : '2mm')};
+              ${isJewelryModel ? 'display: flex; align-items: stretch; padding: 0;' : ''}
             }
             .barcode-name {
               ${isCustom ? `
                 position: absolute;
-                left: ${custom?.product_name_config.x}mm;
-                top: ${custom?.product_name_config.y}mm;
+                left: ${custom?.product_name_config.x || 0}mm;
+                top: ${custom?.product_name_config.y || 0}mm;
+                width: calc(100% - ${(custom?.product_name_config.x || 0) * 2}mm);
+                text-align: ${custom?.product_name_config.textAlign || 'left'};
                 display: ${custom?.product_name_config.enabled ? 'block' : 'none'};
+                font-size: ${custom?.product_name_config.fontSize || 10}pt;
               ` : `
-                font-size: ${model.id === 'elgin_30x15_3' ? '6pt' : (model.height < 20 ? '6pt' : model.height < 30 ? '8pt' : '10pt')};
-                margin-bottom: ${model.id === 'elgin_30x15_3' ? '0.5mm' : '2px'};
+                font-size: ${isElginModel ? '6pt' : (isJewelryModel ? '6.5pt' : (model.height < 20 ? '6pt' : model.height < 30 ? '8pt' : '10pt'))};
+                margin-bottom: ${isElginModel ? '0.5mm' : (isJewelryModel ? '0.2mm' : '2px')};
+                ${isJewelryModel ? 'text-align: left; line-height: 1.1; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; width: 100%;' : ''}
               `}
               font-weight: bold;
               white-space: nowrap;
-              overflow: hidden;
-              text-overflow: ellipsis;
-              max-width: 100%;
             }
             .barcode-price {
               ${isCustom ? `
                 position: absolute;
-                left: ${custom?.product_price_config.x}mm;
-                top: ${custom?.product_price_config.y}mm;
+                left: ${custom?.product_price_config.x || 0}mm;
+                top: ${custom?.product_price_config.y || 0}mm;
+                width: calc(100% - ${(custom?.product_price_config.x || 0) * 2}mm);
+                text-align: ${custom?.product_price_config.textAlign || 'left'};
                 display: ${custom?.product_price_config.enabled ? 'block' : 'none'};
+                font-size: ${custom?.product_price_config.fontSize || 10}pt;
               ` : `
-                font-size: ${model.id === 'elgin_30x15_3' ? '7pt' : (model.height < 20 ? '7pt' : model.height < 30 ? '9pt' : '12pt')};
-                margin-top: ${model.id === 'elgin_30x15_3' ? '0.5mm' : '2px'};
+                font-size: ${isElginModel ? '7pt' : (isJewelryModel ? '8.5pt' : (model.height < 20 ? '7pt' : model.height < 30 ? '9pt' : '12pt'))};
+                margin-top: ${isElginModel ? '0.5mm' : (isJewelryModel ? '0' : '2px')};
+                ${isJewelryModel ? 'display: block; text-align: left; line-height: 1; width: 100%;' : ''}
               `}
-              font-weight: bold;
+              font-weight: ${isJewelryModel ? 'bold' : '800'};
             }
             .barcode-ean {
               ${isCustom ? `
                 position: absolute;
-                left: ${custom?.barcode_number_config.x}mm;
-                top: ${custom?.barcode_number_config.y}mm;
+                left: ${custom?.barcode_number_config.x || 0}mm;
+                top: ${custom?.barcode_number_config.y || 0}mm;
+                width: calc(100% - ${(custom?.barcode_number_config.x || 0) * 2}mm);
+                text-align: ${custom?.barcode_number_config.textAlign || 'left'};
                 display: ${custom?.barcode_number_config.enabled ? 'block' : 'none'};
-                font-size: 8pt;
-              ` : 'display: none;'}
+                font-size: ${custom?.barcode_number_config.fontSize || 8}pt;
+              ` : (isJewelryModel ? 'display: block; font-size: 7pt; margin-top: 0.5mm;' : 'display: none;')}
               font-weight: bold;
             }
             .barcode-size {
               ${isCustom ? `
                 position: absolute;
-                left: ${custom?.product_size_config.x}mm;
-                top: ${custom?.product_size_config.y}mm;
+                left: ${custom?.product_size_config.x || 0}mm;
+                top: ${custom?.product_size_config.y || 0}mm;
+                width: calc(100% - ${(custom?.product_size_config.x || 0) * 2}mm);
+                text-align: ${custom?.product_size_config.textAlign || 'left'};
                 display: ${custom?.product_size_config.enabled ? 'block' : 'none'};
-                font-size: 8pt;
+                font-size: ${custom?.product_size_config.fontSize || 8}pt;
               ` : 'display: none;'}
               font-weight: bold;
             }
             .barcode-img {
               ${isCustom ? `
                 position: absolute;
-                left: ${custom?.barcode_drawing_config.x}mm;
-                top: ${custom?.barcode_drawing_config.y}mm;
+                left: ${custom?.barcode_drawing_config.x || 0}mm;
+                top: ${custom?.barcode_drawing_config.y || 0}mm;
                 display: ${custom?.barcode_drawing_config.enabled ? 'block' : 'none'};
+                ${custom?.barcode_drawing_config.textAlign === 'center' ? 'left: 50%; transform: translateX(-50%);' : 
+                  custom?.barcode_drawing_config.textAlign === 'right' ? 'left: auto; right: 0;' : ''}
               ` : `
                 max-width: 100%;
-                height: ${model.id === 'elgin_30x15_3' ? '6mm' : (model.height < 20 ? '7mm' : model.height < 30 ? '12mm' : '18mm')};
+                height: ${isElginModel ? '6mm' : (isJewelryModel ? '8.5mm' : (model.height < 20 ? '7mm' : model.height < 30 ? '12mm' : '18mm'))};
+                ${isJewelryModel ? 'width: 26mm; flex-shrink: 0;' : ''}
               `}
             }
 
@@ -414,20 +546,34 @@ export function LabelCenter({ onClose, initialProduct }: LabelCenterProps) {
                   }
                   
                   const price = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(item.sale_price || 0);
-                  const barcodeValue = item.ean || item.id.substring(0, 12);
-                  const isElginSmall = ${model.id === 'elgin_30x15_3'};
+                  const barcodeValue = item.barcode || item.ean || item.id.substring(0, 12);
+                  const isElginSmall = ${isElginModel};
+                  const isJewelry = ${isJewelryModel};
+                  const isCustom = ${!!isCustom};
                   
-                  html += \`
+                  html += \u0060
                     <div class="label barcode-label">
-                      <div class="barcode-name">\${item.name}</div>
-                      <svg class="barcode-img" id="barcode-\${index}"></svg>
-                      <div class="barcode-price">\${isElginSmall ? (item.ean || '') : price}</div>
-                      ${isCustom ? `
-                        <div class="barcode-ean">\\\${item.ean || ''}</div>
-                        <div class="barcode-size">\\\${item.size || ''}</div>
-                      ` : ''}
+                      \${isJewelry && !isCustom ? \u0060
+                        <div style="width: 85.5mm; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; padding-left: 0.5mm; flex-shrink: 0; box-sizing: border-box;">
+                          <div class="barcode-name" style="position: static; width: 100%; white-space: normal; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; font-size: 7pt; line-height: 1; margin-bottom: 0.2mm; text-align: left;">\${item.name}</div>
+                          <svg class="barcode-img" id="barcode-\${index}" style="position: static; width: 85mm; height: 18mm;"></svg>
+                          <div class="barcode-ean" style="position: static; display: block; font-size: 9pt; margin-top: 0.2mm; font-weight: bold; text-align: left; width: 85mm;">\${barcodeValue}</div>
+                        </div>
+                        <div style="width: 30mm; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; padding-left: 1mm; margin-left: -35mm; flex-shrink: 0; box-sizing: border-box;">
+                          <div class="barcode-name" style="position: static; width: 100%; white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 7pt; line-height: 1.1; margin-bottom: 0.5mm; text-align: left;">\${item.name}</div>
+                          <div class="barcode-price" style="position: static; width: 100%; font-size: 10pt; font-weight: bold; text-align: left;">\${price}</div>
+                        </div>
+                      \u0060 : \u0060
+                        <div class="barcode-name">\${item.name}</div>
+                        <svg class="barcode-img" id="barcode-\${index}"></svg>
+                        <div class="barcode-price">\${isElginSmall ? (item.ean || '') : price}</div>
+                        \${isCustom ? \u0060
+                          <div class="barcode-ean">\${barcodeValue}</div>
+                          <div class="barcode-size">\${item.size || ''}</div>
+                        \u0060 : ''}
+                      \u0060}
                     </div>
-                  \`;
+                  \u0060;
                   
                   if ((index + 1) % labelsPerPage === 0 || index === items.length - 1) {
                     html += '</div>';
@@ -438,17 +584,18 @@ export function LabelCenter({ onClose, initialProduct }: LabelCenterProps) {
                 
                 // Generate barcodes
                 items.forEach((item, index) => {
-                  const barcodeValue = item.ean || item.id.substring(0, 12);
+                  const barcodeValue = item.barcode || item.ean || item.id.substring(0, 12);
                   const isElginSmall = ${model.id === 'elgin_30x15_3'};
+                  const isJewelry = ${model.id === 'zebra_jewelry_105x13'};
                   const isCustom = ${!!isCustom};
                   const custom = ${JSON.stringify(custom)};
                   
                   try {
                     JsBarcode("#barcode-" + index, barcodeValue, {
                       format: "CODE128",
-                      width: isCustom ? (custom.barcode_drawing_config.width || 1.0) : (isElginSmall ? 1.0 : 1.5),
-                      height: isCustom ? (custom.barcode_drawing_config.height || 25) : (isElginSmall ? 25 : 40),
-                      displayValue: isCustom ? false : !isElginSmall,
+                      width: isCustom ? (custom.barcode_drawing_config.width || 1.0) : (isElginSmall ? 1.0 : (isJewelry ? 1.0 : 1.5)),
+                      height: isCustom ? (custom.barcode_drawing_config.height || 25) : (isElginSmall ? 25 : (isJewelry ? 22 : 40)),
+                      displayValue: isCustom ? false : (!isElginSmall && !isJewelry),
                       fontSize: 10,
                       margin: 0
                     });
@@ -520,7 +667,16 @@ export function LabelCenter({ onClose, initialProduct }: LabelCenterProps) {
   };
 
   if (showEditor) {
-    return <LabelModelEditor onClose={() => setShowEditor(false)} onSaved={loadCustomModels} />;
+    return (
+      <LabelModelEditor 
+        onClose={() => {
+          setShowEditor(false);
+          setInitialModelToEdit(null);
+        }} 
+        onSaved={loadCustomModels}
+        initialEditingModel={initialModelToEdit}
+      />
+    );
   }
 
   return (
@@ -607,25 +763,56 @@ export function LabelCenter({ onClose, initialProduct }: LabelCenterProps) {
                   gap: { horizontal: m.gap_horizontal, vertical: m.gap_vertical }
                 }))
               ].filter(m => activeTab === 'barcode' || SHIPPING_MODELS.find(sm => sm.id === m.id)).map(model => (
-                <button
+                <div
                   key={model.id}
                   onClick={() => setSelectedModel(model.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      setSelectedModel(model.id);
+                    }
+                  }}
+                  role="button"
+                  tabIndex={0}
                   className={cn(
-                    "flex flex-col items-start p-4 rounded-xl border-2 text-left transition-all",
+                    "flex flex-col items-start p-4 rounded-xl border-2 text-left transition-all cursor-pointer",
                     selectedModel === model.id
                       ? "border-blue-500 bg-blue-50/50"
                       : "border-zinc-200 bg-white hover:border-zinc-300"
                   )}
                 >
                   <div className="flex items-center justify-between w-full mb-1">
-                    <span className="font-bold text-zinc-800">{model.name}</span>
-                    {selectedModel === model.id && <CheckCircle2 className="w-4 h-4 text-blue-500" />}
+                    <div className="flex flex-col">
+                      <span className="font-bold text-zinc-800">{model.name}</span>
+                      <span className="text-[10px] text-zinc-400 font-mono">
+                        {model.width}x{model.height}mm
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {customModels.some(cm => cm.id === model.id) && (
+                        <button
+                          onClick={(e) => handleDeleteModel(e, model.id)}
+                          className="p-1.5 hover:bg-red-100 rounded-lg text-red-400 hover:text-red-600 transition-colors"
+                          title="Excluir este modelo"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleEditModel(model.id);
+                        }}
+                        className="p-1.5 hover:bg-zinc-200 rounded-lg text-zinc-400 hover:text-zinc-600 transition-colors"
+                        title="Personalizar este modelo"
+                      >
+                        <Edit3 className="w-4 h-4" />
+                      </button>
+                      {selectedModel === model.id && <CheckCircle2 className="w-4 h-4 text-blue-500" />}
+                    </div>
                   </div>
                   <span className="text-xs text-zinc-500">{model.description}</span>
-                  <span className="text-[10px] text-zinc-400 mt-2 font-mono">
-                    {model.width}x{model.height}mm
-                  </span>
-                </button>
+                </div>
               ))}
             </div>
           </div>
@@ -651,38 +838,65 @@ export function LabelCenter({ onClose, initialProduct }: LabelCenterProps) {
               </div>
 
               {/* Search Results */}
-              {searchTerm && (
-                <div className="border border-zinc-200 rounded-xl max-h-48 overflow-y-auto bg-white shadow-sm">
-                  {filteredProducts.length === 0 ? (
-                    <div className="p-4 text-center text-sm text-zinc-500">Nenhum produto encontrado.</div>
-                  ) : (
-                    filteredProducts.map(product => (
-                      <div 
-                        key={product.id}
-                        className="flex items-center justify-between p-3 border-b border-zinc-100 last:border-0 hover:bg-zinc-50"
-                      >
-                        <div>
-                          <p className="font-medium text-sm text-zinc-800">{product.name}</p>
-                          <p className="text-xs text-zinc-500">{product.ean || 'Sem código'}</p>
+              <div className="border border-zinc-200 rounded-xl max-h-80 overflow-y-auto bg-white shadow-sm scrollbar-thin scrollbar-thumb-zinc-200">
+                {filteredProducts.length === 0 ? (
+                  <div className="p-8 text-center text-sm text-zinc-500">
+                    {searchTerm ? 'Nenhum produto encontrado.' : 'Comece a digitar para pesquisar produtos...'}
+                  </div>
+                ) : (
+                  filteredProducts.slice(0, 300).map(product => (
+                    <div 
+                      key={product.id}
+                      className="flex items-center justify-between p-4 border-b border-zinc-100 last:border-0 hover:bg-zinc-50 transition-colors group"
+                    >
+                      <div className="min-w-0 pr-4">
+                        <p className="font-bold text-sm text-zinc-800 truncate group-hover:text-blue-600 transition-colors">{product.name}</p>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          {product.barcode && (
+                            <span className="text-[10px] font-bold text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded">EXC: {product.barcode}</span>
+                          )}
+                          {product.ean && (
+                            <span className="text-[10px] text-zinc-400 font-mono">EAN: {product.ean}</span>
+                          )}
+                          {!product.barcode && !product.ean && (
+                            <span className="text-[10px] text-zinc-400 italic">Sem código</span>
+                          )}
                         </div>
-                        <button
-                          onClick={() => {
-                            handleAddProduct(product);
-                            setSearchTerm('');
-                          }}
-                          className="p-1.5 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors"
-                        >
-                          <Plus className="w-4 h-4" />
-                        </button>
                       </div>
-                    ))
-                  )}
-                </div>
-              )}
+                      <button
+                        onClick={() => {
+                          handleAddProduct(product);
+                          setSearchTerm('');
+                        }}
+                        className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-600 hover:text-white transition-all text-[10px] font-bold whitespace-nowrap"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        ADICIONAR
+                      </button>
+                    </div>
+                  ))
+                )}
+                {filteredProducts.length > 300 && (
+                  <div className="p-3 text-center text-[10px] text-zinc-400 border-t border-zinc-50 bg-zinc-50 italic font-medium">
+                    Mostrando 300 de {filteredProducts.length} produtos. Refine sua busca por nome ou código para encontrar outros.
+                  </div>
+                )}
+              </div>
 
               {/* Selected Products */}
               <div className="space-y-3">
-                <h4 className="text-sm font-bold text-zinc-700">Produtos Selecionados ({selectedProducts.reduce((acc, p) => acc + p.quantity, 0)} etiquetas)</h4>
+                <div className="flex items-center justify-between">
+                  <h4 className="text-sm font-bold text-zinc-700">Produtos Selecionados ({selectedProducts.reduce((acc, p) => acc + p.quantity, 0)} etiquetas)</h4>
+                  {selectedProducts.length > 0 && (
+                    <button 
+                      onClick={() => setSelectedProducts([])}
+                      className="text-[10px] font-bold text-red-500 hover:text-red-600 transition-colors uppercase tracking-wider flex items-center gap-1 bg-red-50 px-2 py-1 rounded-lg"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      Limpar Tudo
+                    </button>
+                  )}
+                </div>
                 {selectedProducts.length === 0 ? (
                   <div className="p-6 border-2 border-dashed border-zinc-200 rounded-xl text-center text-zinc-500 text-sm">
                     Nenhum produto selecionado para impressão.
@@ -693,7 +907,7 @@ export function LabelCenter({ onClose, initialProduct }: LabelCenterProps) {
                       <div key={product.id} className="flex items-center justify-between p-3 bg-zinc-50 border border-zinc-200 rounded-xl">
                         <div className="flex-1 min-w-0 pr-4">
                           <p className="font-medium text-sm text-zinc-800 truncate">{product.name}</p>
-                          <p className="text-xs text-zinc-500">{product.ean || 'Sem código'}</p>
+                          <p className="text-xs text-zinc-500">{product.barcode || product.ean || 'Sem código'}</p>
                         </div>
                         <div className="flex items-center gap-3">
                           <div className="flex items-center bg-white border border-zinc-200 rounded-lg">
@@ -713,9 +927,11 @@ export function LabelCenter({ onClose, initialProduct }: LabelCenterProps) {
                           </div>
                           <button
                             onClick={() => handleRemoveProduct(product.id)}
-                            className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                            className="flex items-center gap-1 px-2 py-1 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors group/del"
+                            title="Remover da lista"
                           >
-                            <X className="w-4 h-4" />
+                            <Trash2 className="w-4 h-4" />
+                            <span className="text-[10px] font-bold uppercase hidden group-hover/del:inline">Excluir</span>
                           </button>
                         </div>
                       </div>
@@ -844,6 +1060,14 @@ export function LabelCenter({ onClose, initialProduct }: LabelCenterProps) {
           </div>
         </div>
       </div>
+      <ConfirmationModal
+        isOpen={deleteModal.isOpen}
+        title="Excluir Modelo"
+        message="Tem certeza que deseja excluir este modelo de etiqueta? Esta ação não pode ser desfeita."
+        onConfirm={confirmDeleteModel}
+        onCancel={() => setDeleteModal({ isOpen: false, modelId: null })}
+        variant="danger"
+      />
     </div>
   );
 }

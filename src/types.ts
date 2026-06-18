@@ -88,6 +88,7 @@ export interface Product {
   name: string;
   label_name?: string;
   ean?: string;
+  barcode?: string;
   ean_variations?: string[];
   cost_price: number;
   sale_price: number;
@@ -343,6 +344,7 @@ export interface LabelElementConfig {
   fontSize?: number;
   width?: number;
   height?: number;
+  textAlign?: 'left' | 'center' | 'right';
 }
 
 export interface LabelModel {

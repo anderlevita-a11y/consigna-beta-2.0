@@ -9,6 +9,7 @@ import { ConfirmationModal } from './ConfirmationModal';
 interface LabelModelEditorProps {
   onClose: () => void;
   onSaved?: () => void;
+  initialEditingModel?: Partial<LabelModel> | null;
 }
 
 const DEFAULT_ELEMENT_CONFIG: LabelElementConfig = {
@@ -17,7 +18,8 @@ const DEFAULT_ELEMENT_CONFIG: LabelElementConfig = {
   y: 0,
   fontSize: 10,
   width: 0,
-  height: 0
+  height: 0,
+  textAlign: 'left'
 };
 
 const DEFAULT_MODEL: Partial<LabelModel> = {
@@ -38,10 +40,10 @@ const DEFAULT_MODEL: Partial<LabelModel> = {
   product_price_config: { ...DEFAULT_ELEMENT_CONFIG, enabled: false }
 };
 
-export function LabelModelEditor({ onClose, onSaved }: LabelModelEditorProps) {
+export function LabelModelEditor({ onClose, onSaved, initialEditingModel }: LabelModelEditorProps) {
   const { addNotification } = useNotifications();
   const [models, setModels] = useState<LabelModel[]>([]);
-  const [editingModel, setEditingModel] = useState<Partial<LabelModel> | null>(null);
+  const [editingModel, setEditingModel] = useState<Partial<LabelModel> | null>(initialEditingModel || null);
   const [loading, setLoading] = useState(false);
   const [deleteModal, setDeleteModal] = useState<{ isOpen: boolean; modelId: string | null }>({
     isOpen: false,
@@ -140,7 +142,7 @@ export function LabelModelEditor({ onClose, onSaved }: LabelModelEditorProps) {
 
     return (
       <tr className="border-b border-zinc-100 last:border-0">
-        <td className="py-3 px-4 text-sm text-zinc-600">{label}</td>
+        <td className="py-3 px-4 text-sm text-zinc-600 font-medium">{label}</td>
         <td className="py-3 px-4">
           <input
             type="checkbox"
@@ -149,32 +151,97 @@ export function LabelModelEditor({ onClose, onSaved }: LabelModelEditorProps) {
               ...editingModel,
               [configKey]: { ...config, enabled: e.target.checked }
             })}
-            className="rounded border-zinc-300 text-blue-600 focus:ring-blue-500"
+            className="rounded border-zinc-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
           />
         </td>
         <td className="py-3 px-4">
-          <input
-            type="number"
-            step="0.00001"
-            value={config.x}
+          <select
+            value={config.textAlign || 'left'}
             onChange={(e) => setEditingModel({
               ...editingModel,
-              [configKey]: { ...config, x: parseFloat(e.target.value) || 0 }
+              [configKey]: { ...config, textAlign: e.target.value as any }
             })}
-            className="w-24 bg-zinc-50 border border-zinc-200 rounded-lg px-2 py-1 text-sm focus:border-blue-500 outline-none"
-          />
+            className="w-24 bg-zinc-50 border border-zinc-200 rounded-lg px-2 py-1 text-xs focus:border-blue-500 outline-none"
+          >
+            <option value="left">Esquerda</option>
+            <option value="center">Centro</option>
+            <option value="right">Direita</option>
+          </select>
         </td>
         <td className="py-3 px-4">
-          <input
-            type="number"
-            step="0.00001"
-            value={config.y}
-            onChange={(e) => setEditingModel({
-              ...editingModel,
-              [configKey]: { ...config, y: parseFloat(e.target.value) || 0 }
-            })}
-            className="w-24 bg-zinc-50 border border-zinc-200 rounded-lg px-2 py-1 text-sm focus:border-blue-500 outline-none"
-          />
+          <div className="flex items-center gap-1">
+            <input
+              type="number"
+              value={config.fontSize || 10}
+              step="0.5"
+              onChange={(e) => setEditingModel({
+                ...editingModel,
+                [configKey]: { ...config, fontSize: parseFloat(e.target.value) || 10 }
+              })}
+              className="w-16 bg-zinc-50 border border-zinc-200 rounded-lg px-2 py-1 text-sm focus:border-blue-500 outline-none"
+            />
+            <span className="text-[10px] text-zinc-400">pt</span>
+          </div>
+        </td>
+        <td className="py-3 px-4">
+          <div className="flex items-center gap-1">
+            <input
+              type="number"
+              step="0.1"
+              value={config.width || 0}
+              onChange={(e) => setEditingModel({
+                ...editingModel,
+                [configKey]: { ...config, width: parseFloat(e.target.value) || 0 }
+              })}
+              className="w-16 bg-zinc-50 border border-zinc-200 rounded-lg px-2 py-1 text-sm focus:border-blue-500 outline-none"
+            />
+            <span className="text-[10px] text-zinc-400">{configKey === 'barcode_drawing_config' ? 'x' : 'mm'}</span>
+          </div>
+        </td>
+        <td className="py-3 px-4">
+          <div className="flex items-center gap-1">
+            <input
+              type="number"
+              step="1"
+              value={config.height || 0}
+              onChange={(e) => setEditingModel({
+                ...editingModel,
+                [configKey]: { ...config, height: parseFloat(e.target.value) || 0 }
+              })}
+              className="w-16 bg-zinc-50 border border-zinc-200 rounded-lg px-2 py-1 text-sm focus:border-blue-500 outline-none"
+            />
+            <span className="text-[10px] text-zinc-400">{configKey === 'barcode_drawing_config' ? 'px' : 'mm'}</span>
+          </div>
+        </td>
+        <td className="py-3 px-4">
+          <div className="flex items-center gap-1">
+            <input
+              type="number"
+              step="0.1"
+              value={config.x}
+              onChange={(e) => setEditingModel({
+                ...editingModel,
+                [configKey]: { ...config, x: parseFloat(e.target.value) || 0 }
+              })}
+              className="w-20 bg-zinc-50 border border-zinc-200 rounded-lg px-2 py-1 text-sm focus:border-blue-500 outline-none"
+            />
+            <span className="text-[10px] text-zinc-400">mm</span>
+          </div>
+        </td>
+        <td className="py-3 px-4">
+          <div className="flex items-center gap-1">
+            <input
+              type="number"
+              step="0.1"
+              value={config.y}
+              onChange={(e) => setEditingModel({
+                ...editingModel,
+                [configKey]: { ...config, y: parseFloat(e.target.value) || 0 }
+              })}
+              className="w-20 bg-zinc-50 border border-zinc-200 rounded-lg px-2 py-1 text-sm focus:border-blue-500 outline-none"
+            />
+            <span className="text-[10px] text-zinc-400">mm</span>
+          </div>
         </td>
       </tr>
     );
@@ -387,13 +454,17 @@ export function LabelModelEditor({ onClose, onSaved }: LabelModelEditorProps) {
               </div>
               <table className="w-full">
                 <thead>
-                  <tr className="bg-zinc-50/50 border-b border-zinc-200">
-                    <th className="text-left py-3 px-4 text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Elemento</th>
-                    <th className="text-left py-3 px-4 text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Ativo</th>
-                    <th className="text-left py-3 px-4 text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Largura (X)</th>
-                    <th className="text-left py-3 px-4 text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Altura (Y)</th>
-                  </tr>
-                </thead>
+                   <tr className="bg-zinc-50/50 border-b border-zinc-200">
+                     <th className="text-left py-3 px-4 text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Elemento</th>
+                     <th className="text-left py-3 px-4 text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Ativo</th>
+                     <th className="text-left py-3 px-4 text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Alinhamento</th>
+                     <th className="text-left py-3 px-4 text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Tam. Fonte</th>
+                     <th className="text-left py-3 px-4 text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Largura/Escala</th>
+                     <th className="text-left py-3 px-4 text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Altura</th>
+                     <th className="text-left py-3 px-4 text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Posição (X)</th>
+                     <th className="text-left py-3 px-4 text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Posição (Y)</th>
+                   </tr>
+                 </thead>
                 <tbody>
                   {renderElementRow('Nome do Produto', 'product_name_config')}
                   {renderElementRow('Desenho CDB', 'barcode_drawing_config')}
