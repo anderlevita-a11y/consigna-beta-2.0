@@ -191,7 +191,7 @@ export function FinancialControl({ profile }: FinancialControlProps) {
 
         const { data, error } = await supabase
           .from('miscellaneous_charge_installments')
-          .select('*, charge:miscellaneous_charges(description, customer:customers(nome))')
+          .select('*, charge:miscellaneous_charges(description, customer:customers(nome, cpf, whatsapp))')
           .eq('status', 'pending')
           .or(`due_date.eq.${today},due_date.eq.${tomorrowStr}`);
 
@@ -223,7 +223,7 @@ export function FinancialControl({ profile }: FinancialControlProps) {
       // 1. Finalized Sales (Closed Bags)
       const { data: closedBags } = await supabase
         .from('bags')
-        .select('*, customer:customers(nome)')
+        .select('*, customer:customers(nome, cpf, whatsapp)')
         .eq('user_id', userId)
         .eq('status', 'closed')
         .order('created_at', { ascending: false })
@@ -234,7 +234,7 @@ export function FinancialControl({ profile }: FinancialControlProps) {
       // 2. Delinquents (Closed Bags pending/partial + Overdue Open Bags)
       const { data: pendingBags } = await supabase
         .from('bags')
-        .select('*, customer:customers(nome, cpf), campaign:campaigns(name, return_date)')
+        .select('*, customer:customers(nome, cpf, whatsapp), campaign:campaigns(name, return_date)')
         .eq('user_id', userId)
         .or('status.eq.closed,status.eq.open')
         .limit(30000);
@@ -282,10 +282,14 @@ export function FinancialControl({ profile }: FinancialControlProps) {
 
       const customerName = bag.customer?.nome || 'Cliente';
       const customerCPF = bag.customer?.cpf || '---';
+      const customerWhatsApp = bag.customer?.whatsapp || '---';
       let message = `*Resumo da Sacola #${bag.bag_number.replace(/\D/g, '')}*\n`;
       message += `Cliente: ${customerName}\n`;
       if (customerCPF !== '---') {
         message += `CPF: ${customerCPF}\n`;
+      }
+      if (customerWhatsApp !== '---') {
+        message += `WhatsApp: ${customerWhatsApp}\n`;
       }
       message += `Data: ${format(new Date(bag.created_at), "dd/MM/yyyy")}\n\n`;
       message += `*Itens:*\n`;
@@ -310,7 +314,7 @@ export function FinancialControl({ profile }: FinancialControlProps) {
         }
       }
 
-      message += `\n\n__________________________\nAssinatura: ${customerName}\nCPF: ${customerCPF}`;
+      message += `\n\n__________________________\nAssinatura: ${customerName}\nCPF: ${customerCPF}${customerWhatsApp !== '---' ? `\nWhatsApp: ${customerWhatsApp}` : ''}`;
       
       const encodedMessage = encodeURIComponent(message);
       window.open(`https://wa.me/?text=${encodedMessage}`, '_blank');
@@ -349,10 +353,14 @@ export function FinancialControl({ profile }: FinancialControlProps) {
 
       const customerName = selectedBagForPayment.customer?.nome || 'Cliente';
       const customerCPF = selectedBagForPayment.customer?.cpf || '---';
+      const customerWhatsApp = selectedBagForPayment.customer?.whatsapp || '---';
       let message = `*Comprovante de Pagamento*\n`;
       message += `Cliente: ${customerName}\n`;
       if (customerCPF !== '---') {
         message += `CPF: ${customerCPF}\n`;
+      }
+      if (customerWhatsApp !== '---') {
+        message += `WhatsApp: ${customerWhatsApp}\n`;
       }
       message += `Sacola: #${selectedBagForPayment.bag_number}\n`;
       message += `Data: ${format(new Date(), "dd/MM/yyyy HH:mm")}\n\n`;
@@ -367,7 +375,7 @@ export function FinancialControl({ profile }: FinancialControlProps) {
       }
       
       message += `\nObrigado pela preferência!`;
-      message += `\n\n__________________________\nAssinatura: ${customerName}\nCPF: ${customerCPF}`;
+      message += `\n\n__________________________\nAssinatura: ${customerName}\nCPF: ${customerCPF}${customerWhatsApp !== '---' ? `\nWhatsApp: ${customerWhatsApp}` : ''}`;
 
       const encodedMessage = encodeURIComponent(message);
       window.open(`https://wa.me/?text=${encodedMessage}`, '_blank');
@@ -392,10 +400,14 @@ export function FinancialControl({ profile }: FinancialControlProps) {
   const handleShareReceipt = (bag: any) => {
     const customerName = bag.customer?.nome || 'Cliente';
     const customerCPF = bag.customer?.cpf || '---';
+    const customerWhatsApp = bag.customer?.whatsapp || '---';
     let message = `*Comprovante de Pagamento*\n`;
     message += `Cliente: ${customerName}\n`;
     if (customerCPF !== '---') {
       message += `CPF: ${customerCPF}\n`;
+    }
+    if (customerWhatsApp !== '---') {
+      message += `WhatsApp: ${customerWhatsApp}\n`;
     }
     message += `Sacola: #${bag.bag_number}\n\n`;
     message += `Valor Total: R$ ${bag.total_value.toFixed(2)}\n`;
@@ -409,7 +421,7 @@ export function FinancialControl({ profile }: FinancialControlProps) {
     }
     
     message += `\nObrigado pela preferência!`;
-    message += `\n\n__________________________\nAssinatura: ${customerName}\nCPF: ${customerCPF}`;
+    message += `\n\n__________________________\nAssinatura: ${customerName}\nCPF: ${customerCPF}${customerWhatsApp !== '---' ? `\nWhatsApp: ${customerWhatsApp}` : ''}`;
 
     const encodedMessage = encodeURIComponent(message);
     window.open(`https://wa.me/?text=${encodedMessage}`, '_blank');

@@ -113,7 +113,7 @@ export function MiscellaneousChargeManager({ profile }: MiscellaneousChargeManag
 
       const { data, error } = await supabase
         .from('miscellaneous_charges')
-        .select('*, customer:customers(nome, cpf)')
+        .select('*, customer:customers(nome, cpf, whatsapp)')
         .eq('user_id', session.user.id)
         .order('created_at', { ascending: false });
 
@@ -291,6 +291,7 @@ export function MiscellaneousChargeManager({ profile }: MiscellaneousChargeManag
 
     message += `\n*Cliente:* ${customer.nome}`;
     message += customer.cpf ? `\n*CPF:* ${customer.cpf}` : "";
+    message += customer.whatsapp ? `\n*WhatsApp:* ${customer.whatsapp}` : "";
     message += `\n\nAssinatura: ___________________________`;
 
     message += `\n\nPara mais informações, entre em contato comigo.`;
@@ -719,6 +720,7 @@ export function MiscellaneousChargeManager({ profile }: MiscellaneousChargeManag
                               <p className="text-sm font-black text-zinc-800 uppercase tracking-tight leading-none">{charge.customer?.nome}</p>
                               <p className="text-[9px] text-zinc-400 font-bold uppercase tracking-widest mt-1.5">Assinatura do Devedor(a)</p>
                               <p className="text-[10px] text-zinc-500 mt-1 uppercase">CPF: {charge.customer?.cpf || '---'}</p>
+                              {charge.customer?.whatsapp && <p className="text-[10px] text-zinc-500 uppercase">WhatsApp: {charge.customer.whatsapp}</p>}
                             </div>
                          </div>
                       </div>

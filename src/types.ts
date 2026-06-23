@@ -45,6 +45,7 @@ export interface MiscellaneousCharge {
   customer?: {
     nome: string;
     cpf?: string;
+    whatsapp?: string;
   };
 }
 

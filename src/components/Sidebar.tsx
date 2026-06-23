@@ -134,7 +134,7 @@ export function Sidebar({ activeTab, setActiveTab, isOpen, onClose, profile, cla
       addNotification({
         type: 'success',
         title: 'Sincronização concluída',
-        message: `- ${inserted} novos produtos adicionados\n- ${updated} produtos atualizados${selectedDuplicateIds.size > 0 ? `\n- ${selectedDuplicateIds.size} duplicados removidos` : ''}`
+        message: `- ${inserted.length} novos produtos adicionados\n- ${updated.length} produtos atualizados${selectedDuplicateIds.size > 0 ? `\n- ${selectedDuplicateIds.size} duplicados removidos` : ''}`
       });
       setIsPreviewModalOpen(false);
       window.dispatchEvent(new CustomEvent('catalog_synced'));

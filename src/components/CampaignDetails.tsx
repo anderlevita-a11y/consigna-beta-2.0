@@ -191,7 +191,7 @@ export function CampaignDetails({ campaign, onBack, onAddBag, onEditBag }: Campa
     try {
       const { data, error } = await supabase
         .from('bags')
-        .select('*, customer:customers(nome, cpf)')
+        .select('*, customer:customers(nome, cpf, whatsapp)')
         .eq('campaign_id', campaign.id)
         .order('created_at', { ascending: false })
         .limit(30000);
@@ -247,10 +247,14 @@ export function CampaignDetails({ campaign, onBack, onAddBag, onEditBag }: Campa
 
       const customerName = bag.customer?.nome || 'Cliente';
       const customerCPF = bag.customer?.cpf || '---';
+      const customerWhatsApp = bag.customer?.whatsapp || '---';
       let message = `*Resumo da Sacola #${bag.bag_number.replace(/\D/g, '')}*\n`;
       message += `Cliente: ${customerName}\n`;
       if (customerCPF !== '---') {
         message += `CPF: ${customerCPF}\n`;
+      }
+      if (customerWhatsApp !== '---') {
+        message += `WhatsApp: ${customerWhatsApp}\n`;
       }
       message += `Data: ${format(new Date(bag.created_at), "dd/MM/yyyy")}\n\n`;
       message += `*Itens:*\n`;
@@ -282,7 +286,7 @@ export function CampaignDetails({ campaign, onBack, onAddBag, onEditBag }: Campa
         }
       }
       
-      message += `\n\n__________________________\nAssinatura: ${customerName}\nCPF: ${customerCPF}`;
+      message += `\n\n__________________________\nAssinatura: ${customerName}\nCPF: ${customerCPF}${customerWhatsApp !== '---' ? `\nWhatsApp: ${customerWhatsApp}` : ''}`;
       
       const encodedMessage = encodeURIComponent(message);
       window.open(`https://wa.me/?text=${encodedMessage}`, '_blank');

@@ -177,9 +177,9 @@ export async function syncCatalog(previewOnly: boolean = false) {
   }
 
   return { 
-    inserted: productsToInsert.length, 
-    updated: productsToUpdate.length,
-    duplicates: userDuplicates.length
+    inserted: productsToInsert, 
+    updated: productsToUpdate,
+    duplicates: userDuplicates
   };
 }
 

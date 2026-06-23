@@ -156,6 +156,8 @@ export default function App() {
   );
 }
 
+import { CatalogSyncPrompt } from './components/CatalogSyncPrompt';
+
 function AppContent() {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -744,6 +746,8 @@ function AppContent() {
         profile={profile}
         className="no-print"
       />
+      
+      <CatalogSyncPrompt />
       
       <main className="flex-1 overflow-y-auto h-screen">
         <header className="h-16 border-b border-zinc-100 flex items-center justify-between px-4 sm:px-8 bg-white/80 backdrop-blur-sm sticky top-0 z-10 no-print">
