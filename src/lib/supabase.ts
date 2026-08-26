@@ -20,7 +20,7 @@ if (supabaseUrl && !supabaseUrl.includes('.') && !supabaseUrl.includes('localhos
   supabaseUrl = `${supabaseUrl}.supabase.co`;
 }
 
-const isConfigured = Boolean(
+export const isConfigured = Boolean(
   supabaseUrl && 
   supabaseAnonKey && 
   supabaseUrl !== 'https://placeholder.supabase.co' &&

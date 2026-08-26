@@ -212,3 +212,53 @@ export function printFallback(payload: any, onError?: (msg: string) => void) {
   win.document.write(html);
   win.document.close();
 }
+
+export function stripLeadingZeros(code: string | null | undefined): string {
+  if (!code) return '';
+  const trimmed = String(code).trim().toLowerCase();
+  return trimmed.replace(/^0+/, '');
+}
+
+export function isBarcodeMatch(productCode: string | null | undefined, searchCode: string | null | undefined): boolean {
+  if (!productCode || !searchCode) return false;
+  const pNorm = String(productCode).trim().toLowerCase();
+  const sNorm = String(searchCode).trim().toLowerCase();
+  if (!pNorm || !sNorm) return false;
+
+  // 1. Direct exact match
+  if (pNorm === sNorm) return true;
+
+  // 2. Normalized leading zeros match (e.g. 00000000030393 matches 30393)
+  const pStripped = stripLeadingZeros(pNorm);
+  const sStripped = stripLeadingZeros(sNorm);
+  if (pStripped && sStripped && pStripped === sStripped) {
+    return true;
+  }
+
+  return false;
+}
+
+export function doesProductMatchBarcode(
+  product: { ean?: string | null; label_name?: string | null; name?: string | null; ean_variations?: string[] | null },
+  search: string
+): boolean {
+  if (!search) return false;
+  const searchTrimmed = search.trim();
+  if (!searchTrimmed) return false;
+
+  // Check main EAN with zero-normalization
+  if (isBarcodeMatch(product.ean, searchTrimmed)) return true;
+
+  // Check variations
+  if (product.ean_variations && product.ean_variations.some(v => isBarcodeMatch(v, searchTrimmed))) {
+    return true;
+  }
+
+  // Exact match on label_name or name
+  const sLower = searchTrimmed.toLowerCase();
+  if (product.label_name && product.label_name.toLowerCase().trim() === sLower) return true;
+  if (product.name && product.name.toLowerCase().trim() === sLower) return true;
+
+  return false;
+}
+

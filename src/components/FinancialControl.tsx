@@ -25,7 +25,7 @@ import {
 } from 'lucide-react';
 import { cn, formatError, formatMoney, formatMoneyInput, parseMoney } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
-import { supabase } from '../lib/supabase';
+import { supabase, isConfigured } from '../lib/supabase';
 import { useNotifications } from './NotificationCenter';
 import { ConfirmationModal } from './ConfirmationModal';
 import { format } from 'date-fns';
@@ -179,6 +179,8 @@ export function FinancialControl({ profile }: FinancialControlProps) {
   };
 
   useEffect(() => {
+    if (!isConfigured) return;
+
     const checkInstallmentReminders = async () => {
       try {
         const { data: { session } } = await supabase.auth.getSession();
@@ -195,7 +197,11 @@ export function FinancialControl({ profile }: FinancialControlProps) {
           .eq('status', 'pending')
           .or(`due_date.eq.${today},due_date.eq.${tomorrowStr}`);
 
-        if (error) throw error;
+        if (error) {
+          if (error.code === 'PGRST116' || error.code === '42P01' || error.message?.includes('Failed to fetch')) return;
+          console.warn('Installment reminders notice:', error.message);
+          return;
+        }
 
         data?.forEach(inst => {
           const chargeDesc = (inst as any).charge?.description || 'Cobrança Avulsa';
@@ -209,8 +215,10 @@ export function FinancialControl({ profile }: FinancialControlProps) {
             message: `A parcela ${inst.installment_number} de "${chargeDesc}" (${customerName}) vence ${inst.due_date === today ? 'hoje' : 'amanhã'}! Valor: R$ ${inst.value.toFixed(2)}`
           });
         });
-      } catch (err) {
-        console.error('Error checking installment reminders:', err);
+      } catch (err: any) {
+        if (!err?.message?.includes?.('Failed to fetch')) {
+          console.warn('Installment reminders notice:', err);
+        }
       }
     };
 

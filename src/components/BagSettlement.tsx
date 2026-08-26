@@ -21,7 +21,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { generatePixPayload } from '../lib/pix';
 import { supabase } from '../lib/supabase';
 import { Bag, BagItem, Product, Profile } from '../types';
-import { cn, printFallback, formatError, formatMoney, formatMoneyInput, parseMoney } from '../lib/utils';
+import { cn, printFallback, formatError, formatMoney, formatMoneyInput, parseMoney, doesProductMatchBarcode, isBarcodeMatch, stripLeadingZeros } from '../lib/utils';
 import { format } from 'date-fns';
 import { PrintPreview } from './PrintPreview';
 import { useNotifications } from './NotificationCenter';
@@ -360,14 +360,35 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
     }
   };
 
-  const handleBarcodeReturn = (code: string) => {
-    const searchLower = code.toLowerCase().trim();
-    const item = items.find(i => 
-      i.product.ean === searchLower || 
-      i.product.name.toLowerCase() === searchLower ||
-      (i.product.label_name && i.product.label_name.toLowerCase() === searchLower) ||
-      (i.product.ean_variations || []).some(v => v.toLowerCase() === searchLower)
-    );
+  const handleBarcodeReturn = (rawCode?: string) => {
+    const code = (rawCode !== undefined ? rawCode : searchProduct).trim();
+    if (!code) {
+      setSearchProduct('');
+      return;
+    }
+    
+    // 1. Direct or normalized barcode match
+    let item = items.find(i => doesProductMatchBarcode(i.product, code));
+
+    // 2. Single item filter match fallback
+    if (!item) {
+      const searchLower = code.toLowerCase();
+      const searchStripped = stripLeadingZeros(searchLower);
+      const matches = items.filter(i => {
+        const nameMatch = (i.product.name?.toLowerCase() || '').includes(searchLower);
+        const labelMatch = (i.product.label_name?.toLowerCase() || '').includes(searchLower);
+        const eanStr = (i.product.ean || '').toLowerCase().trim();
+        const eanStripped = stripLeadingZeros(eanStr);
+        const eanMatch = eanStr.includes(searchLower) || 
+                         (searchStripped.length >= 2 && eanStripped.includes(searchStripped)) ||
+                         (eanStripped.length >= 2 && searchStripped.includes(eanStripped)) ||
+                         isBarcodeMatch(i.product.ean, code);
+        return nameMatch || labelMatch || eanMatch;
+      });
+      if (matches.length === 1) {
+        item = matches[0];
+      }
+    }
     
     if (item) {
       updateReturnedQuantity(item.id, item.returned_quantity + 1);
@@ -382,10 +403,28 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
   const filteredItems = searchProduct
     ? items.filter(item => {
         const search = searchProduct.toLowerCase().trim();
-        return (item.product.name?.toLowerCase() || '').includes(search) ||
-               (item.product.label_name?.toLowerCase() || '').includes(search) ||
-               String(item.product.ean || '').toLowerCase().includes(search) ||
-               (item.product.ean_variations || []).some(v => v.toLowerCase().includes(search));
+        const searchStripped = stripLeadingZeros(search);
+
+        const nameMatch = (item.product.name?.toLowerCase() || '').includes(search);
+        const labelMatch = (item.product.label_name?.toLowerCase() || '').includes(search);
+
+        const eanStr = (item.product.ean || '').toLowerCase().trim();
+        const eanStripped = stripLeadingZeros(eanStr);
+        const eanMatch = eanStr.includes(search) || 
+                         (searchStripped.length >= 2 && eanStripped.includes(searchStripped)) ||
+                         (eanStripped.length >= 2 && searchStripped.includes(eanStripped)) ||
+                         isBarcodeMatch(item.product.ean, search);
+
+        const varMatch = (item.product.ean_variations || []).some(v => {
+          const vStr = (v || '').toLowerCase().trim();
+          const vStripped = stripLeadingZeros(vStr);
+          return vStr.includes(search) || 
+                 (searchStripped.length >= 2 && vStripped.includes(searchStripped)) ||
+                 (vStripped.length >= 2 && searchStripped.includes(vStripped)) ||
+                 isBarcodeMatch(v, search);
+        });
+
+        return nameMatch || labelMatch || eanMatch || varMatch;
       }).slice(0, 10)
     : [];
 
@@ -541,8 +580,16 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
                       disabled={bag.status === 'closed'}
                       onChange={(e) => setSearchProduct(e.target.value)}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          handleBarcodeReturn(searchProduct);
+                        if (e.key === 'Enter' || e.key === 'Tab' || e.code === 'NumpadEnter' || e.keyCode === 13 || e.keyCode === 9) {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          handleBarcodeReturn(e.currentTarget.value);
+                        }
+                      }}
+                      onKeyUp={(e) => {
+                        if (e.key === 'Enter' || e.key === 'Tab' || e.code === 'NumpadEnter') {
+                          e.preventDefault();
+                          e.stopPropagation();
                         }
                       }}
                     />

@@ -28,7 +28,7 @@ import { PublicMysteryBag } from './components/PublicMysteryBag';
 import { PublicGoals } from './components/PublicGoals';
 import { PublicSweepstakes } from './components/PublicSweepstakes';
 import { Settings, Loader2, Megaphone, BarChart3, Ticket, Calculator, ShieldAlert, Menu, StickyNote, DollarSign } from 'lucide-react';
-import { supabase } from './lib/supabase';
+import { supabase, isConfigured } from './lib/supabase';
 import { Session } from '@supabase/supabase-js';
 import { StoreSettings as StoreSettingsType, ProductReview, Profile, AppLegalSettings } from './types';
 import { CookieBanner } from './components/CookieBanner';
@@ -170,21 +170,25 @@ function AppContent() {
   const [rejectedReceipt, setRejectedReceipt] = useState<any>(null);
 
   useEffect(() => {
-    if (!session) return;
+    if (!session || !isConfigured) return;
 
     const checkRejectedReceipt = async () => {
-      const { data, error } = await supabase
-        .from('payment_receipts')
-        .select('*')
-        .eq('user_id', session.user.id)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .single();
-      
-      if (data && data.status === 'rejected') {
-        setRejectedReceipt(data);
-      } else {
-        setRejectedReceipt(null);
+      try {
+        const { data, error } = await supabase
+          .from('payment_receipts')
+          .select('*')
+          .eq('user_id', session.user.id)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .single();
+        
+        if (data && data.status === 'rejected') {
+          setRejectedReceipt(data);
+        } else {
+          setRejectedReceipt(null);
+        }
+      } catch (err) {
+        // Silently handle fetch errors
       }
     };
 
@@ -384,7 +388,7 @@ function AppContent() {
   }, [session]);
 
   useEffect(() => {
-    if (!session) return;
+    if (!session || !isConfigured) return;
 
     const checkFinancialReminders = async () => {
       try {
@@ -402,7 +406,11 @@ function AppContent() {
           .eq('reminder_enabled', true)
           .lte('due_date', tomorrowStr);
 
-        if (error) throw error;
+        if (error) {
+          if (error.message?.includes('Failed to fetch') || error.code === 'PGRST116' || error.code === '42P01') return;
+          console.warn('Financial reminders notice:', error.message);
+          return;
+        }
 
         data?.forEach(t => {
           const isToday = t.due_date === todayStr;
@@ -436,8 +444,10 @@ function AppContent() {
             });
           }
         });
-      } catch (err) {
-        console.error('Error checking financial reminders:', err);
+      } catch (err: any) {
+        if (!err?.message?.includes?.('Failed to fetch')) {
+          console.warn('Financial reminders notice:', err);
+        }
       }
     };
 
@@ -487,7 +497,7 @@ function AppContent() {
   }, [profile]);
 
   useEffect(() => {
-    if (!session) return;
+    if (!session || !isConfigured) return;
     fetchLegalSettings();
   }, [session]);
 
@@ -498,10 +508,16 @@ function AppContent() {
         .select('*')
         .single();
       
-      if (error && error.code !== 'PGRST116') throw error;
+      if (error) {
+        if (error.code === 'PGRST116' || error.code === '42P01' || error.message?.includes('Failed to fetch')) return;
+        console.warn('Legal settings notice:', error.message);
+        return;
+      }
       if (data) setLegalSettings(data);
-    } catch (err) {
-      console.error('Error fetching legal settings:', err);
+    } catch (err: any) {
+      if (!err?.message?.includes?.('Failed to fetch')) {
+        console.warn('Legal settings notice:', err);
+      }
     }
   }
 
@@ -629,7 +645,7 @@ function AppContent() {
   }
 
   useEffect(() => {
-    if (!session) return;
+    if (!session || !isConfigured) return;
 
     const checkInstallmentReminders = async () => {
       try {
@@ -644,7 +660,11 @@ function AppContent() {
           .eq('status', 'pending')
           .or(`due_date.eq.${today},due_date.eq.${tomorrowStr}`);
 
-        if (error) throw error;
+        if (error) {
+          if (error.code === 'PGRST116' || error.code === '42P01' || error.message?.includes('Failed to fetch')) return;
+          console.warn('Installment reminders notice:', error.message);
+          return;
+        }
 
         data?.forEach(inst => {
           const chargeDesc = (inst as any).charge?.description || 'Cobrança Avulsa';
@@ -658,8 +678,10 @@ function AppContent() {
             message: `A parcela ${inst.installment_number} de "${chargeDesc}" (${customerName}) vence ${inst.due_date === today ? 'hoje' : 'amanhã'}! Valor: R$ ${inst.value.toFixed(2)}`
           });
         });
-      } catch (err) {
-        console.error('Error checking installment reminders globally:', err);
+      } catch (err: any) {
+        if (!err?.message?.includes?.('Failed to fetch')) {
+          console.warn('Installment reminders notice:', err);
+        }
       }
     };
 
