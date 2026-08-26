@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   X, 
   Printer, 
@@ -64,9 +64,39 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
   });
   const [feedback, setFeedback] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
+  const returnInputRef = useRef<HTMLInputElement>(null);
+  const lastScanRef = useRef<{ code: string; time: number }>({ code: '', time: 0 });
+  const scanTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const focusReturnInput = () => {
+    requestAnimationFrame(() => {
+      returnInputRef.current?.focus();
+    });
+    setTimeout(() => {
+      returnInputRef.current?.focus();
+    }, 20);
+    setTimeout(() => {
+      returnInputRef.current?.focus();
+    }, 80);
+  };
+
+  useEffect(() => {
+    if (!loading && bag.status !== 'closed') {
+      focusReturnInput();
+    }
+  }, [loading, bag.status]);
+
+  useEffect(() => {
+    return () => {
+      if (scanTimerRef.current) {
+        clearTimeout(scanTimerRef.current);
+      }
+    };
+  }, []);
+
   useEffect(() => {
     if (feedback) {
-      const timer = setTimeout(() => setFeedback(null), 2000);
+      const timer = setTimeout(() => setFeedback(null), 2500);
       return () => clearTimeout(timer);
     }
   }, [feedback]);
@@ -360,13 +390,84 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
     }
   };
 
-  const handleBarcodeReturn = (rawCode?: string) => {
-    const code = (rawCode !== undefined ? rawCode : searchProduct).trim();
+  const handleProductSearchChange = (val: string) => {
+    if (scanTimerRef.current) {
+      clearTimeout(scanTimerRef.current);
+      scanTimerRef.current = null;
+    }
+
+    setSearchProduct(val);
+    const trimmed = val.trim();
+    if (!trimmed) return;
+
+    // Check for exact or normalized barcode match for instant barcode scanner read
+    if (trimmed.length >= 2) {
+      const exactBarcodeMatch = items.find(i => doesProductMatchBarcode(i.product, trimmed));
+      if (exactBarcodeMatch) {
+        const now = Date.now();
+        const codeNorm = trimmed.toLowerCase();
+        if (lastScanRef.current.code === codeNorm && now - lastScanRef.current.time < 800) {
+          return;
+        }
+        lastScanRef.current = { code: codeNorm, time: now };
+        
+        if (exactBarcodeMatch.returned_quantity >= exactBarcodeMatch.quantity) {
+          setFeedback({ message: 'Qtd máxima já devolvida', type: 'error' });
+        } else {
+          updateReturnedQuantity(exactBarcodeMatch.id, exactBarcodeMatch.returned_quantity + 1);
+          setFeedback({ message: 'Produto devolvido', type: 'success' });
+        }
+        setSearchProduct('');
+        if (returnInputRef.current) {
+          returnInputRef.current.value = '';
+        }
+        setTimeout(() => {
+          setSearchProduct('');
+          if (returnInputRef.current) {
+            returnInputRef.current.value = '';
+          }
+        }, 0);
+        focusReturnInput();
+        return;
+      }
+    }
+
+    // If string is barcode-like, trigger auto evaluation after scanner input pause
+    const isBarcodeLike = /^\d{4,}$/.test(trimmed) || trimmed.length >= 7;
+    if (isBarcodeLike) {
+      scanTimerRef.current = setTimeout(() => {
+        processProductReturn(trimmed);
+      }, 300);
+    }
+  };
+
+  const processProductReturn = (rawValue?: string) => {
+    if (scanTimerRef.current) {
+      clearTimeout(scanTimerRef.current);
+      scanTimerRef.current = null;
+    }
+
+    const raw = rawValue !== undefined ? rawValue : (returnInputRef.current?.value || searchProduct);
+    const code = (raw || '').trim();
+
     if (!code) {
       setSearchProduct('');
+      if (returnInputRef.current) returnInputRef.current.value = '';
+      focusReturnInput();
       return;
     }
     
+    const now = Date.now();
+    const codeNorm = code.toLowerCase();
+    if (lastScanRef.current.code === codeNorm && now - lastScanRef.current.time < 800) {
+      setSearchProduct('');
+      if (returnInputRef.current) returnInputRef.current.value = '';
+      focusReturnInput();
+      return;
+    }
+
+    lastScanRef.current = { code: codeNorm, time: now };
+
     // 1. Direct or normalized barcode match
     let item = items.find(i => doesProductMatchBarcode(i.product, code));
 
@@ -383,7 +484,15 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
                          (searchStripped.length >= 2 && eanStripped.includes(searchStripped)) ||
                          (eanStripped.length >= 2 && searchStripped.includes(eanStripped)) ||
                          isBarcodeMatch(i.product.ean, code);
-        return nameMatch || labelMatch || eanMatch;
+        const varMatch = (i.product.ean_variations || []).some(v => {
+          const vStr = (v || '').toLowerCase().trim();
+          const vStripped = stripLeadingZeros(vStr);
+          return vStr.includes(searchLower) || 
+                 (searchStripped.length >= 2 && vStripped.includes(searchStripped)) ||
+                 (vStripped.length >= 2 && searchStripped.includes(vStripped)) ||
+                 isBarcodeMatch(v, code);
+        });
+        return nameMatch || labelMatch || eanMatch || varMatch;
       });
       if (matches.length === 1) {
         item = matches[0];
@@ -391,12 +500,36 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
     }
     
     if (item) {
-      updateReturnedQuantity(item.id, item.returned_quantity + 1);
-      setFeedback({ message: 'Item devolvido', type: 'success' });
+      if (item.returned_quantity >= item.quantity) {
+        setFeedback({ message: 'Qtd máxima já devolvida', type: 'error' });
+      } else {
+        updateReturnedQuantity(item.id, item.returned_quantity + 1);
+        setFeedback({ message: 'Produto devolvido', type: 'success' });
+      }
       setSearchProduct('');
+      if (returnInputRef.current) {
+        returnInputRef.current.value = '';
+      }
+      setTimeout(() => {
+        setSearchProduct('');
+        if (returnInputRef.current) {
+          returnInputRef.current.value = '';
+        }
+      }, 0);
+      focusReturnInput();
     } else {
       setFeedback({ message: 'Produto não localizado', type: 'error' });
       setSearchProduct('');
+      if (returnInputRef.current) {
+        returnInputRef.current.value = '';
+      }
+      setTimeout(() => {
+        setSearchProduct('');
+        if (returnInputRef.current) {
+          returnInputRef.current.value = '';
+        }
+      }, 0);
+      focusReturnInput();
     }
   };
 
@@ -573,21 +706,22 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
                   <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Bipar Devolução</label>
                   <div className="relative w-full sm:w-64">
                     <input 
+                      ref={returnInputRef}
                       type="text" 
-                      placeholder="Nome ou Código..."
-                      className="bg-zinc-50 border border-zinc-100 rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-emerald-500 w-full disabled:opacity-50"
+                      placeholder="Digite ou bipe o código..."
+                      className="bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-2.5 text-sm font-medium text-zinc-800 focus:outline-none focus:border-emerald-500 w-full disabled:opacity-50 transition-all"
                       value={searchProduct}
                       disabled={bag.status === 'closed'}
-                      onChange={(e) => setSearchProduct(e.target.value)}
+                      onChange={(e) => handleProductSearchChange(e.target.value)}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' || e.key === 'Tab' || e.code === 'NumpadEnter' || e.keyCode === 13 || e.keyCode === 9) {
                           e.preventDefault();
                           e.stopPropagation();
-                          handleBarcodeReturn(e.currentTarget.value);
+                          processProductReturn(e.currentTarget.value);
                         }
                       }}
                       onKeyUp={(e) => {
-                        if (e.key === 'Enter' || e.key === 'Tab' || e.code === 'NumpadEnter') {
+                        if (e.key === 'Enter' || e.key === 'Tab' || e.code === 'NumpadEnter' || e.keyCode === 13 || e.keyCode === 9) {
                           e.preventDefault();
                           e.stopPropagation();
                         }
@@ -598,11 +732,27 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
                         {filteredItems.map(item => (
                           <button 
                             key={item.id}
+                            type="button"
                             onClick={() => {
-                              updateReturnedQuantity(item.id, item.returned_quantity + 1);
+                              if (item.returned_quantity >= item.quantity) {
+                                setFeedback({ message: 'Qtd máxima já devolvida', type: 'error' });
+                              } else {
+                                updateReturnedQuantity(item.id, item.returned_quantity + 1);
+                                setFeedback({ message: 'Produto devolvido', type: 'success' });
+                              }
                               setSearchProduct('');
+                              if (returnInputRef.current) {
+                                returnInputRef.current.value = '';
+                              }
+                              setTimeout(() => {
+                                setSearchProduct('');
+                                if (returnInputRef.current) {
+                                  returnInputRef.current.value = '';
+                                }
+                              }, 0);
+                              focusReturnInput();
                             }}
-                            className="w-full flex items-center gap-3 px-4 py-2 hover:bg-zinc-50 text-left border-b border-zinc-50 last:border-0"
+                            className="w-full flex items-center gap-3 px-4 py-2 hover:bg-zinc-50 text-left border-b border-zinc-50 last:border-0 transition-colors"
                           >
                             <div className="w-8 h-8 rounded bg-zinc-100 flex items-center justify-center shrink-0">
                               <Package className="w-4 h-4 text-zinc-400" />
