@@ -69,6 +69,10 @@ export function Login() {
       setError('Preencha email e senha para cadastrar.');
       return;
     }
+    if (password.length < 8) {
+      setError('A senha deve ter no mínimo 8 caracteres.');
+      return;
+    }
     setLoading(true);
     setError(null);
     setSuccessMsg(null);
@@ -216,6 +220,7 @@ export function Login() {
             <input
               type="email"
               required
+              autoComplete="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="w-full bg-white border border-[#d1d5db] rounded-xl px-4 py-3.5 text-[#4a1d33] placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-[#38a89d]/20 focus:border-[#38a89d] transition-all shadow-sm"
@@ -229,6 +234,7 @@ export function Login() {
               <input
                 type={showPassword ? "text" : "password"}
                 required
+                autoComplete={isSignUp ? "new-password" : "current-password"}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full bg-white border border-[#d1d5db] rounded-xl px-4 py-3.5 text-[#4a1d33] placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-[#38a89d]/20 focus:border-[#38a89d] transition-all shadow-sm"
@@ -242,6 +248,34 @@ export function Login() {
                 {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
               </button>
             </div>
+            
+            {isSignUp && password && (
+              <div className="mt-2 space-y-1.5">
+                <div className="flex gap-1 h-1">
+                  {[...Array(4)].map((_, i) => {
+                    const strength = 
+                      (password.length >= 8 ? 1 : 0) +
+                      (/[A-Z]/.test(password) ? 1 : 0) +
+                      (/[0-9]/.test(password) ? 1 : 0) +
+                      (/[^A-Za-z0-9]/.test(password) ? 1 : 0);
+                    return (
+                      <div 
+                        key={i} 
+                        className={`h-full flex-1 rounded-full transition-colors ${
+                          i < strength 
+                            ? strength <= 1 ? 'bg-red-400' : strength <= 2 ? 'bg-amber-400' : strength <= 3 ? 'bg-emerald-400' : 'bg-emerald-600'
+                            : 'bg-zinc-200'
+                        }`} 
+                      />
+                    );
+                  })}
+                </div>
+                <p className="text-[10px] text-zinc-500 flex items-center gap-1.5">
+                  {password.length < 8 ? 'Mínimo 8 caracteres' : 'Senha aceitável'}
+                </p>
+              </div>
+            )}
+
             {!isSignUp && (
               <div className="text-right">
                 <button 

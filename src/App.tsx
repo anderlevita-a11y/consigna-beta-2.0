@@ -21,6 +21,7 @@ import { StoreSettings } from './components/StoreSettings';
 import { SmartNotepad } from './components/SmartNotepad';
 import { FinancialControl } from './components/FinancialControl';
 import { BillingManagement } from './components/BillingManagement';
+import { Backup } from './components/Backup';
 import { LegalConfirmationModal } from './components/LegalConfirmationModal';
 import { ResetPasswordModal } from './components/ResetPasswordModal';
 import { PublicRaffle } from './components/PublicRaffle';
@@ -28,6 +29,7 @@ import { PublicMysteryBag } from './components/PublicMysteryBag';
 import { PublicGoals } from './components/PublicGoals';
 import { PublicSweepstakes } from './components/PublicSweepstakes';
 import { Settings, Loader2, Megaphone, BarChart3, Ticket, Calculator, ShieldAlert, Menu, StickyNote, DollarSign } from 'lucide-react';
+import { cn } from './lib/utils';
 import { supabase, isConfigured } from './lib/supabase';
 import { Session } from '@supabase/supabase-js';
 import { StoreSettings as StoreSettingsType, ProductReview, Profile, AppLegalSettings } from './types';
@@ -168,6 +170,19 @@ function AppContent() {
   const [showLegalModal, setShowLegalModal] = useState(false);
   const [showResetPassword, setShowResetPassword] = useState(false);
   const [rejectedReceipt, setRejectedReceipt] = useState<any>(null);
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    const saved = localStorage.getItem('theme');
+    return (saved as 'light' | 'dark') || 'light';
+  });
+
+  useEffect(() => {
+    if (theme === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+    localStorage.setItem('theme', theme);
+  }, [theme]);
 
   useEffect(() => {
     if (!session || !isConfigured) return;
@@ -743,6 +758,8 @@ function AppContent() {
         return <Simulation />;
       case 'virtual-store':
         return <VirtualStore />;
+      case 'backup':
+        return <Backup />;
       case 'store-settings':
         return <StoreSettings />;
       case 'notepad':
@@ -759,7 +776,10 @@ function AppContent() {
   };
 
   return (
-    <div className="flex min-h-screen bg-[#f8f9fa] text-zinc-800 font-sans selection:bg-emerald-500/30 selection:text-emerald-900">
+    <div className={cn(
+      "flex min-h-screen font-sans selection:bg-emerald-500/30 selection:text-emerald-900 transition-colors duration-300",
+      theme === 'dark' ? "bg-zinc-950 text-zinc-100" : "bg-[#f8f9fa] text-zinc-800"
+    )}>
       <Sidebar 
         activeTab={activeTab} 
         setActiveTab={setActiveTab} 
@@ -767,26 +787,40 @@ function AppContent() {
         onClose={() => setIsSidebarOpen(false)}
         profile={profile}
         className="no-print"
+        theme={theme}
+        onThemeChange={setTheme}
       />
       
       <CatalogSyncPrompt />
       
       <main className="flex-1 overflow-y-auto h-screen">
-        <header className="h-16 border-b border-zinc-100 flex items-center justify-between px-4 sm:px-8 bg-white/80 backdrop-blur-sm sticky top-0 z-10 no-print">
+        <header className={cn(
+          "h-16 border-b flex items-center justify-between px-4 sm:px-8 backdrop-blur-sm sticky top-0 z-10 no-print transition-colors",
+          theme === 'dark' ? "bg-zinc-900/80 border-zinc-800" : "bg-white/80 border-zinc-100"
+        )}>
           <div className="flex items-center gap-3 sm:gap-4">
             <button 
               onClick={() => setIsSidebarOpen(true)}
-              className="lg:hidden p-2 hover:bg-zinc-50 rounded-lg transition-colors"
+              className={cn(
+                "lg:hidden p-2 rounded-lg transition-colors",
+                theme === 'dark' ? "hover:bg-zinc-800 text-zinc-400" : "hover:bg-zinc-50 text-zinc-500"
+              )}
             >
-              <Menu className="w-6 h-6 text-zinc-500" />
+              <Menu className="w-6 h-6" />
             </button>
-            <span className="text-zinc-300 hidden sm:inline">/</span>
-            <span className="text-xs font-bold text-[#4a1d33] uppercase tracking-widest">{activeTab}</span>
+            <span className="text-zinc-300 dark:text-zinc-700 hidden sm:inline">/</span>
+            <span className={cn(
+              "text-xs font-bold uppercase tracking-widest",
+              theme === 'dark' ? "text-zinc-100" : "text-[#4a1d33]"
+            )}>{activeTab}</span>
           </div>
           
           <div className="flex items-center gap-4">
             <NotificationCenter />
-            <div className="w-8 h-8 rounded-lg bg-[#fdf8e1] border border-[#4a1d33]/10 flex items-center justify-center">
+            <div className={cn(
+              "w-8 h-8 rounded-lg border flex items-center justify-center",
+              theme === 'dark' ? "bg-zinc-800 border-zinc-700" : "bg-[#fdf8e1] border-[#4a1d33]/10"
+            )}>
               <span className="text-xs font-bold text-[#38a89d]">
                 {session.user.email ? session.user.email.substring(0, 2).toUpperCase() : '??'}
               </span>

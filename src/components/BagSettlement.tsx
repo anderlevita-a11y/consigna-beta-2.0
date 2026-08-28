@@ -19,6 +19,8 @@ import {
   AlertCircle 
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { generatePixPayload } from '../lib/pix';
 import { supabase } from '../lib/supabase';
 import { Bag, BagItem, Product, Profile } from '../types';
@@ -637,47 +639,112 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
   const handlePrintPDF = async () => {
     setSaving(true);
     try {
-      const payload = {
-        tipo_documento: 'nota_servico',
-        dados_cliente: {
-          nome: bag.customer?.nome || 'Cliente',
-          cpf: bag.customer?.cpf || '---'
-        },
-        itens: items.map(item => ({
-          nome: item.product.name,
-          qtd: item.quantity - item.returned_quantity,
-          preco: item.unit_price,
-          total: (item.quantity - item.returned_quantity) * item.unit_price
-        })).filter(i => i.qtd > 0)
-      };
+      const doc = new jsPDF();
+      const customerName = bag.customer?.nome || 'Cliente';
+      const customerCPF = bag.customer?.cpf || '---';
+      const dateStr = format(new Date(), 'dd/MM/yyyy HH:mm');
+      
+      // Header
+      doc.setFontSize(20);
+      doc.setTextColor(56, 168, 157); // Emerald Green color
+      doc.text('CONSIGNA BEAUTY', 105, 15, { align: 'center' });
+      
+      doc.setFontSize(10);
+      doc.setTextColor(100, 100, 100);
+      doc.text('Relatório de Acerto de Sacola', 105, 22, { align: 'center' });
+      
+      // Divider
+      doc.setDrawColor(230, 230, 230);
+      doc.line(15, 28, 195, 28);
+      
+      // Info section
+      doc.setFontSize(11);
+      doc.setTextColor(0, 0, 0);
+      doc.setFont('helvetica', 'bold');
+      doc.text('DADOS DA SACOLA', 15, 38);
+      
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(10);
+      doc.text(`Sacola: #${bag.bag_number.replace(/\D/g, '')}`, 15, 45);
+      doc.text(`Cliente: ${customerName}`, 15, 52);
+      doc.text(`CPF: ${customerCPF}`, 15, 59);
+      doc.text(`Data: ${dateStr}`, 15, 66);
+      doc.text(`Status: ${bag.status === 'closed' ? 'FECHADA' : 'EM ABERTO'}`, 15, 73);
 
-      const { data, error } = await supabase.functions.invoke('generate-pdf', {
-        body: payload
+      // Items table
+      const soldItems = items.map(item => ({
+        product: item.product.name,
+        qty: item.quantity,
+        returned: item.returned_quantity,
+        sold: item.quantity - item.returned_quantity,
+        price: formatMoney(item.unit_price),
+        total: formatMoney((item.quantity - item.returned_quantity) * item.unit_price)
+      })).filter(i => i.sold > 0 || i.returned > 0);
+
+      autoTable(doc, {
+        startY: 85,
+        head: [['Produto', 'Enviado', 'Devolvido', 'Vendido', 'Preço Unit.', 'Subtotal']],
+        body: soldItems.map(i => [i.product, i.qty, i.returned, i.sold, i.price, i.total]),
+        headStyles: { fillColor: [56, 168, 157], textColor: [255, 255, 255], fontStyle: 'bold' },
+        alternateRowStyles: { fillColor: [245, 245, 245] },
+        styles: { fontSize: 9, cellPadding: 3 },
+        columnStyles: {
+          1: { halign: 'center' },
+          2: { halign: 'center' },
+          3: { halign: 'center' },
+          4: { halign: 'right' },
+          5: { halign: 'right' },
+        }
       });
 
-      if (error) throw error;
+      // Summary section
+      const finalY = (doc as any).lastAutoTable.finalY + 15;
       
-      setPdfUrl(data.url);
-      setPreviewType('termica');
-      setShowPreview(true);
+      doc.setFont('helvetica', 'bold');
+      doc.text('RESUMO FINANCEIRO', 15, finalY);
+      
+      doc.setFont('helvetica', 'normal');
+      doc.text('Subtotal Bruto:', 140, finalY + 10, { align: 'right' });
+      doc.text(formatMoney(totalSold), 195, finalY + 10, { align: 'right' });
+      
+      doc.text(`Comissão (${campaignDiscount}%):`, 140, finalY + 17, { align: 'right' });
+      doc.text(`- ${formatMoney(commission)}`, 195, finalY + 17, { align: 'right' });
+      
+      doc.setFontSize(12);
+      doc.setFont('helvetica', 'bold');
+      doc.text('TOTAL A PAGAR:', 140, finalY + 27, { align: 'right' });
+      doc.setTextColor(56, 168, 157);
+      doc.text(formatMoney(amountToPay), 195, finalY + 27, { align: 'right' });
+
+      // Signatures
+      const signatureY = finalY + 60;
+      doc.setDrawColor(200, 200, 200);
+      doc.line(20, signatureY, 90, signatureY);
+      doc.line(120, signatureY, 190, signatureY);
+      
+      doc.setFontSize(8);
+      doc.setTextColor(100, 100, 100);
+      doc.text(customerName, 55, signatureY + 5, { align: 'center' });
+      doc.text('Assinatura do Cliente', 55, signatureY + 10, { align: 'center' });
+      
+      doc.text('Consigna Beauty', 155, signatureY + 5, { align: 'center' });
+      doc.text('Assinatura do Consultor', 155, signatureY + 10, { align: 'center' });
+
+      // Save PDF
+      doc.save(`Acerto_Sacola_${bag.bag_number.replace(/\D/g, '')}.pdf`);
+      
+      addNotification({
+        type: 'success',
+        title: 'PDF Gerado',
+        message: 'Relatório de acerto gerado com sucesso!'
+      });
     } catch (err: any) {
-      console.warn('Edge Function (generate-pdf) not available, using fallback print:', err.message);
-      
-      // Fallback to simple print if Edge Function is not reachable or any error occurs
-      const payload = {
-        tipo_documento: 'nota_servico',
-        dados_cliente: {
-          nome: bag.customer?.nome || 'Cliente',
-          cpf: bag.customer?.cpf || '---'
-        },
-        itens: items.map(item => ({
-          nome: item.product.name,
-          qtd: item.quantity - item.returned_quantity,
-          preco: item.unit_price,
-          total: (item.quantity - item.returned_quantity) * item.unit_price
-        })).filter(i => i.qtd > 0)
-      };
-      printFallback(payload, (msg) => addNotification({ type: 'warning', title: 'Impressão', message: msg }));
+      console.error('Error generating PDF:', err);
+      addNotification({
+        type: 'error',
+        title: 'Erro no PDF',
+        message: 'Não foi possível gerar o PDF. Tente novamente.'
+      });
     } finally {
       setSaving(false);
     }
@@ -694,28 +761,40 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
   return (
     <div className="bg-zinc-50/50 min-h-screen p-4 sm:p-8 animate-in fade-in duration-300">
       <div className="max-w-6xl mx-auto">
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 mb-8">
-          <h2 className="text-2xl font-bold text-zinc-800 text-center sm:text-left">Sacolas</h2>
-          {bag.status === 'closed' ? (
-            <button 
-              onClick={handleReopen}
-              disabled={saving}
-              className="flex items-center justify-center gap-2 bg-amber-500 hover:bg-amber-600 text-white px-6 py-3 sm:py-2.5 rounded-xl font-bold transition-all shadow-lg shadow-amber-500/20 disabled:opacity-50 w-full sm:w-auto"
-            >
-              {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <RefreshCcw className="w-5 h-5" />}
-              Reabrir Sacola
-            </button>
-          ) : (
-            <button 
-              onClick={handleFinalize}
-              disabled={saving}
-              className="flex items-center justify-center gap-2 bg-[#00a86b] hover:bg-[#008f5b] text-white px-6 py-3 sm:py-2.5 rounded-xl font-bold transition-all shadow-lg shadow-emerald-500/20 disabled:opacity-50 w-full sm:w-auto"
-            >
-              {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
-              Salvar Sacola
-            </button>
-          )}
-        </div>
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 mb-8">
+            <h2 className="text-2xl font-bold text-zinc-800 text-center sm:text-left">Sacolas</h2>
+            <div className="flex flex-col sm:flex-row gap-3">
+              {bag.status === 'closed' && (
+                <button 
+                  onClick={handlePrintPDF}
+                  disabled={saving}
+                  className="flex items-center justify-center gap-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 px-6 py-3 sm:py-2.5 rounded-xl font-bold transition-all shadow-sm disabled:opacity-50 w-full sm:w-auto"
+                >
+                  {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Printer className="w-5 h-5" />}
+                  Exportar PDF
+                </button>
+              )}
+              {bag.status === 'closed' ? (
+                <button 
+                  onClick={handleReopen}
+                  disabled={saving}
+                  className="flex items-center justify-center gap-2 bg-amber-500 hover:bg-amber-600 text-white px-6 py-3 sm:py-2.5 rounded-xl font-bold transition-all shadow-lg shadow-amber-500/20 disabled:opacity-50 w-full sm:w-auto"
+                >
+                  {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <RefreshCcw className="w-5 h-5" />}
+                  Reabrir Sacola
+                </button>
+              ) : (
+                <button 
+                  onClick={handleFinalize}
+                  disabled={saving}
+                  className="flex items-center justify-center gap-2 bg-[#00a86b] hover:bg-[#008f5b] text-white px-6 py-3 sm:py-2.5 rounded-xl font-bold transition-all shadow-lg shadow-emerald-500/20 disabled:opacity-50 w-full sm:w-auto"
+                >
+                  {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
+                  Salvar Sacola
+                </button>
+              )}
+            </div>
+          </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Main Content */}

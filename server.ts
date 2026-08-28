@@ -7,6 +7,7 @@ import { createClient } from "@supabase/supabase-js";
 import dotenv from "dotenv";
 import cron from "node-cron";
 import rateLimit from "express-rate-limit";
+import helmet from "helmet";
 
 dotenv.config();
 
@@ -332,6 +333,27 @@ async function startServer() {
 
   // Essential for rate limiting behind reverse proxy (Like AI Studio / Cloud Run)
   app.set('trust proxy', 1);
+
+  // Security Headers
+  app.use(helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://*.supabase.co", "https://js.stripe.com"],
+        styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+        fontSrc: ["'self'", "https://fonts.gstatic.com"],
+        imgSrc: ["'self'", "data:", "https://*.supabase.co", "https://*.stripe.com", "https://www.catalogofavorita.com.br"],
+        connectSrc: ["'self'", "https://*.supabase.co", "https://api.abacatepay.com", "https://*.stripe.com", "wss://*.supabase.co"],
+        frameSrc: ["'self'", "https://js.stripe.com"],
+        objectSrc: ["'none'"],
+        upgradeInsecureRequests: [],
+        frameAncestors: ["*"], // Allow the app to be embedded in iframes (required for AI Studio preview)
+      },
+    },
+    crossOriginEmbedderPolicy: false,
+    referrerPolicy: { policy: "strict-origin-when-cross-origin" },
+    frameguard: false, // Disables X-Frame-Options to allow embedding
+  }));
 
   app.use(express.json());
 

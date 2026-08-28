@@ -1,6 +1,6 @@
 {
-  "name": "Consigna Pro",
-  "description": "Sistema avançado de gestão de vendas consignadas com SmartNotepad, Insights Diários e integração Supabase.",
+  "name": "Consigna Beauty | Solução de Vendas para Consignação",
+  "description": "Sistema completo de gestão para vendas consignadas, com controle financeiro, gestão de sacolas, insights inteligentes e automação de cobranças.",
   "requestFramePermissions": ["geolocation"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

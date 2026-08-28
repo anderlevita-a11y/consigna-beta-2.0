@@ -98,7 +98,10 @@ export function NotificationCenter() {
     <div className="relative">
       <button 
         onClick={() => setIsOpen(!isOpen)}
-        className="relative p-2 text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 rounded-xl transition-all"
+        className={cn(
+          "relative p-2 rounded-xl transition-all",
+          "text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+        )}
       >
         <Bell className="w-6 h-6" />
         {unreadCount > 0 && (
@@ -111,19 +114,19 @@ export function NotificationCenter() {
       {isOpen && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
-          <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white border border-zinc-200 rounded-3xl shadow-2xl z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-            <div className="p-6 border-b border-zinc-100 flex items-center justify-between bg-zinc-50/50">
-              <h3 className="font-bold text-zinc-800">Notificações</h3>
-              <button onClick={() => setIsOpen(false)} className="p-1 hover:bg-zinc-200 rounded-lg transition-colors">
+          <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl shadow-2xl z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div className="p-6 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between bg-zinc-50/50 dark:bg-zinc-800/50">
+              <h3 className="font-bold text-zinc-800 dark:text-zinc-100">Notificações</h3>
+              <button onClick={() => setIsOpen(false)} className="p-1 hover:bg-zinc-200 dark:hover:bg-zinc-700 rounded-lg transition-colors">
                 <X className="w-4 h-4 text-zinc-400" />
               </button>
             </div>
 
-            <div className="max-h-[400px] overflow-y-auto divide-y divide-zinc-50">
+            <div className="max-h-[400px] overflow-y-auto divide-y divide-zinc-50 dark:divide-zinc-800">
               {notifications.length === 0 ? (
                 <div className="p-12 text-center space-y-3">
-                  <div className="w-12 h-12 bg-zinc-50 rounded-full flex items-center justify-center mx-auto">
-                    <Bell className="w-6 h-6 text-zinc-200" />
+                  <div className="w-12 h-12 bg-zinc-50 dark:bg-zinc-800 rounded-full flex items-center justify-center mx-auto">
+                    <Bell className="w-6 h-6 text-zinc-200 dark:text-zinc-700" />
                   </div>
                   <p className="text-sm text-zinc-400 italic">Nenhuma notificação por aqui.</p>
                 </div>
@@ -132,8 +135,8 @@ export function NotificationCenter() {
                   <div 
                     key={notif.id} 
                     className={cn(
-                      "p-4 flex gap-4 hover:bg-zinc-50 transition-colors group",
-                      !notif.read && "bg-emerald-50/30"
+                      "p-4 flex gap-4 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors group",
+                      !notif.read && "bg-emerald-50/30 dark:bg-emerald-500/10"
                     )}
                     onClick={() => {
                       markAsRead(notif.id);
@@ -143,19 +146,19 @@ export function NotificationCenter() {
                     <div className="mt-1">{getIcon(notif.type)}</div>
                     <div className="flex-1 space-y-1">
                       <div className="flex items-center justify-between">
-                        <p className="text-sm font-bold text-zinc-800">{notif.title}</p>
+                        <p className="text-sm font-bold text-zinc-800 dark:text-zinc-100">{notif.title}</p>
                         <span className="text-[10px] text-zinc-400">
                           {notif.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         </span>
                       </div>
-                      <p className="text-xs text-zinc-500 leading-relaxed">{notif.message}</p>
+                      <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">{notif.message}</p>
                     </div>
                     <button 
                       onClick={(e) => {
                         e.stopPropagation();
                         removeNotification(notif.id);
                       }}
-                      className="opacity-0 group-hover:opacity-100 p-1 hover:bg-zinc-200 rounded-lg transition-all"
+                      className="opacity-0 group-hover:opacity-100 p-1 hover:bg-zinc-200 dark:hover:bg-zinc-700 rounded-lg transition-all"
                     >
                       <X className="w-3 h-3 text-zinc-400" />
                     </button>
@@ -165,7 +168,7 @@ export function NotificationCenter() {
             </div>
 
             {notifications.length > 0 && (
-              <div className="p-4 bg-zinc-50 border-t border-zinc-100 text-center">
+              <div className="p-4 bg-zinc-50 dark:bg-zinc-800/50 border-t border-zinc-100 dark:border-zinc-800 text-center">
                 <button className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest hover:text-emerald-700 transition-colors">
                   Ver todas as notificações
                 </button>

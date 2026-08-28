@@ -5,6 +5,8 @@ import {
   Users, 
   ShoppingBag, 
   Settings, 
+  Sun,
+  Moon,
   LogOut,
   ChevronRight,
   UserCircle,
@@ -25,6 +27,7 @@ import {
   CheckCircle2,
   FileText,
   Calendar,
+  Database,
   Link as LinkIcon
 } from 'lucide-react';
 import { cn, formatError } from '../lib/utils';
@@ -41,6 +44,8 @@ interface SidebarProps {
   onClose?: () => void;
   profile: Profile | null;
   className?: string;
+  theme?: 'light' | 'dark';
+  onThemeChange?: (theme: 'light' | 'dark') => void;
 }
 
 const menuItems = [
@@ -56,10 +61,11 @@ const menuItems = [
   { id: 'sweepstakes', label: 'Sorteios', icon: Ticket },
   { id: 'simulation', label: 'Simulação', icon: Calculator, restrictedForStarter: true },
   { id: 'virtual-store', label: 'Loja Virtual', icon: ShoppingBag },
+  { id: 'backup', label: 'Backup', icon: Database },
   { id: 'store-settings', label: 'Config Loja', icon: Settings },
 ];
 
-export function Sidebar({ activeTab, setActiveTab, isOpen, onClose, profile, className }: SidebarProps) {
+export function Sidebar({ activeTab, setActiveTab, isOpen, onClose, profile, className, theme, onThemeChange }: SidebarProps) {
   const [syncing, setSyncing] = useState(false);
   const [previewData, setPreviewData] = useState<{
     inserted: any[];
@@ -162,7 +168,8 @@ export function Sidebar({ activeTab, setActiveTab, isOpen, onClose, profile, cla
       )}
 
       <div className={cn(
-        "fixed inset-y-0 left-0 w-64 bg-white text-zinc-500 flex flex-col border-r border-zinc-100 z-50 transition-transform duration-300 lg:translate-x-0 lg:static lg:inset-auto",
+        "fixed inset-y-0 left-0 w-64 flex flex-col border-r z-50 transition-all duration-300 lg:translate-x-0 lg:static lg:inset-auto",
+        theme === 'dark' ? "bg-zinc-900 text-zinc-300 border-zinc-800" : "bg-white text-zinc-500 border-zinc-100",
         isOpen ? "translate-x-0" : "-translate-x-full",
         className
       )}>
@@ -171,21 +178,42 @@ export function Sidebar({ activeTab, setActiveTab, isOpen, onClose, profile, cla
             <div className="flex items-center gap-3">
               <Logo className="w-10 h-10" />
               <div className="flex flex-col">
-                <h1 className="text-[#4a1d33] font-bold text-sm tracking-tight leading-none uppercase">Consigna</h1>
+                <h1 className={cn(
+                  "font-bold text-sm tracking-tight leading-none uppercase",
+                  theme === 'dark' ? "text-zinc-100" : "text-[#4a1d33]"
+                )}>Consigna</h1>
                 <span className="text-[#38a89d] font-bold text-[10px] uppercase tracking-widest">Beauty</span>
               </div>
             </div>
             <button 
               onClick={onClose}
-              className="lg:hidden p-2 hover:bg-zinc-50 rounded-lg transition-colors"
+              className={cn(
+                "lg:hidden p-2 rounded-lg transition-colors",
+                theme === 'dark' ? "hover:bg-zinc-800 text-zinc-500" : "hover:bg-zinc-50 text-zinc-400"
+              )}
             >
-              <ChevronLeft className="w-5 h-5 text-zinc-400" />
+              <ChevronLeft className="w-5 h-5" />
             </button>
           </div>
           
-          <div className="flex items-center gap-2 px-1">
-            <div className="w-2 h-2 bg-[#38a89d] rounded-full animate-pulse" />
-            <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Sistema: Online</span>
+          <div className="flex items-center justify-between px-1">
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 bg-[#38a89d] rounded-full animate-pulse" />
+              <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Sistema: Online</span>
+            </div>
+
+            <button
+              onClick={() => onThemeChange?.(theme === 'dark' ? 'light' : 'dark')}
+              className={cn(
+                "p-1.5 rounded-lg transition-all duration-300",
+                theme === 'dark' 
+                  ? "bg-zinc-800 text-amber-400 hover:bg-zinc-700" 
+                  : "bg-zinc-100 text-zinc-500 hover:bg-zinc-200"
+              )}
+              title={theme === 'dark' ? "Mudar para modo claro" : "Mudar para modo escuro"}
+            >
+              {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+            </button>
           </div>
         </div>
 
@@ -207,13 +235,15 @@ export function Sidebar({ activeTab, setActiveTab, isOpen, onClose, profile, cla
                     ? "bg-[#38a89d] text-white shadow-lg shadow-[#38a89d]/20" 
                     : isLocked
                       ? "opacity-50 cursor-not-allowed grayscale"
-                      : "hover:bg-zinc-50 text-zinc-500 hover:text-[#4a1d33]"
+                      : theme === 'dark'
+                        ? "hover:bg-zinc-800 text-zinc-400 hover:text-zinc-100"
+                        : "hover:bg-zinc-50 text-zinc-500 hover:text-[#4a1d33]"
                 )}
               >
                 <div className="flex items-center gap-3">
                   <Icon className={cn(
                     "w-5 h-5 transition-colors",
-                    isActive ? "text-white" : "text-zinc-400 group-hover:text-[#38a89d]"
+                    isActive ? "text-white" : theme === 'dark' ? "text-zinc-500 group-hover:text-[#38a89d]" : "text-zinc-400 group-hover:text-[#38a89d]"
                   )} />
                   <span className="font-semibold text-sm">{item.label}</span>
                 </div>
@@ -227,7 +257,8 @@ export function Sidebar({ activeTab, setActiveTab, isOpen, onClose, profile, cla
               onClick={handlePreviewSync}
               disabled={syncing}
               className={cn(
-                "w-full flex items-center justify-between px-4 py-3 rounded-xl transition-all duration-200 group hover:bg-zinc-50 text-zinc-500 hover:text-[#4a1d33] disabled:opacity-50"
+                "w-full flex items-center justify-between px-4 py-3 rounded-xl transition-all duration-200 group text-zinc-500 disabled:opacity-50",
+                theme === 'dark' ? "hover:bg-zinc-800 hover:text-zinc-100" : "hover:bg-zinc-50 hover:text-[#4a1d33]"
               )}
             >
               <div className="flex items-center gap-3">
@@ -251,7 +282,7 @@ export function Sidebar({ activeTab, setActiveTab, isOpen, onClose, profile, cla
                 "w-full flex items-center justify-between px-4 py-3 rounded-xl transition-all duration-200 group",
                 activeTab === 'admin'
                   ? "bg-[#38a89d] text-white shadow-lg shadow-[#38a89d]/20"
-                  : "hover:bg-zinc-50 text-zinc-500 hover:text-[#4a1d33]"
+                  : theme === 'dark' ? "hover:bg-zinc-800 text-zinc-400 hover:text-zinc-100" : "hover:bg-zinc-50 text-zinc-500 hover:text-[#4a1d33]"
               )}
             >
               <div className="flex items-center gap-3">
@@ -268,9 +299,12 @@ export function Sidebar({ activeTab, setActiveTab, isOpen, onClose, profile, cla
         <div className="p-4 space-y-2">
           <button 
             onClick={handleLogout}
-            className="w-full flex items-center gap-3 px-4 py-2 rounded-xl hover:bg-red-50 hover:text-red-500 text-zinc-400 transition-all group"
+            className={cn(
+              "w-full flex items-center gap-3 px-4 py-2 rounded-xl transition-all group",
+              theme === 'dark' ? "hover:bg-red-500/10 text-zinc-500 hover:text-red-400" : "hover:bg-red-50 hover:text-red-500 text-zinc-400"
+            )}
           >
-            <LogOut className="w-5 h-5 group-hover:text-red-500" />
+            <LogOut className="w-5 h-5" />
             <span className="font-medium text-sm">Sair</span>
           </button>
         </div>
