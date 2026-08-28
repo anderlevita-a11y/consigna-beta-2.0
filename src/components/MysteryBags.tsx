@@ -16,9 +16,9 @@ import {
   Share2,
   Upload
 } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { supabase, isConfigured } from '../lib/supabase';
 import { MysteryBagCampaign, MysteryBag } from '../types';
-import { cn } from '../lib/utils';
+import { cn, formatError } from '../lib/utils';
 import { format } from 'date-fns';
 import { useNotifications } from './NotificationCenter';
 import { ConfirmationModal } from './ConfirmationModal';
@@ -37,9 +37,17 @@ export function MysteryBagsManager() {
   async function fetchCampaigns() {
     setLoading(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      if (!isConfigured) {
+        setCampaigns([]);
+        return;
+      }
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError) throw sessionError;
       const user = session?.user;
-      if (!user) return;
+      if (!user) {
+        setCampaigns([]);
+        return;
+      }
 
       const { data, error } = await supabase
         .from('mystery_bag_campaigns')
@@ -50,7 +58,7 @@ export function MysteryBagsManager() {
       if (error) throw error;
       setCampaigns(data || []);
     } catch (err) {
-      console.error('Error fetching campaigns:', err);
+      console.warn('Error fetching mystery bag campaigns:', err);
     } finally {
       setLoading(false);
     }

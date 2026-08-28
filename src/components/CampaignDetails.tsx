@@ -14,7 +14,7 @@ import {
   RefreshCcw,
   Calendar
 } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { supabase, isConfigured } from '../lib/supabase';
 import { Campaign, Bag, Customer } from '../types';
 import { cn, printFallback, formatError } from '../lib/utils';
 import { format } from 'date-fns';
@@ -40,6 +40,7 @@ export function CampaignDetails({ campaign, onBack, onAddBag, onEditBag }: Campa
   const [assigningBag, setAssigningBag] = useState<Bag | null>(null);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [customerSearch, setCustomerSearch] = useState('');
+  const [bagSearch, setBagSearch] = useState('');
   const [assigning, setAssigning] = useState(false);
   const [movingBag, setMovingBag] = useState<Bag | null>(null);
   const [availableCampaigns, setAvailableCampaigns] = useState<Campaign[]>([]);
@@ -357,7 +358,12 @@ export function CampaignDetails({ campaign, onBack, onAddBag, onEditBag }: Campa
     setMovingBag(bag);
     setLoadingCampaigns(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      if (!isConfigured) {
+        setAvailableCampaigns([]);
+        return;
+      }
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError) throw sessionError;
       const user = session?.user;
       if (!user) return;
 
@@ -372,7 +378,7 @@ export function CampaignDetails({ campaign, onBack, onAddBag, onEditBag }: Campa
       if (error) throw error;
       setAvailableCampaigns(data || []);
     } catch (err) {
-      console.error('Error fetching campaigns:', err);
+      console.warn('Error fetching campaigns for bag move:', err);
     } finally {
       setLoadingCampaigns(false);
     }
@@ -554,6 +560,36 @@ export function CampaignDetails({ campaign, onBack, onAddBag, onEditBag }: Campa
     ? availableCampaigns.filter(c => c.name.toLowerCase().includes(campaignSearch.toLowerCase()))
     : availableCampaigns;
 
+  const filteredBags = bags.filter(bag => {
+    if (!bagSearch.trim()) return true;
+    const term = bagSearch.toLowerCase().trim();
+    const cleanDigitsTerm = term.replace(/\D/g, '');
+
+    // Match Bag Number (e.g., "#001", "1", "001")
+    const bagNum = bag.bag_number || '';
+    const bagNumDigits = bagNum.replace(/\D/g, '');
+    const bagNumberMatch = bagNum.toLowerCase().includes(term) || (cleanDigitsTerm.length > 0 && bagNumDigits.includes(cleanDigitsTerm));
+
+    // Match Customer details
+    const customerName = (bag.customer?.nome || '').toLowerCase();
+    const customerCpf = (bag.customer?.cpf || '').replace(/\D/g, '');
+    const customerWhatsapp = (bag.customer?.whatsapp || '').replace(/\D/g, '');
+    const customerMatch = customerName.includes(term) || 
+      (cleanDigitsTerm.length > 0 && (customerCpf.includes(cleanDigitsTerm) || customerWhatsapp.includes(cleanDigitsTerm)));
+
+    // Match Notes
+    const notesMatch = (bag.notes || '').toLowerCase().includes(term);
+
+    // Match Status
+    let statusName = '';
+    if (bag.status === 'closed') statusName = 'acertada';
+    else if (bag.status === 'open') statusName = 'aberta';
+    else if (bag.status === 'overdue') statusName = 'vencida';
+    const statusMatch = statusName.includes(term);
+
+    return bagNumberMatch || customerMatch || notesMatch || statusMatch;
+  });
+
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
@@ -606,44 +642,67 @@ export function CampaignDetails({ campaign, onBack, onAddBag, onEditBag }: Campa
         </div>
       </div>
 
-      {/* Legenda de Ações */}
-      <div className="bg-white border border-zinc-100 rounded-2xl p-4 flex flex-wrap gap-6 items-center shadow-sm">
-        <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Legenda de Ações:</span>
-        <div className="flex items-center gap-2 text-xs text-zinc-500">
-          <div className="p-1.5 bg-zinc-50 rounded-lg text-emerald-600">
-            <UserPlus className="w-3.5 h-3.5" />
-          </div>
-          <span>Atribuir Cliente</span>
+      {/* Barra de Pesquisa de Sacolas / Clientes e Legenda de Ações */}
+      <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-4">
+        <div className="relative flex-1 max-w-md">
+          <Search className="w-4 h-4 text-zinc-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+          <input
+            type="text"
+            placeholder="Pesquisar sacola por nº, cliente, CPF ou observação..."
+            value={bagSearch}
+            onChange={(e) => setBagSearch(e.target.value)}
+            className="w-full bg-white border border-zinc-200 rounded-xl pl-10 pr-10 py-2.5 text-sm text-zinc-800 placeholder:text-zinc-400 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10 shadow-sm transition-all"
+          />
+          {bagSearch && (
+            <button
+              onClick={() => setBagSearch('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-zinc-400 hover:text-zinc-600 rounded-lg hover:bg-zinc-100 transition-colors"
+              title="Limpar pesquisa"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
-        <div className="flex items-center gap-2 text-xs text-zinc-500">
-          <div className="p-1.5 bg-zinc-50 rounded-lg text-emerald-600">
-            <Save className="w-3.5 h-3.5" />
+
+        {/* Legenda de Ações */}
+        <div className="bg-white border border-zinc-100 rounded-2xl px-4 py-2.5 flex flex-wrap gap-4 items-center shadow-sm text-xs text-zinc-500">
+          <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Ações:</span>
+          <div className="flex items-center gap-1.5">
+            <div className="p-1 bg-zinc-50 rounded-md text-emerald-600">
+              <UserPlus className="w-3 h-3" />
+            </div>
+            <span>Cliente</span>
           </div>
-          <span>Acertar Sacola</span>
-        </div>
-        <div className="flex items-center gap-2 text-xs text-zinc-500">
-          <div className="p-1.5 bg-zinc-50 rounded-lg text-amber-500">
-            <RefreshCcw className="w-3.5 h-3.5" />
+          <div className="flex items-center gap-1.5">
+            <div className="p-1 bg-zinc-50 rounded-md text-emerald-600">
+              <Save className="w-3 h-3" />
+            </div>
+            <span>Acertar</span>
           </div>
-          <span>Reabrir Sacola</span>
-        </div>
-        <div className="flex items-center gap-2 text-xs text-zinc-500">
-          <div className="p-1.5 bg-zinc-50 rounded-lg text-zinc-600">
-            <Printer className="w-3.5 h-3.5" />
+          <div className="flex items-center gap-1.5">
+            <div className="p-1 bg-zinc-50 rounded-md text-amber-500">
+              <RefreshCcw className="w-3 h-3" />
+            </div>
+            <span>Reabrir</span>
           </div>
-          <span>Imprimir Nota</span>
-        </div>
-        <div className="flex items-center gap-2 text-xs text-zinc-500">
-          <div className="p-1.5 bg-zinc-50 rounded-lg text-zinc-600">
-            <Megaphone className="w-3.5 h-3.5" />
+          <div className="flex items-center gap-1.5">
+            <div className="p-1 bg-zinc-50 rounded-md text-zinc-600">
+              <Printer className="w-3 h-3" />
+            </div>
+            <span>Imprimir</span>
           </div>
-          <span>Compartilhar WhatsApp</span>
-        </div>
-        <div className="flex items-center gap-2 text-xs text-zinc-500">
-          <div className="p-1.5 bg-zinc-50 rounded-lg text-zinc-600">
-            <Undo2 className="w-3.5 h-3.5" />
+          <div className="flex items-center gap-1.5">
+            <div className="p-1 bg-zinc-50 rounded-md text-zinc-600">
+              <Megaphone className="w-3 h-3" />
+            </div>
+            <span>WhatsApp</span>
           </div>
-          <span>Mover Campanha</span>
+          <div className="flex items-center gap-1.5">
+            <div className="p-1 bg-zinc-50 rounded-md text-zinc-600">
+              <Undo2 className="w-3 h-3" />
+            </div>
+            <span>Mover</span>
+          </div>
         </div>
       </div>
 
@@ -672,9 +731,25 @@ export function CampaignDetails({ campaign, onBack, onAddBag, onEditBag }: Campa
                     Nenhuma sacola cadastrada nesta campanha.
                   </td>
                 </tr>
+              ) : filteredBags.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="px-8 py-12 text-center text-zinc-500">
+                    <div className="max-w-sm mx-auto space-y-3">
+                      <Search className="w-8 h-8 text-zinc-300 mx-auto" />
+                      <p className="font-semibold text-zinc-700">Nenhuma sacola ou cliente encontrado</p>
+                      <p className="text-xs text-zinc-400">Nenhum resultado para "{bagSearch}".</p>
+                      <button
+                        onClick={() => setBagSearch('')}
+                        className="px-3 py-1.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded-lg text-xs font-semibold transition-colors"
+                      >
+                        Limpar pesquisa
+                      </button>
+                    </div>
+                  </td>
+                </tr>
               ) : (
                 <>
-                  {bags.slice(0, 100).map((bag) => (
+                  {filteredBags.slice(0, 100).map((bag) => (
                     <tr key={bag.id} className="hover:bg-zinc-50/50 transition-colors group">
                       <td className="px-8 py-6">
                         <button 
@@ -756,10 +831,10 @@ export function CampaignDetails({ campaign, onBack, onAddBag, onEditBag }: Campa
                       </td>
                     </tr>
                   ))}
-                  {bags.length > 100 && (
+                  {filteredBags.length > 100 && (
                     <tr>
                       <td colSpan={5} className="px-8 py-4 text-center text-xs text-zinc-500 bg-zinc-50">
-                        Mostrando as primeiras 100 sacolas de {bags.length}.
+                        Mostrando as primeiras 100 sacolas de {filteredBags.length}.
                       </td>
                     </tr>
                   )}

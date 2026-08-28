@@ -7,15 +7,18 @@ import {
   Clock,
   Loader2,
   Megaphone,
-  RefreshCcw
+  RefreshCcw,
+  Search,
+  X
 } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { supabase, isConfigured } from '../lib/supabase';
 import { Campaign } from '../types';
 import { cn, formatError } from '../lib/utils';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { ConfirmationModal } from './ConfirmationModal';
 import { useNotifications } from './NotificationCenter';
+import { AlertCircle } from 'lucide-react';
 
 import { CampaignForm } from './CampaignForm';
 import { BagForm } from './BagForm';
@@ -25,12 +28,14 @@ import { PromptModal } from './PromptModal';
 export function Campaigns() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const { addNotification } = useNotifications();
   const [view, setView] = useState<'list' | 'campaign-form' | 'bag-form' | 'campaign-details'>('list');
   const [showArchived, setShowArchived] = useState(false);
   const [editingCampaign, setEditingCampaign] = useState<Campaign | undefined>();
   const [selectedCampaign, setSelectedCampaign] = useState<Campaign | undefined>();
   const [editingBagId, setEditingBagId] = useState<string | undefined>();
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Date Prompt Modal State
   const [datePromptModal, setDatePromptModal] = useState<{
@@ -84,10 +89,21 @@ export function Campaigns() {
 
   async function fetchCampaigns() {
     setLoading(true);
+    setFetchError(null);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-    const user = session?.user;
-      if (!user) return;
+      if (!isConfigured) {
+        setCampaigns([]);
+        setFetchError('Supabase não configurado ou desconectado.');
+        return;
+      }
+
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError) throw sessionError;
+      const user = session?.user;
+      if (!user) {
+        setCampaigns([]);
+        return;
+      }
 
       const { data, error } = await supabase
         .from('campaigns')
@@ -99,8 +115,11 @@ export function Campaigns() {
 
       if (error) throw error;
       setCampaigns(data || []);
+      setFetchError(null);
     } catch (err) {
-      console.error('Error fetching campaigns:', err);
+      console.warn('Erro ao carregar campanhas:', err);
+      const friendlyMessage = formatError(err);
+      setFetchError(friendlyMessage);
     } finally {
       setLoading(false);
     }
@@ -267,6 +286,16 @@ export function Campaigns() {
     );
   }
 
+  const filteredCampaigns = campaigns.filter(c => {
+    if (!searchQuery.trim()) return true;
+    const term = searchQuery.toLowerCase().trim();
+    const nameMatch = c.name.toLowerCase().includes(term);
+    const dateFormatted = c.return_date ? format(new Date(c.return_date), 'dd/MM/yyyy') : '';
+    const dateMatch = dateFormatted.includes(term);
+    const discountMatch = `${c.discount_pct}%`.includes(term) || `${c.discount_pct}` === term;
+    return nameMatch || dateMatch || discountMatch;
+  });
+
   return (
     <div className="space-y-6 sm:space-y-8">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -296,20 +325,62 @@ export function Campaigns() {
         </div>
       </div>
 
-      {/* Legenda de Ações */}
-      <div className="bg-white border border-zinc-100 rounded-2xl p-4 flex flex-wrap gap-6 items-center shadow-sm">
-        <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Legenda de Ações:</span>
-        <div className="flex items-center gap-2 text-xs text-zinc-500">
-          <div className="p-1.5 bg-zinc-50 rounded-lg text-zinc-600">
-            <Plus className="w-3.5 h-3.5" />
+      {fetchError && (
+        <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-sm">
+          <div className="flex items-center gap-3">
+            <AlertCircle className="w-5 h-5 text-amber-600 shrink-0" />
+            <div>
+              <p className="font-semibold text-amber-900">Não foi possível carregar as campanhas</p>
+              <p className="text-xs text-amber-700 mt-0.5">{fetchError}</p>
+            </div>
           </div>
-          <span>Nova Sacola</span>
+          <button
+            onClick={() => fetchCampaigns()}
+            className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors self-end sm:self-center shrink-0"
+          >
+            <RefreshCcw className="w-3.5 h-3.5" />
+            Tentar novamente
+          </button>
         </div>
-        <div className="flex items-center gap-2 text-xs text-zinc-500">
-          <div className="p-1.5 bg-zinc-50 rounded-lg text-zinc-600">
-            {showArchived ? <RefreshCcw className="w-3.5 h-3.5" /> : <Trash2 className="w-3.5 h-3.5" />}
+      )}
+
+      {/* Barra de Pesquisa de Campanhas e Legenda de Ações */}
+      <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4">
+        <div className="relative flex-1 max-w-md">
+          <Search className="w-4 h-4 text-zinc-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+          <input
+            type="text"
+            placeholder="Pesquisar campanha por nome, data ou desconto..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full bg-white border border-zinc-200 rounded-xl pl-10 pr-10 py-2.5 text-sm text-zinc-800 placeholder:text-zinc-400 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10 shadow-sm transition-all"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-zinc-400 hover:text-zinc-600 rounded-lg hover:bg-zinc-100 transition-colors"
+              title="Limpar pesquisa"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+
+        {/* Legenda de Ações */}
+        <div className="bg-white border border-zinc-100 rounded-2xl px-4 py-2.5 flex flex-wrap gap-5 items-center shadow-sm text-xs text-zinc-500">
+          <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Ações:</span>
+          <div className="flex items-center gap-1.5">
+            <div className="p-1 bg-zinc-50 rounded-md text-zinc-600">
+              <Plus className="w-3 h-3" />
+            </div>
+            <span>Nova Sacola</span>
           </div>
-          <span>{showArchived ? 'Desarquivar' : 'Arquivar'}</span>
+          <div className="flex items-center gap-1.5">
+            <div className="p-1 bg-zinc-50 rounded-md text-zinc-600">
+              {showArchived ? <RefreshCcw className="w-3 h-3" /> : <Trash2 className="w-3 h-3" />}
+            </div>
+            <span>{showArchived ? 'Desarquivar' : 'Arquivar'}</span>
+          </div>
         </div>
       </div>
 
@@ -325,8 +396,20 @@ export function Campaigns() {
               ? 'Nenhuma campanha arquivada encontrada.' 
               : 'Nenhuma campanha ativa. Clique em "Nova Campanha" para começar.'}
           </div>
+        ) : filteredCampaigns.length === 0 ? (
+          <div className="col-span-full py-12 text-center text-zinc-500 bg-white border border-dashed border-zinc-200 rounded-2xl p-6 space-y-3">
+            <Search className="w-8 h-8 text-zinc-300 mx-auto" />
+            <p className="font-semibold text-zinc-700">Nenhuma campanha encontrada</p>
+            <p className="text-xs text-zinc-400">Nenhum resultado para "{searchQuery}".</p>
+            <button
+              onClick={() => setSearchQuery('')}
+              className="px-3 py-1.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded-lg text-xs font-semibold transition-colors"
+            >
+              Limpar pesquisa
+            </button>
+          </div>
         ) : (
-          campaigns.map((campaign) => (
+          filteredCampaigns.map((campaign) => (
             <div key={campaign.id}>
               <CampaignCard 
                 campaign={campaign} 

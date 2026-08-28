@@ -5,17 +5,18 @@ import {
   Check, 
   Loader2, 
   Search, 
-  QrCode,
-  Save,
-  Megaphone,
-  Copy,
-  ExternalLink,
-  Plus,
-  MinusCircle,
-  RefreshCcw,
-  Package,
-  CheckCircle2,
-  AlertCircle
+  QrCode, 
+  Save, 
+  Megaphone, 
+  Copy, 
+  ExternalLink, 
+  Plus, 
+  MinusCircle, 
+  RefreshCcw, 
+  RotateCcw,
+  Package, 
+  CheckCircle2, 
+  AlertCircle 
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { generatePixPayload } from '../lib/pix';
@@ -55,6 +56,9 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
     isOpen: boolean;
     title: string;
     message: string;
+    confirmText?: string;
+    cancelText?: string;
+    variant?: 'danger' | 'warning' | 'info';
     onConfirm: () => void;
   }>({
     isOpen: false,
@@ -187,6 +191,28 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
       }
       return item;
     }));
+  };
+
+  const handleReturnAll = () => {
+    if (bag.status === 'closed' || items.length === 0) return;
+
+    setConfirmModal({
+      isOpen: true,
+      title: 'Devolver Todos os Produtos',
+      message: 'Tem certeza que deseja marcar TODOS os produtos desta sacola como devolvidos? As quantidades devolvidas serão preenchidas com o total enviado.',
+      confirmText: 'Sim, Devolver Tudo',
+      cancelText: 'Cancelar',
+      variant: 'warning',
+      onConfirm: () => {
+        setConfirmModal(prev => ({ ...prev, isOpen: false }));
+        setItems(prevItems => prevItems.map(item => ({
+          ...item,
+          returned_quantity: item.quantity
+        })));
+        setFeedback({ message: 'Todos os produtos devolvidos', type: 'success' });
+        focusReturnInput();
+      }
+    });
   };
 
   const totalGross = items.reduce((acc, item) => acc + (item.quantity * item.unit_price), 0);
@@ -702,9 +728,22 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
                   </button>
                   <h3 className="text-lg sm:text-xl font-bold text-zinc-700 italic">Acerto da Sacola #{bag.bag_number.replace(/\D/g, '')}</h3>
                 </div>
-                <div className="flex flex-col gap-1 w-full sm:w-auto">
-                  <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Bipar Devolução</label>
-                  <div className="relative w-full sm:w-64">
+                <div className="flex flex-wrap items-end gap-3 w-full sm:w-auto">
+                  {bag.status !== 'closed' && (
+                    <button
+                      type="button"
+                      onClick={handleReturnAll}
+                      disabled={items.length === 0}
+                      className="flex items-center justify-center gap-2 px-4 py-2.5 bg-amber-50 hover:bg-amber-100 border border-amber-200/80 text-amber-800 rounded-xl text-xs font-bold transition-all active:scale-95 shadow-sm disabled:opacity-50 h-[42px] w-full sm:w-auto"
+                      title="Devolver todos os produtos da sacola"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5 text-amber-600" />
+                      Devolver Tudo
+                    </button>
+                  )}
+                  <div className="flex flex-col gap-1 w-full sm:w-auto">
+                    <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Bipar Devolução</label>
+                    <div className="relative w-full sm:w-64">
                     <input 
                       ref={returnInputRef}
                       type="text" 
@@ -768,6 +807,7 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
                   </div>
                 </div>
               </div>
+            </div>
 
               {/* Desktop Table View */}
               <div className="hidden md:block border border-zinc-100 rounded-2xl overflow-hidden">
@@ -1067,9 +1107,11 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
         isOpen={confirmModal.isOpen}
         title={confirmModal.title}
         message={confirmModal.message}
+        confirmText={confirmModal.confirmText || 'Confirmar'}
+        cancelText={confirmModal.cancelText || 'Cancelar'}
+        variant={confirmModal.variant || 'warning'}
         onConfirm={confirmModal.onConfirm}
         onCancel={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
-        variant="warning"
       />
 
       {/* Feedback Overlay */}
