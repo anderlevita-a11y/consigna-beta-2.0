@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Save, X, Search, ShoppingBag, User, Package, Trash2, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { Product, Customer } from '../types';
-import { cn, formatError, doesProductMatchBarcode, isBarcodeMatch, stripLeadingZeros } from '../lib/utils';
+import { cn, formatError, doesProductMatchBarcode, isBarcodeMatch, isStrictBarcodeMatch, getProductDisplayCode, stripLeadingZeros } from '../lib/utils';
 import { useNotifications } from './NotificationCenter';
 import { ConfirmationModal } from './ConfirmationModal';
 import { sanitizeString } from '../lib/sanitizer';
@@ -216,15 +216,20 @@ export function BagForm({ onClose, onSave, campaignId, bagId }: BagFormProps) {
       i.size === size
     );
     if (existing) {
-      setItems(items.map(i => 
-        (i.product.id === product.id && i.color === color && i.size === size)
-          ? { ...i, quantity: i.quantity + 1 }
-          : i
-      ));
+      const remaining = items.filter(i => 
+        !(i.product.id === product.id && i.color === color && i.size === size)
+      );
+      setItems([{ ...existing, quantity: existing.quantity + 1 }, ...remaining]);
     } else {
       setItems([{ product, quantity: 1, color, size }, ...items]);
     }
-    setFeedback({ message: 'Produto adicionado', type: 'success' });
+    const codeDisplay = getProductDisplayCode(product);
+    setFeedback({ 
+      message: codeDisplay 
+        ? `Adicionado: ${product.name} (Cód: ${codeDisplay})` 
+        : `Adicionado: ${product.name}`, 
+      type: 'success' 
+    });
     setProductSearch('');
     if (productInputRef.current) productInputRef.current.value = '';
     setIsGridModalOpen(false);
@@ -450,23 +455,51 @@ export function BagForm({ onClose, onSave, campaignId, bagId }: BagFormProps) {
         const nameMatch = (p.name?.toLowerCase() || '').includes(search);
         const labelMatch = (p.label_name?.toLowerCase() || '').includes(search);
 
+        // 1. Match estrito de código (EAN, barcode ou variações)
+        const codeStrict = isStrictBarcodeMatch(p, search);
+
+        // 2. Prefixo de código (quando o usuário está digitando o início do código)
         const eanStr = (p.ean || '').toLowerCase().trim();
         const eanStripped = stripLeadingZeros(eanStr);
-        const eanMatch = eanStr.includes(search) || 
-                         (searchStripped.length >= 2 && eanStripped.includes(searchStripped)) ||
-                         (eanStripped.length >= 2 && searchStripped.includes(eanStripped)) ||
-                         isBarcodeMatch(p.ean, search);
+        const barcodeStr = (p.barcode || '').toLowerCase().trim();
+        const barcodeStripped = stripLeadingZeros(barcodeStr);
+
+        const codePrefixMatch = 
+          (eanStr.length > 0 && eanStr.startsWith(search)) ||
+          (eanStripped.length > 0 && searchStripped.length >= 2 && eanStripped.startsWith(searchStripped)) ||
+          (barcodeStr.length > 0 && barcodeStr.startsWith(search)) ||
+          (barcodeStripped.length > 0 && searchStripped.length >= 2 && barcodeStripped.startsWith(searchStripped));
+
+        // 3. Substring de código (o código do produto contém a busca, NUNCA o contrário)
+        const codeContainsMatch = 
+          (eanStr.length > 0 && eanStr.includes(search)) ||
+          (barcodeStr.length > 0 && barcodeStr.includes(search));
 
         const varMatch = (p.ean_variations || []).some(v => {
           const vStr = (v || '').toLowerCase().trim();
           const vStripped = stripLeadingZeros(vStr);
-          return vStr.includes(search) || 
-                 (searchStripped.length >= 2 && vStripped.includes(searchStripped)) ||
-                 (vStripped.length >= 2 && searchStripped.includes(vStripped)) ||
-                 isBarcodeMatch(v, search);
+          return isBarcodeMatch(v, search) || 
+                 (vStr.length > 0 && vStr.startsWith(search)) ||
+                 (vStripped.length > 0 && searchStripped.length >= 2 && vStripped.startsWith(searchStripped)) ||
+                 (vStr.length > 0 && vStr.includes(search));
         });
 
-        return nameMatch || labelMatch || eanMatch || varMatch;
+        return codeStrict || codePrefixMatch || codeContainsMatch || varMatch || nameMatch || labelMatch;
+      }).sort((a, b) => {
+        // Prioridade 1: Match EXATO de código no topo absoluto
+        const search = productSearch.toLowerCase().trim();
+        const aExact = isStrictBarcodeMatch(a, search) ? 1 : 0;
+        const bExact = isStrictBarcodeMatch(b, search) ? 1 : 0;
+        if (aExact !== bExact) return bExact - aExact;
+
+        // Prioridade 2: Código que começa com o que foi digitado
+        const aCode = (a.ean || a.barcode || '').toLowerCase();
+        const bCode = (b.ean || b.barcode || '').toLowerCase();
+        const aPrefix = aCode.startsWith(search) ? 1 : 0;
+        const bPrefix = bCode.startsWith(search) ? 1 : 0;
+        if (aPrefix !== bPrefix) return bPrefix - aPrefix;
+
+        return 0;
       }).slice(0, 50)
     : [];
 
@@ -480,29 +513,14 @@ export function BagForm({ onClose, onSave, campaignId, bagId }: BagFormProps) {
     const trimmed = val.trim();
     if (!trimmed) return;
 
-    // Check for exact or normalized barcode match for instant barcode scanner read
-    // Only auto-add if it strictly matches a product EAN/variation or exact product name/label
-    if (trimmed.length >= 2) {
-      const exactBarcodeMatch = products.find(p => doesProductMatchBarcode(p, trimmed));
-      if (exactBarcodeMatch) {
-        const now = Date.now();
-        const codeNorm = trimmed.toLowerCase();
-        if (lastScanRef.current.code === codeNorm && now - lastScanRef.current.time < 800) {
-          return;
-        }
-        lastScanRef.current = { code: codeNorm, time: now };
-        addItem(exactBarcodeMatch);
-        return;
-      }
-    }
-
-    // If string is barcode-like (e.g. all digits >= 4 chars, or any barcode string >= 7 chars),
-    // trigger auto evaluation after scanner input pause in case scanner doesn't send Enter
-    const isBarcodeLike = /^\d{4,}$/.test(trimmed) || trimmed.length >= 7;
-    if (isBarcodeLike) {
+    // Não adicionamos imediatamente no onChange para não interromper a leitura do leitor físico
+    // (ex: ler 00000000032063 não pode disparar ao passar pelos caracteres de 0000000003206).
+    // Leitores enviam 'Enter' ao final. Para scanners sem Enter, usamos um debounce seguro de 450ms.
+    const isCodeLike = /^\d{3,}$/.test(trimmed) || trimmed.length >= 6;
+    if (isCodeLike) {
       scanTimerRef.current = setTimeout(() => {
         processProductEntry(trimmed);
-      }, 300);
+      }, 450);
     }
   };
 
@@ -524,8 +542,8 @@ export function BagForm({ onClose, onSave, campaignId, bagId }: BagFormProps) {
 
     const now = Date.now();
     const codeNorm = search.toLowerCase();
-    // If already added by onChange within 800ms, clear and keep focus
-    if (lastScanRef.current.code === codeNorm && now - lastScanRef.current.time < 800) {
+    // Prevenção de duplicatas disparadas em milissegundos (< 600ms)
+    if (lastScanRef.current.code === codeNorm && now - lastScanRef.current.time < 600) {
       setProductSearch('');
       if (productInputRef.current) productInputRef.current.value = '';
       focusProductInput();
@@ -534,44 +552,45 @@ export function BagForm({ onClose, onSave, campaignId, bagId }: BagFormProps) {
 
     lastScanRef.current = { code: codeNorm, time: now };
 
-    // 1. Exact or normalized match on EAN, variation, product name, or label_name
-    let match = products.find(p => doesProductMatchBarcode(p, search));
+    // 1. PRIORIDADE ABSOLUTA: Match EXATO de código de barras / EAN / Barcode
+    let match = products.find(p => isStrictBarcodeMatch(p, search));
 
-    // 2. Dynamic filter match if no direct barcode match
+    // 2. Se não achou por código exato, verifica se o nome ou marca é idêntico
     if (!match) {
       const searchLower = search.toLowerCase();
-      const searchStripped = stripLeadingZeros(searchLower);
-      const dynamicMatches = products.filter(p => {
-        const nameMatch = (p.name?.toLowerCase() || '').includes(searchLower);
-        const labelMatch = (p.label_name?.toLowerCase() || '').includes(searchLower);
-        const eanStr = (p.ean || '').toLowerCase().trim();
-        const eanStripped = stripLeadingZeros(eanStr);
-        const eanMatch = eanStr.includes(searchLower) || 
-                         (searchStripped.length >= 2 && eanStripped.includes(searchStripped)) ||
-                         (eanStripped.length >= 2 && searchStripped.includes(eanStripped)) ||
-                         isBarcodeMatch(p.ean, search);
-        const varMatch = (p.ean_variations || []).some(v => {
-          const vStr = (v || '').toLowerCase().trim();
-          const vStripped = stripLeadingZeros(vStr);
-          return vStr.includes(searchLower) || 
-                 (searchStripped.length >= 2 && vStripped.includes(searchStripped)) ||
-                 (vStripped.length >= 2 && searchStripped.includes(vStripped)) ||
-                 isBarcodeMatch(v, search);
-        });
-        return nameMatch || labelMatch || eanMatch || varMatch;
-      });
+      match = products.find(p => 
+        (p.name && p.name.trim().toLowerCase() === searchLower) ||
+        (p.label_name && p.label_name.trim().toLowerCase() === searchLower)
+      );
+    }
 
-      if (dynamicMatches.length === 1) {
-        match = dynamicMatches[0];
+    // 3. Se for código numérico (ex: bipa código de barras com números) e não bateu exato:
+    // NUNCA selecionar o primeiro produto arbitrariamente! Deve alertar que o código não foi localizado.
+    const isNumericCode = /^\d{3,}$/.test(search);
+
+    if (!match && !isNumericCode) {
+      // Se for busca textual manual (ex: nome de produto digitado):
+      const searchLower = search.toLowerCase();
+      const textMatches = products.filter(p => 
+        (p.name?.toLowerCase() || '').includes(searchLower) ||
+        (p.label_name?.toLowerCase() || '').includes(searchLower)
+      );
+
+      // Se houver exatamente 1 produto correspondente na busca textual, adiciona
+      if (textMatches.length === 1) {
+        match = textMatches[0];
       }
     }
 
     if (match) {
       addItem(match);
     } else {
-      // Show red warning banner
-      setFeedback({ message: 'Produto não localizado', type: 'error' });
-      // Immediately clear state and input DOM value so next scan is clean
+      // Alerta claro com o código ou termo pesquisado
+      const errorMsg = isNumericCode 
+        ? `Código "${search}" não localizado` 
+        : `Produto "${search}" não localizado`;
+      setFeedback({ message: errorMsg, type: 'error' });
+      
       setProductSearch('');
       if (productInputRef.current) {
         productInputRef.current.value = '';
@@ -590,6 +609,10 @@ export function BagForm({ onClose, onSave, campaignId, bagId }: BagFormProps) {
     if (e.key === 'Enter' || e.key === 'Tab' || e.code === 'NumpadEnter' || e.keyCode === 13 || e.keyCode === 9) {
       e.preventDefault();
       e.stopPropagation();
+      if (scanTimerRef.current) {
+        clearTimeout(scanTimerRef.current);
+        scanTimerRef.current = null;
+      }
       processProductEntry(e.currentTarget.value);
     }
   };
@@ -684,12 +707,12 @@ export function BagForm({ onClose, onSave, campaignId, bagId }: BagFormProps) {
             <div className="p-6 space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-2 relative">
-                  <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Produto (Nome ou EAN)</label>
+                  <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Produto (Bipe o código ou digite nome/código)</label>
                   <div className="relative">
                     <input 
                       ref={productInputRef}
                       type="text" 
-                      placeholder="Digite ou bipe o código de barras..."
+                      placeholder="Bipe com leitor de código de barras ou digite..."
                       value={productSearch}
                       onChange={(e) => handleProductSearchChange(e.target.value)}
                       onKeyDown={handleProductKeyDown}
@@ -704,28 +727,51 @@ export function BagForm({ onClose, onSave, campaignId, bagId }: BagFormProps) {
                     <Search className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-300" />
                   </div>
                   
-                  {filteredProducts.length > 1 && (
-                    <div className="absolute z-20 top-full left-0 right-0 mt-2 bg-white border border-zinc-200 rounded-xl shadow-xl max-h-60 overflow-y-auto">
-                      <div className="p-2 bg-zinc-50 border-b border-zinc-100 text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
-                        {filteredProducts.length} itens encontrados — selecione para incluir:
+                  {filteredProducts.length > 0 && (
+                    <div className="absolute z-20 top-full left-0 right-0 mt-2 bg-white border border-zinc-200 rounded-xl shadow-xl max-h-64 overflow-y-auto">
+                      <div className="p-2.5 bg-zinc-50 border-b border-zinc-100 text-[10px] font-bold text-zinc-500 uppercase tracking-wider flex items-center justify-between">
+                        <span>{filteredProducts.length} {filteredProducts.length === 1 ? 'item encontrado' : 'itens encontrados'} — clique ou dê Enter para incluir:</span>
                       </div>
-                      {filteredProducts.map(p => (
-                        <button 
-                          key={p.id}
-                          type="button"
-                          onClick={() => addItem(p)}
-                          className="w-full flex items-center gap-3 px-4 py-3 hover:bg-zinc-50 text-left border-b border-zinc-50 last:border-0 transition-colors"
-                        >
-                          <div className="w-8 h-8 rounded bg-zinc-100 flex items-center justify-center shrink-0">
-                            <Package className="w-4 h-4 text-zinc-400" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-bold text-zinc-800 truncate">{p.name}</p>
-                            <p className="text-[10px] text-zinc-400">EAN: {p.ean || '---'} | Estoque: {p.current_stock}</p>
-                          </div>
-                          <p className="ml-auto text-sm font-bold text-emerald-600 shrink-0">R$ {p.sale_price.toFixed(2)}</p>
-                        </button>
-                      ))}
+                      {filteredProducts.map(p => {
+                        const code = getProductDisplayCode(p);
+                        const isExact = isStrictBarcodeMatch(p, productSearch);
+                        return (
+                          <button 
+                            key={p.id}
+                            type="button"
+                            onClick={() => addItem(p)}
+                            className={cn(
+                              "w-full flex items-center gap-3 px-4 py-3 hover:bg-zinc-50 text-left border-b border-zinc-50 last:border-0 transition-colors",
+                              isExact && "bg-emerald-50/50 hover:bg-emerald-50 border-l-4 border-l-emerald-500"
+                            )}
+                          >
+                            <div className={cn(
+                              "w-8 h-8 rounded flex items-center justify-center shrink-0",
+                              isExact ? "bg-emerald-100 text-emerald-700" : "bg-zinc-100 text-zinc-400"
+                            )}>
+                              <Package className="w-4 h-4" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <p className="text-sm font-bold text-zinc-800 truncate">{p.name}</p>
+                                {isExact && (
+                                  <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.5 rounded shrink-0">
+                                    Código Exato
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                                <span className="font-mono text-[11px] font-bold text-zinc-700 bg-zinc-100 px-1.5 py-0.5 rounded border border-zinc-200">
+                                  Cód: {code || 'Sem código'}
+                                </span>
+                                {p.label_name && <span className="text-[11px] text-zinc-400 truncate">{p.label_name}</span>}
+                                <span className="text-[11px] text-zinc-400">Estoque: {p.current_stock}</span>
+                              </div>
+                            </div>
+                            <p className="ml-auto text-sm font-bold text-emerald-600 shrink-0">R$ {p.sale_price.toFixed(2)}</p>
+                          </button>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -807,12 +853,17 @@ export function BagForm({ onClose, onSave, campaignId, bagId }: BagFormProps) {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-50">
-                    {items.map((item, index) => (
-                      <tr key={`${item.product.id}-${item.color}-${item.size}-${index}`} className="group">
+                    {items.map((item) => (
+                      <tr key={`${item.product.id}-${item.color || ''}-${item.size || ''}`} className="group">
                         <td className="py-4">
                           <p className="text-sm font-bold text-zinc-800">{item.product.name}</p>
-                          <div className="flex items-center gap-2">
-                            <p className="text-[10px] text-zinc-400">{item.product.label_name || 'Sem marca'}</p>
+                          <div className="flex items-center gap-2 flex-wrap mt-1">
+                            <span className="font-mono text-[11px] font-bold bg-zinc-100 text-zinc-700 px-2 py-0.5 rounded border border-zinc-200">
+                              Cód: {getProductDisplayCode(item.product) || 'Sem código'}
+                            </span>
+                            {item.product.label_name && (
+                              <p className="text-[11px] text-zinc-400">{item.product.label_name}</p>
+                            )}
                             {(item.color || item.size) && (
                               <span className="text-[10px] bg-zinc-100 text-zinc-500 px-1.5 py-0.5 rounded">
                                 {item.color && `Cor: ${item.color}`}
@@ -820,6 +871,7 @@ export function BagForm({ onClose, onSave, campaignId, bagId }: BagFormProps) {
                                 {item.size && `Tam: ${item.size}`}
                               </span>
                             )}
+                            <span className="text-[11px] text-zinc-400">Estoque: {item.product.current_stock}</span>
                           </div>
                         </td>
                         <td className="py-4">
@@ -1002,19 +1054,19 @@ export function BagForm({ onClose, onSave, campaignId, bagId }: BagFormProps) {
 
       {/* Feedback Overlay */}
       {feedback && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center pointer-events-none animate-in fade-in zoom-in duration-200">
+        <div className="fixed inset-0 z-[200] flex items-center justify-center pointer-events-none animate-in fade-in zoom-in duration-200 p-4">
           <div className={cn(
-            "px-12 py-8 rounded-[40px] shadow-2xl backdrop-blur-md flex flex-col items-center gap-4 border-4",
+            "px-8 py-6 max-w-xl w-full rounded-3xl shadow-2xl backdrop-blur-md flex flex-col items-center gap-3 border-4",
             feedback.type === 'success' 
-              ? "bg-emerald-500/90 border-emerald-400 text-white" 
-              : "bg-red-600/90 border-red-500 text-white"
+              ? "bg-emerald-600/95 border-emerald-400 text-white" 
+              : "bg-red-600/95 border-red-500 text-white"
           )}>
             {feedback.type === 'success' ? (
-              <CheckCircle2 className="w-20 h-20" />
+              <CheckCircle2 className="w-16 h-16 shrink-0" />
             ) : (
-              <AlertCircle className="w-20 h-20" />
+              <AlertCircle className="w-16 h-16 shrink-0" />
             )}
-            <h2 className="text-4xl font-black uppercase tracking-tighter text-center">
+            <h2 className="text-xl sm:text-2xl font-black uppercase tracking-tight text-center break-words">
               {feedback.message}
             </h2>
           </div>

@@ -24,7 +24,7 @@ import autoTable from 'jspdf-autotable';
 import { generatePixPayload } from '../lib/pix';
 import { supabase } from '../lib/supabase';
 import { Bag, BagItem, Product, Profile } from '../types';
-import { cn, printFallback, formatError, formatMoney, formatMoneyInput, parseMoney, doesProductMatchBarcode, isBarcodeMatch, stripLeadingZeros } from '../lib/utils';
+import { cn, printFallback, formatError, formatMoney, formatMoneyInput, parseMoney, doesProductMatchBarcode, isBarcodeMatch, isStrictBarcodeMatch, getProductDisplayCode, stripLeadingZeros } from '../lib/utils';
 import { format } from 'date-fns';
 import { PrintPreview } from './PrintPreview';
 import { useNotifications } from './NotificationCenter';
@@ -428,44 +428,13 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
     const trimmed = val.trim();
     if (!trimmed) return;
 
-    // Check for exact or normalized barcode match for instant barcode scanner read
-    if (trimmed.length >= 2) {
-      const exactBarcodeMatch = items.find(i => doesProductMatchBarcode(i.product, trimmed));
-      if (exactBarcodeMatch) {
-        const now = Date.now();
-        const codeNorm = trimmed.toLowerCase();
-        if (lastScanRef.current.code === codeNorm && now - lastScanRef.current.time < 800) {
-          return;
-        }
-        lastScanRef.current = { code: codeNorm, time: now };
-        
-        if (exactBarcodeMatch.returned_quantity >= exactBarcodeMatch.quantity) {
-          setFeedback({ message: 'Qtd máxima já devolvida', type: 'error' });
-        } else {
-          updateReturnedQuantity(exactBarcodeMatch.id, exactBarcodeMatch.returned_quantity + 1);
-          setFeedback({ message: 'Produto devolvido', type: 'success' });
-        }
-        setSearchProduct('');
-        if (returnInputRef.current) {
-          returnInputRef.current.value = '';
-        }
-        setTimeout(() => {
-          setSearchProduct('');
-          if (returnInputRef.current) {
-            returnInputRef.current.value = '';
-          }
-        }, 0);
-        focusReturnInput();
-        return;
-      }
-    }
-
-    // If string is barcode-like, trigger auto evaluation after scanner input pause
-    const isBarcodeLike = /^\d{4,}$/.test(trimmed) || trimmed.length >= 7;
-    if (isBarcodeLike) {
+    // Para evitar que a leitura de um código seja truncada prematuramente no onChange,
+    // usamos debounce para scanners que não enviam Enter, sem interceptar imediatamente
+    const isCodeLike = /^\d{3,}$/.test(trimmed) || trimmed.length >= 6;
+    if (isCodeLike) {
       scanTimerRef.current = setTimeout(() => {
         processProductReturn(trimmed);
-      }, 300);
+      }, 450);
     }
   };
 
@@ -487,7 +456,7 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
     
     const now = Date.now();
     const codeNorm = code.toLowerCase();
-    if (lastScanRef.current.code === codeNorm && now - lastScanRef.current.time < 800) {
+    if (lastScanRef.current.code === codeNorm && now - lastScanRef.current.time < 600) {
       setSearchProduct('');
       if (returnInputRef.current) returnInputRef.current.value = '';
       focusReturnInput();
@@ -496,43 +465,47 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
 
     lastScanRef.current = { code: codeNorm, time: now };
 
-    // 1. Direct or normalized barcode match
-    let item = items.find(i => doesProductMatchBarcode(i.product, code));
+    // 1. PRIORIDADE ABSOLUTA: Match estrito de código de barras
+    let item = items.find(i => isStrictBarcodeMatch(i.product, code));
 
-    // 2. Single item filter match fallback
+    // 2. Se não achou por código, verifica se o nome ou marca bate idêntico
     if (!item) {
       const searchLower = code.toLowerCase();
-      const searchStripped = stripLeadingZeros(searchLower);
-      const matches = items.filter(i => {
-        const nameMatch = (i.product.name?.toLowerCase() || '').includes(searchLower);
-        const labelMatch = (i.product.label_name?.toLowerCase() || '').includes(searchLower);
-        const eanStr = (i.product.ean || '').toLowerCase().trim();
-        const eanStripped = stripLeadingZeros(eanStr);
-        const eanMatch = eanStr.includes(searchLower) || 
-                         (searchStripped.length >= 2 && eanStripped.includes(searchStripped)) ||
-                         (eanStripped.length >= 2 && searchStripped.includes(eanStripped)) ||
-                         isBarcodeMatch(i.product.ean, code);
-        const varMatch = (i.product.ean_variations || []).some(v => {
-          const vStr = (v || '').toLowerCase().trim();
-          const vStripped = stripLeadingZeros(vStr);
-          return vStr.includes(searchLower) || 
-                 (searchStripped.length >= 2 && vStripped.includes(searchStripped)) ||
-                 (vStripped.length >= 2 && searchStripped.includes(vStripped)) ||
-                 isBarcodeMatch(v, code);
-        });
-        return nameMatch || labelMatch || eanMatch || varMatch;
-      });
-      if (matches.length === 1) {
-        item = matches[0];
+      item = items.find(i => 
+        (i.product.name && i.product.name.trim().toLowerCase() === searchLower) ||
+        (i.product.label_name && i.product.label_name.trim().toLowerCase() === searchLower)
+      );
+    }
+
+    // 3. Se for código numérico e não bateu exato com nenhum item da sacola:
+    const isNumericCode = /^\d{3,}$/.test(code);
+
+    if (!item && !isNumericCode) {
+      const searchLower = code.toLowerCase();
+      const textMatches = items.filter(i => 
+        (i.product.name?.toLowerCase() || '').includes(searchLower) ||
+        (i.product.label_name?.toLowerCase() || '').includes(searchLower)
+      );
+      if (textMatches.length === 1) {
+        item = textMatches[0];
       }
     }
     
     if (item) {
+      const codeDisplay = getProductDisplayCode(item.product);
       if (item.returned_quantity >= item.quantity) {
-        setFeedback({ message: 'Qtd máxima já devolvida', type: 'error' });
+        setFeedback({ 
+          message: `Qtd máxima já devolvida: ${item.product.name}`, 
+          type: 'error' 
+        });
       } else {
         updateReturnedQuantity(item.id, item.returned_quantity + 1);
-        setFeedback({ message: 'Produto devolvido', type: 'success' });
+        setFeedback({ 
+          message: codeDisplay 
+            ? `Devolvido: ${item.product.name} (Cód: ${codeDisplay})` 
+            : `Devolvido: ${item.product.name}`, 
+          type: 'success' 
+        });
       }
       setSearchProduct('');
       if (returnInputRef.current) {
@@ -546,7 +519,10 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
       }, 0);
       focusReturnInput();
     } else {
-      setFeedback({ message: 'Produto não localizado', type: 'error' });
+      const errorMsg = isNumericCode 
+        ? `Código "${code}" não pertence a esta sacola` 
+        : `Item "${code}" não localizado nesta sacola`;
+      setFeedback({ message: errorMsg, type: 'error' });
       setSearchProduct('');
       if (returnInputRef.current) {
         returnInputRef.current.value = '';
@@ -569,24 +545,40 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
         const nameMatch = (item.product.name?.toLowerCase() || '').includes(search);
         const labelMatch = (item.product.label_name?.toLowerCase() || '').includes(search);
 
+        const codeStrict = isStrictBarcodeMatch(item.product, search);
+
         const eanStr = (item.product.ean || '').toLowerCase().trim();
         const eanStripped = stripLeadingZeros(eanStr);
-        const eanMatch = eanStr.includes(search) || 
-                         (searchStripped.length >= 2 && eanStripped.includes(searchStripped)) ||
-                         (eanStripped.length >= 2 && searchStripped.includes(eanStripped)) ||
-                         isBarcodeMatch(item.product.ean, search);
+        const barcodeStr = (item.product.barcode || '').toLowerCase().trim();
+        const barcodeStripped = stripLeadingZeros(barcodeStr);
+
+        const codePrefixMatch = 
+          (eanStr.length > 0 && eanStr.startsWith(search)) ||
+          (eanStripped.length > 0 && searchStripped.length >= 2 && eanStripped.startsWith(searchStripped)) ||
+          (barcodeStr.length > 0 && barcodeStr.startsWith(search)) ||
+          (barcodeStripped.length > 0 && searchStripped.length >= 2 && barcodeStripped.startsWith(searchStripped));
+
+        const codeContainsMatch = 
+          (eanStr.length > 0 && eanStr.includes(search)) ||
+          (barcodeStr.length > 0 && barcodeStr.includes(search));
 
         const varMatch = (item.product.ean_variations || []).some(v => {
           const vStr = (v || '').toLowerCase().trim();
           const vStripped = stripLeadingZeros(vStr);
-          return vStr.includes(search) || 
-                 (searchStripped.length >= 2 && vStripped.includes(searchStripped)) ||
-                 (vStripped.length >= 2 && searchStripped.includes(vStripped)) ||
-                 isBarcodeMatch(v, search);
+          return isBarcodeMatch(v, search) ||
+                 (vStr.length > 0 && vStr.startsWith(search)) ||
+                 (vStripped.length > 0 && searchStripped.length >= 2 && vStripped.startsWith(searchStripped)) ||
+                 (vStr.length > 0 && vStr.includes(search));
         });
 
-        return nameMatch || labelMatch || eanMatch || varMatch;
-      }).slice(0, 10)
+        return codeStrict || codePrefixMatch || codeContainsMatch || varMatch || nameMatch || labelMatch;
+      }).sort((a, b) => {
+        const search = searchProduct.toLowerCase().trim();
+        const aExact = isStrictBarcodeMatch(a.product, search) ? 1 : 0;
+        const bExact = isStrictBarcodeMatch(b.product, search) ? 1 : 0;
+        if (aExact !== bExact) return bExact - aExact;
+        return 0;
+      }).slice(0, 15)
     : [];
 
   const handleWhatsAppShare = async () => {
@@ -847,40 +839,58 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
                     />
                     {filteredItems.length > 0 && (
                       <div className="absolute z-20 top-full right-0 mt-1 bg-white border border-zinc-200 rounded-xl shadow-xl max-h-60 overflow-y-auto w-full sm:w-80">
-                        {filteredItems.map(item => (
-                          <button 
-                            key={item.id}
-                            type="button"
-                            onClick={() => {
-                              if (item.returned_quantity >= item.quantity) {
-                                setFeedback({ message: 'Qtd máxima já devolvida', type: 'error' });
-                              } else {
-                                updateReturnedQuantity(item.id, item.returned_quantity + 1);
-                                setFeedback({ message: 'Produto devolvido', type: 'success' });
-                              }
-                              setSearchProduct('');
-                              if (returnInputRef.current) {
-                                returnInputRef.current.value = '';
-                              }
-                              setTimeout(() => {
+                        {filteredItems.map(item => {
+                          const code = getProductDisplayCode(item.product);
+                          const isExact = isStrictBarcodeMatch(item.product, searchProduct);
+                          return (
+                            <button 
+                              key={item.id}
+                              type="button"
+                              onClick={() => {
+                                if (item.returned_quantity >= item.quantity) {
+                                  setFeedback({ message: `Qtd máxima já devolvida: ${item.product.name}`, type: 'error' });
+                                } else {
+                                  updateReturnedQuantity(item.id, item.returned_quantity + 1);
+                                  setFeedback({ 
+                                    message: code ? `Devolvido: ${item.product.name} (Cód: ${code})` : `Devolvido: ${item.product.name}`, 
+                                    type: 'success' 
+                                  });
+                                }
                                 setSearchProduct('');
                                 if (returnInputRef.current) {
                                   returnInputRef.current.value = '';
                                 }
-                              }, 0);
-                              focusReturnInput();
-                            }}
-                            className="w-full flex items-center gap-3 px-4 py-2 hover:bg-zinc-50 text-left border-b border-zinc-50 last:border-0 transition-colors"
-                          >
-                            <div className="w-8 h-8 rounded bg-zinc-100 flex items-center justify-center shrink-0">
-                              <Package className="w-4 h-4 text-zinc-400" />
-                            </div>
-                            <div className="min-w-0">
-                              <p className="text-sm font-bold text-zinc-800 truncate">{item.product.name}</p>
-                              <p className="text-[10px] text-zinc-400">EAN: {item.product.ean || '---'} | Enviado: {item.quantity}</p>
-                            </div>
-                          </button>
-                        ))}
+                                setTimeout(() => {
+                                  setSearchProduct('');
+                                  if (returnInputRef.current) {
+                                    returnInputRef.current.value = '';
+                                  }
+                                }, 0);
+                                focusReturnInput();
+                              }}
+                              className={cn(
+                                "w-full flex items-center gap-3 px-4 py-2 hover:bg-zinc-50 text-left border-b border-zinc-50 last:border-0 transition-colors",
+                                isExact && "bg-emerald-50/50 border-l-4 border-l-emerald-500"
+                              )}
+                            >
+                              <div className={cn(
+                                "w-8 h-8 rounded flex items-center justify-center shrink-0",
+                                isExact ? "bg-emerald-100 text-emerald-700" : "bg-zinc-100 text-zinc-400"
+                              )}>
+                                <Package className="w-4 h-4" />
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <p className="text-sm font-bold text-zinc-800 truncate">{item.product.name}</p>
+                                <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                                  <span className="font-mono text-[10px] font-bold text-zinc-700 bg-zinc-100 px-1.5 py-0.5 rounded border border-zinc-200">
+                                    Cód: {code || 'Sem código'}
+                                  </span>
+                                  <span className="text-[10px] text-zinc-400">Enviado: {item.quantity}</span>
+                                </div>
+                              </div>
+                            </button>
+                          );
+                        })}
                       </div>
                     )}
                   </div>
@@ -908,7 +918,14 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
                           <td className="px-6 py-4">
                             <div>
                               <p className="text-xs font-bold text-zinc-700 uppercase">{item.product.name}</p>
-                              <p className="text-[10px] text-zinc-400">{item.product.label_name || 'Sem etiqueta'}</p>
+                              <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                                <span className="font-mono text-[10px] font-bold text-zinc-700 bg-zinc-100 px-1.5 py-0.5 rounded border border-zinc-200">
+                                  Cód: {getProductDisplayCode(item.product) || 'Sem código'}
+                                </span>
+                                {item.product.label_name && (
+                                  <span className="text-[10px] text-zinc-400">{item.product.label_name}</span>
+                                )}
+                              </div>
                             </div>
                           </td>
                           <td className="px-6 py-4 text-center font-bold text-zinc-800">{item.quantity}</td>
@@ -947,7 +964,14 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
                       <div className="flex justify-between items-start gap-2">
                         <div className="min-w-0">
                           <p className="text-xs font-bold text-zinc-700 uppercase truncate">{item.product.name}</p>
-                          <p className="text-[10px] text-zinc-400">{item.product.label_name || 'Sem etiqueta'}</p>
+                          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                            <span className="font-mono text-[10px] font-bold text-zinc-700 bg-zinc-100 px-1.5 py-0.5 rounded border border-zinc-200">
+                              Cód: {getProductDisplayCode(item.product) || 'Sem código'}
+                            </span>
+                            {item.product.label_name && (
+                              <span className="text-[10px] text-zinc-400">{item.product.label_name}</span>
+                            )}
+                          </div>
                         </div>
                         <div className="text-right shrink-0">
                           <p className="text-[10px] text-zinc-400 uppercase font-bold">Total</p>
@@ -1195,19 +1219,19 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
 
       {/* Feedback Overlay */}
       {feedback && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center pointer-events-none animate-in fade-in zoom-in duration-200">
+        <div className="fixed inset-0 z-[200] flex items-center justify-center pointer-events-none animate-in fade-in zoom-in duration-200 p-4">
           <div className={cn(
-            "px-12 py-8 rounded-[40px] shadow-2xl backdrop-blur-md flex flex-col items-center gap-4 border-4",
+            "px-8 py-6 max-w-xl w-full rounded-3xl shadow-2xl backdrop-blur-md flex flex-col items-center gap-3 border-4",
             feedback.type === 'success' 
-              ? "bg-emerald-500/90 border-emerald-400 text-white" 
-              : "bg-red-600/90 border-red-500 text-white"
+              ? "bg-emerald-600/95 border-emerald-400 text-white" 
+              : "bg-red-600/95 border-red-500 text-white"
           )}>
             {feedback.type === 'success' ? (
-              <CheckCircle2 className="w-20 h-20" />
+              <CheckCircle2 className="w-16 h-16 shrink-0" />
             ) : (
-              <AlertCircle className="w-20 h-20" />
+              <AlertCircle className="w-16 h-16 shrink-0" />
             )}
-            <h2 className="text-4xl font-black uppercase tracking-tighter text-center">
+            <h2 className="text-xl sm:text-2xl font-black uppercase tracking-tight text-center break-words">
               {feedback.message}
             </h2>
           </div>

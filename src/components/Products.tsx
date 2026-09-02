@@ -28,7 +28,7 @@ import { Product, PriceSuggestion } from '../types';
 import { ConfirmationModal } from './ConfirmationModal';
 import { PrintPreview } from './PrintPreview';
 import { LabelCenter } from './LabelCenter';
-import { cn, printFallback, formatError, formatMoney, formatMoneyInput, parseMoney } from '../lib/utils';
+import { cn, printFallback, formatError, formatMoney, formatMoneyInput, parseMoney, isStrictBarcodeMatch, getProductDisplayCode, stripLeadingZeros } from '../lib/utils';
 import { useNotifications } from './NotificationCenter';
 import { detectUserDuplicates, resolveDuplicates, getLinkedProductIds } from '../lib/syncCatalog';
 import { sanitizeString } from '../lib/sanitizer';
@@ -1140,31 +1140,41 @@ export function Products() {
 
   const handleQuickEntryAdd = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!quickEntrySearch.trim()) return;
+    const query = quickEntrySearch.trim();
+    if (!query) return;
 
-    const product = products.find(p => 
-      (p.barcode && p.barcode.trim() === quickEntrySearch.trim()) ||
-      (p.ean && p.ean.trim() === quickEntrySearch.trim()) || 
-      p.name.toLowerCase().trim() === quickEntrySearch.trim().toLowerCase()
-    );
+    // 1. Prioridade absoluta: correspondência estrita de código de barras
+    let product = products.find(p => isStrictBarcodeMatch(p, query));
+
+    // 2. Se não achou por código, confere se o nome bate exato
+    if (!product) {
+      const queryLower = query.toLowerCase();
+      product = products.find(p => p.name.toLowerCase().trim() === queryLower);
+    }
+
+    const isCode = /^\d{3,}$/.test(query);
 
     if (product) {
       addToQuickEntry(product, undefined, undefined, Number(quickEntryQuantity.toString().replace(',', '.')) || 1);
+    } else if (isCode) {
+      // Se era um código numérico e não encontrou correspondência exata, NÃO deve selecionar produto aleatório!
+      addNotification({
+        type: 'error',
+        title: 'Código Não Encontrado',
+        message: `Nenhum produto com o código exato "${query}" foi encontrado.`
+      });
     } else {
-      // Try partial match if no exact match
-      const searchTerm = quickEntrySearch.trim().toLowerCase();
-      const partialMatches = products.filter(p => 
-        p.name.toLowerCase().includes(searchTerm) ||
-        (p.barcode && p.barcode.toLowerCase().includes(searchTerm)) ||
-        (p.ean && p.ean.includes(searchTerm))
+      // Se for busca textual por nome (não código numérico)
+      const searchTerm = query.toLowerCase();
+      const textMatches = products.filter(p => 
+        p.name.toLowerCase().includes(searchTerm)
       );
       
-      if (partialMatches.length === 1) {
-        addToQuickEntry(partialMatches[0], undefined, undefined, Number(quickEntryQuantity.toString().replace(',', '.')) || 1);
-      } else if (partialMatches.length > 1) {
-        // If multiple matches, pick the one that starts with the search term or just the first one
-        const startsWithMatch = partialMatches.find(p => p.name.toLowerCase().startsWith(searchTerm));
-        addToQuickEntry(startsWithMatch || partialMatches[0], undefined, undefined, Number(quickEntryQuantity.toString().replace(',', '.')) || 1);
+      if (textMatches.length === 1) {
+        addToQuickEntry(textMatches[0], undefined, undefined, Number(quickEntryQuantity.toString().replace(',', '.')) || 1);
+      } else if (textMatches.length > 1) {
+        const exactPrefix = textMatches.find(p => p.name.toLowerCase().startsWith(searchTerm));
+        addToQuickEntry(exactPrefix || textMatches[0], undefined, undefined, Number(quickEntryQuantity.toString().replace(',', '.')) || 1);
       } else {
         addNotification({
           type: 'error',

@@ -238,21 +238,35 @@ export function isBarcodeMatch(productCode: string | null | undefined, searchCod
   return false;
 }
 
+export function isStrictBarcodeMatch(
+  product: { ean?: string | null; barcode?: string | null; ean_variations?: string[] | null },
+  search: string | null | undefined
+): boolean {
+  if (!search) return false;
+  const s = String(search).trim();
+  if (!s) return false;
+
+  if (isBarcodeMatch(product.ean, s)) return true;
+  if (isBarcodeMatch(product.barcode, s)) return true;
+  if (product.ean_variations && product.ean_variations.some(v => isBarcodeMatch(v, s))) return true;
+
+  return false;
+}
+
+export function getProductDisplayCode(product: { ean?: string | null; barcode?: string | null }): string {
+  return product.ean?.trim() || product.barcode?.trim() || '';
+}
+
 export function doesProductMatchBarcode(
-  product: { ean?: string | null; label_name?: string | null; name?: string | null; ean_variations?: string[] | null },
+  product: { ean?: string | null; barcode?: string | null; label_name?: string | null; name?: string | null; ean_variations?: string[] | null },
   search: string
 ): boolean {
   if (!search) return false;
   const searchTrimmed = search.trim();
   if (!searchTrimmed) return false;
 
-  // Check main EAN with zero-normalization
-  if (isBarcodeMatch(product.ean, searchTrimmed)) return true;
-
-  // Check variations
-  if (product.ean_variations && product.ean_variations.some(v => isBarcodeMatch(v, searchTrimmed))) {
-    return true;
-  }
+  // Strict code match first
+  if (isStrictBarcodeMatch(product, searchTrimmed)) return true;
 
   // Exact match on label_name or name
   const sLower = searchTrimmed.toLowerCase();
