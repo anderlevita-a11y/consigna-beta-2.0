@@ -26,6 +26,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { QRCodeSVG } from 'qrcode.react';
 import { supabase } from '../lib/supabase';
+import { uploadOptimizedImage } from '../lib/uploadOptimizedImage';
 import { StoreSettings, ProductReview } from '../types';
 import { cn, formatError } from '../lib/utils';
 import { useNotifications } from './NotificationCenter';
@@ -269,19 +270,12 @@ export function VirtualStore({ slug }: { slug?: string }) {
     const user = session?.user;
       if (!user) throw new Error('Usuário não autenticado');
 
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${user.id}/${Date.now()}.${fileExt}`;
-      const filePath = `reviews/${fileName}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from('products')
-        .upload(filePath, file);
-
-      if (uploadError) throw uploadError;
-
-      const { data: { publicUrl } } = supabase.storage
-        .from('products')
-        .getPublicUrl(filePath);
+      const { publicUrl } = await uploadOptimizedImage(file, {
+        bucket: 'products',
+        folder: `reviews/${user.id}`,
+        // Foto de avaliação é exibida pequena
+        optimize: { maxLongSide: 1280, maxShortSide: 1280 },
+      });
 
       setNewReview(prev => ({ ...prev, customer_photo_url: publicUrl }));
     } catch (err: any) {

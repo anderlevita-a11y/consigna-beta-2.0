@@ -23,6 +23,7 @@ import {
   ExternalLink
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { uploadOptimizedImage } from '../lib/uploadOptimizedImage';
 import { Product, ProductReview } from '../types';
 import { ConfirmationModal } from './ConfirmationModal';
 import { Star, Check, X as CloseIcon, Trash2 as TrashIcon } from 'lucide-react';
@@ -258,19 +259,10 @@ export function StoreSettings() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error('Sessão expirada. Por favor, faça login novamente.');
 
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${Math.random()}.${fileExt}`;
-      const filePath = `product-photos/${fileName}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from('products')
-        .upload(filePath, file);
-
-      if (uploadError) throw uploadError;
-
-      const { data: { publicUrl } } = supabase.storage
-        .from('products')
-        .getPublicUrl(filePath);
+      const { publicUrl } = await uploadOptimizedImage(file, {
+        bucket: 'products',
+        folder: 'product-photos',
+      });
 
       const { error: updateError } = await supabase
         .from('products')
@@ -297,9 +289,9 @@ export function StoreSettings() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Check file size (max 2MB)
-    if (file.size > 2 * 1024 * 1024) {
-      setMessage({ type: 'error', text: 'O arquivo é muito grande. O tamanho máximo permitido é 2MB.' });
+    // Limite de segurança do arquivo ORIGINAL (a imagem é otimizada antes do upload)
+    if (file.size > 25 * 1024 * 1024) {
+      setMessage({ type: 'error', text: 'O arquivo é muito grande. O tamanho máximo permitido é 25MB.' });
       return;
     }
 
@@ -310,19 +302,13 @@ export function StoreSettings() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error('Sessão expirada. Por favor, faça login novamente.');
 
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${type}-${Math.random()}.${fileExt}`;
-      const filePath = `store-settings/${fileName}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from('products') // Using existing bucket
-        .upload(filePath, file);
-
-      if (uploadError) throw uploadError;
-
-      const { data: { publicUrl } } = supabase.storage
-        .from('products')
-        .getPublicUrl(filePath);
+      const { publicUrl } = await uploadOptimizedImage(file, {
+        bucket: 'products', // Using existing bucket
+        folder: 'store-settings',
+        prefix: type,
+        // Logo: menor e sem compressão agressiva (preserva nitidez de texto/traços)
+        optimize: type === 'logo' ? { maxLongSide: 800, maxShortSide: 800, quality: 0.9, fallbackType: 'image/png' } : undefined,
+      });
 
       setSettings(prev => ({
         ...prev,
@@ -486,19 +472,13 @@ export function StoreSettings() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error('Sessão expirada.');
 
-      const fileExt = file.name.split('.').pop();
-      const fileName = `insta-${index}-${Math.random()}.${fileExt}`;
-      const filePath = `store-settings/${fileName}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from('products')
-        .upload(filePath, file);
-
-      if (uploadError) throw uploadError;
-
-      const { data: { publicUrl } } = supabase.storage
-        .from('products')
-        .getPublicUrl(filePath);
+      const { publicUrl } = await uploadOptimizedImage(file, {
+        bucket: 'products',
+        folder: 'store-settings',
+        prefix: `insta-${index}`,
+        // Feed do Instagram é exibido em miniaturas quadradas
+        optimize: { maxLongSide: 1080, maxShortSide: 1080 },
+      });
 
       const newFeed = [...(settings.instagram_feed || [])];
       newFeed[index] = publicUrl;
@@ -674,7 +654,7 @@ export function StoreSettings() {
 
             <div>
               <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-1">Logo da Loja</label>
-              <p className="text-[10px] text-zinc-400 mb-3 italic">Recomendado: 512x512px (1:1), PNG ou JPG. Máx 2MB.</p>
+              <p className="text-[10px] text-zinc-400 mb-3 italic">Recomendado: 512x512px (1:1), PNG, JPG ou WebP. Otimizada automaticamente.</p>
               <div className="flex items-center gap-4">
                 <div className="w-16 h-16 rounded-2xl bg-zinc-50 border border-zinc-100 flex items-center justify-center overflow-hidden flex-shrink-0 relative group">
                   {settings.logo_url ? (
@@ -720,7 +700,7 @@ export function StoreSettings() {
 
             <div>
               <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-1">Banner da Loja</label>
-              <p className="text-[10px] text-zinc-400 mb-3 italic">Recomendado: 1200x400px (3:1), PNG ou JPG. Máx 2MB.</p>
+              <p className="text-[10px] text-zinc-400 mb-3 italic">Recomendado: 1200x400px (3:1), PNG, JPG ou WebP. Otimizada automaticamente.</p>
               <div className="flex items-center gap-4">
                 <div className="w-16 h-16 rounded-2xl bg-zinc-50 border border-zinc-100 flex items-center justify-center overflow-hidden flex-shrink-0 relative group">
                   {settings.banner_url ? (
