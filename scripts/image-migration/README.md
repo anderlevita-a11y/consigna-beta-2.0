@@ -23,11 +23,11 @@ cp .env.example .env          # preencha a SERVICE_ROLE_KEY
 - **Dry-run por padrão.** Nada muda sem `--apply`.
 - **Backup local.** Cada original é salvo em `./backups/<bucket>/<caminho>` antes de qualquer alteração.
 - **Ordem segura.** O script envia o `.webp` e depois atualiza o banco. Se o banco falhar, o `.webp` é removido (rollback) e o original continua intacto. O original só é apagado se o banco foi atualizado e `--delete-originals` foi usado.
-- **Sem troca inútil.** A imagem é ignorada se a economia for menor que 10% (`--min-saving`), se for animada ou se o nome colidir (ex.: `x.jpg` e `x.png` virariam `x.webp`).
+- **Sem troca inútil.** A imagem é ignorada se a economia for menor que 10% (`--min-saving`), se for animada, se o nome colidir (ex.: `x.jpg` e `x.png` virariam `x.webp`) ou se o `.webp` de destino já existir no Storage. Um `.webp` existente nunca é sobrescrito.
 - **Memória controlada.** O processamento é feito em lotes (`--batch=10`), com paralelismo limitado (`--concurrency=3`) e pausa entre lotes (`--delay=500`). O cache do sharp fica desligado.
 - **Retry.** Download e upload são repetidos até 3 vezes, com backoff exponencial.
 - **Log.** Cada arquivo gera uma linha em `./logs/migration-*.jsonl`.
-- **Idempotente.** Pode rodar de novo após uma interrupção. Arquivos já convertidos são ignorados.
+- **Idempotente.** Pode rodar de novo após uma interrupção. Arquivos já convertidos são ignorados. Se a execução parar entre o upload e a atualização do banco, o `.webp` fica órfão e o arquivo é ignorado nas próximas execuções. Confira o log e apague o `.webp` órfão para reprocessar.
 
 ### Opções
 

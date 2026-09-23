@@ -182,6 +182,13 @@ async function processFile({ bucket, path: objectPath, collision }) {
   try {
     if (collision) return skip(label, 'colisão de nome com outro arquivo .webp');
 
+    const newPath = toWebpPath(objectPath);
+    const sameName = newPath === objectPath; // já era .webp → sobrescreve
+    // Nunca sobrescreve um .webp que já existe no Storage (mesmo que não referenciado no banco).
+    if (!sameName && (await withRetry(() => objectExists(bucket, newPath), `verificar ${bucket}/${newPath}`))) {
+      return skip(label, `destino ${newPath} já existe no Storage`);
+    }
+
     const original = await withRetry(() => download(bucket, objectPath), `download ${label}`);
     const meta = await sharp(original, { failOn: 'none' }).metadata();
 
@@ -194,7 +201,6 @@ async function processFile({ bucket, path: objectPath, collision }) {
       return skip(label, `economia insuficiente (${pct(saving)})`, { before: original.length, after: optimized.length });
     }
 
-    const newPath = toWebpPath(objectPath);
     const detail = {
       from: `${meta.width}x${meta.height} ${meta.format}`,
       to: `${info.width}x${info.height} webp`,
@@ -211,8 +217,13 @@ async function processFile({ bucket, path: objectPath, collision }) {
 
     if (CONFIG.backup) await saveBackup(bucket, objectPath, original);
 
-    const sameName = newPath === objectPath; // já era .webp → sobrescreve
-    await withRetry(() => upload(bucket, newPath, optimized, sameName), `upload ${bucket}/${newPath}`);
+    try {
+      await withRetry(() => upload(bucket, newPath, optimized, sameName), `upload ${bucket}/${newPath}`);
+    } catch (err) {
+      // Destino criado entre a verificação e o upload: não sobrescreve nem apaga no rollback.
+      if (err.targetExists) return skip(label, `destino ${newPath} já existe no Storage`);
+      throw err;
+    }
 
     let dbUpdates = {};
     if (!sameName) {
@@ -276,9 +287,37 @@ async function upload(bucket, objectPath, buffer, overwrite) {
   const { error } = await supabase.storage.from(bucket).upload(objectPath, buffer, {
     contentType: 'image/webp',
     cacheControl: overwrite ? '3600' : '31536000',
-    upsert: true, // idempotente: permite re-executar após uma interrupção
+    // Só sobrescreve quando o destino é o próprio original (.webp → .webp).
+    // Para nomes novos, upsert=false garante que um .webp pré-existente nunca é
+    // substituído — e, portanto, que o rollback só remove o que este script criou.
+    upsert: overwrite,
   });
+  if (error) {
+    if (!overwrite && isAlreadyExists(error)) {
+      const err = new Error(`destino já existe: ${bucket}/${objectPath}`);
+      err.targetExists = true;
+      err.noRetry = true;
+      throw err;
+    }
+    throw error;
+  }
+}
+
+async function objectExists(bucket, objectPath) {
+  const dir = path.posix.dirname(objectPath);
+  const name = path.posix.basename(objectPath);
+  const { data, error } = await supabase.storage
+    .from(bucket)
+    .list(dir === '.' ? '' : dir, { search: name, limit: 100 });
   if (error) throw error;
+  return (data ?? []).some((o) => o.name === name);
+}
+
+function isAlreadyExists(error) {
+  return (
+    String(error.statusCode ?? error.status) === '409' ||
+    /already exists|duplicate/i.test(error.message ?? '')
+  );
 }
 
 async function replaceReferences(bucket, oldPath, newPath) {
@@ -320,6 +359,7 @@ async function withRetry(fn, what, attempts = 3) {
     try {
       return await fn();
     } catch (err) {
+      if (err?.noRetry) throw err;
       if (i >= attempts) throw new Error(`${what}: ${err.message ?? err}`);
       const wait = 1000 * 2 ** (i - 1);
       console.warn(`   ↻ ${what} falhou (${err.message ?? err}); nova tentativa em ${wait} ms`);
