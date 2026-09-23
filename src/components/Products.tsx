@@ -24,6 +24,7 @@ import {
   Save
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { uploadOptimizedImage } from '../lib/uploadOptimizedImage';
 import { Product, PriceSuggestion } from '../types';
 import { ConfirmationModal } from './ConfirmationModal';
 import { PrintPreview } from './PrintPreview';
@@ -420,19 +421,10 @@ export function Products() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error('Sessão expirada. Por favor, faça login novamente.');
 
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${Math.random()}.${fileExt}`;
-      const filePath = `product-photos/${fileName}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from('products')
-        .upload(filePath, file);
-
-      if (uploadError) throw uploadError;
-
-      const { data: { publicUrl } } = supabase.storage
-        .from('products')
-        .getPublicUrl(filePath);
+      const { publicUrl } = await uploadOptimizedImage(file, {
+        bucket: 'products',
+        folder: 'product-photos',
+      });
 
       if (typeof index === 'number') {
         const newUrls = [...formData.image_urls];
